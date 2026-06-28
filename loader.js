@@ -1,35 +1,33 @@
 // =========================================================
 // loader.js
+// 外部JSファイルを順番に読み込み、ゲームを初期化・起動する
 // =========================================================
 
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
-    // ui.js を新規追加
+    // 依存関係を考慮したファイルの読み込み順序
     const scriptsToLoad = [
-        'globals.js',
-        'ui.js',      // ← UI生成スクリプト
-        'map.js',
-        'player.js',
-        'input.js',
-        'main.js'
+        'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', // 外部ライブラリ
+        'js/globals.js',
+        'js/ui.js',
+        'js/map.js',
+        'js/player.js',
+        'js/input.js',
+        'js/main.js'
     ];
 
-    const externalScripts = [
-        'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'
-    ];
+    let loadedCount = 0;
 
-    let loadedExternalCount = 0;
-    let loadedLocalCount = 0;
-
-    function loadScript(src, isExternal, callback) {
+    function loadScript(src, callback) {
         const script = document.createElement('script');
         script.type = 'text/javascript';
         
-        if (isExternal) {
+        // 'http' から始まる外部URLの場合はそのまま、そうでない場合はbaseURLとキャッシュ回避パラメータを付与
+        if (src.startsWith('http')) {
             script.src = src;
         } else {
-            script.src = baseURL + 'js/' + src + '?v=' + new Date().getTime(); 
+            script.src = baseURL + src + '?v=' + new Date().getTime(); 
         }
         
         script.onload = () => {
@@ -44,22 +42,11 @@
         document.head.appendChild(script);
     }
 
-    function loadExternalNext() {
-        if (loadedExternalCount < externalScripts.length) {
-            loadScript(externalScripts[loadedExternalCount], true, () => {
-                loadedExternalCount++;
-                loadExternalNext();
-            });
-        } else {
-            loadLocalNext(); 
-        }
-    }
-
-    function loadLocalNext() {
-        if (loadedLocalCount < scriptsToLoad.length) {
-            loadScript(scriptsToLoad[loadedLocalCount], false, () => {
-                loadedLocalCount++;
-                loadLocalNext();
+    function loadNext() {
+        if (loadedCount < scriptsToLoad.length) {
+            loadScript(scriptsToLoad[loadedCount], () => {
+                loadedCount++;
+                loadNext();
             });
         } else {
             console.log('All scripts loaded. Initializing game...');
@@ -68,17 +55,23 @@
     }
 
     function startGame() {
-        // UIの動的生成を実行
+        // 必須関数が読み込まれているかチェック
+        if (typeof window.animate !== 'function') {
+            console.error('Game initialization functions are missing.');
+            return;
+        }
+
+        // UI関連の初期化を実行
         if (typeof window.initUI === 'function') window.initUI();
         
+        // ゲームシステムの初期化を実行
         if (typeof window.initThreeJS === 'function') window.initThreeJS();
         if (typeof window.setupInputs === 'function') window.setupInputs();
-        
-        if (typeof window.animate === 'function') {
-            requestAnimationFrame(window.animate);
-        }
+
+        // メインループの開始
+        requestAnimationFrame(window.animate);
     }
 
-    loadExternalNext();
+    // 読み込み開始
+    loadNext();
 })();
-
