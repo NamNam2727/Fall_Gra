@@ -3,6 +3,7 @@
 // プレイヤーキャラクターの生成とテクスチャ
 // =====================================
 
+// 仮のアイコンテクスチャを生成する関数（画像がない場合やエラー時のフォールバック用）
 function createIconTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 256;
@@ -42,15 +43,51 @@ function initPlayer() {
 
     // 白い上層と顔アイコン
     const topGeo = new THREE.CylinderGeometry(playerRadius, playerRadius, 0.2, 32);
-    const iconTexture = createIconTexture();
+    
+    // まずはデフォルト（仮）のアイコンテクスチャを設定
+    const defaultIconTexture = createIconTexture();
+    
     const sideMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
-    const topMat = new THREE.MeshStandardMaterial({ map: iconTexture, roughness: 0.7 });
+    const topMat = new THREE.MeshStandardMaterial({ map: defaultIconTexture, roughness: 0.7 });
     const bottomMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
     
+    // [側面, 上面, 底面] の順にマテリアルを適用
     const topMesh = new THREE.Mesh(topGeo, [sideMat, topMat, bottomMat]);
     topMesh.position.y = 0.3; topMesh.castShadow = true; 
     player.add(topMesh);
 
     player.position.set(0, 20, 0);
     scene.add(player);
+
+    // ==========================================
+    // GRAVITY SDKのアイコン画像を読み込んで差し替える処理
+    // ==========================================
+    // GameStateからユーザー情報とportrait(アイコン画像URL)が取得できるかチェック
+    if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.portrait) {
+        const imageUrl = window.GameState.userInfo.portrait;
+        
+        const loader = new THREE.TextureLoader();
+        loader.setCrossOrigin('anonymous'); // 外部画像を読み込む際のCORSエラー対策
+        
+        loader.load(
+            imageUrl,
+            function (loadedTexture) {
+                // 画像の読み込みに成功した場合
+                // 向きを正面に合わせる
+                loadedTexture.center.set(0.5, 0.5);
+                loadedTexture.rotation = -Math.PI / 2;
+                
+                // 上面のマテリアル(index 1)のテクスチャを差し替える
+                topMesh.material[1].map = loadedTexture;
+                topMesh.material[1].needsUpdate = true;
+                console.log('ユーザーアイコンの読み込みに成功しました');
+            },
+            undefined, // onProgress
+            function (err) {
+                // 画像の読み込みに失敗した場合
+                console.warn('ユーザーアイコンの読み込みに失敗したため、デフォルトアイコンを使用します', err);
+                // ※既にdefaultIconTextureが設定されているので、何もしなくてOK
+            }
+        );
+    }
 }
