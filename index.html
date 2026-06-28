@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <title>3D Voxel Action Game</title>
+  <style>
+    /* 画面全体の設定だけを残し、ゲームのUIデザインは ui.js に移行しました */
+    body, html {
+      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+      background-color: #87CEEB; touch-action: none; -webkit-touch-callout: none;
+      -webkit-user-select: none; user-select: none;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <!-- 
+    UI要素（ボタンやジョイスティック）はすべて JS で生成されます。
+    HTMLは loader.js を読み込むだけです。
+  -->
+  <script src="loader.js"></script>
+</body>
+</html>
