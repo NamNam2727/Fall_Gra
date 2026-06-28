@@ -1,24 +1,106 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-  <title>3D Voxel Action Game</title>
-  <style>
-    /* 画面全体の設定だけを残し、ゲームのUIデザインは ui.js に移行しました */
-    body, html {
-      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-      background-color: #87CEEB; touch-action: none; -webkit-touch-callout: none;
-      -webkit-user-select: none; user-select: none;
-    }
-    canvas { display: block; width: 100%; height: 100%; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Voxel Action (Multiplayer)</title>
+    
+    <!-- Gravity SDK の読み込み -->
+    <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
+    
+    <style>
+        /* ベーススタイル */
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #87CEEB; touch-action: none; user-select: none; -webkit-user-select: none; }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        /* =========================================
+           ゲーム起動までのUI (SDK.html風デザイン)
+           ========================================= */
+        #startup-ui {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            z-index: 10000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: white; font-family: sans-serif;
+        }
+        .screen { display: none; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; }
+        .screen.active { display: flex; }
+        
+        .title-logo { font-size: 36px; font-weight: bold; margin-bottom: 10px; text-shadow: 0 4px 10px rgba(0,255,255,0.5); color: #fff; text-align: center; }
+        .sys-msg { margin-top: 20px; font-size: 14px; color: #ffaa00; height: 20px; }
+
+        .room-panel { background: rgba(0,0,0,0.6); border: 1px solid #555; border-radius: 10px; padding: 20px; width: 90%; max-width: 400px; max-height: 90%; display: flex; flex-direction: column; position: relative; pointer-events: auto; }
+        .room-header { font-size: 20px; font-weight: bold; margin-bottom: 15px; text-align: center; border-bottom: 1px solid #444; padding-bottom: 10px;}
+        
+        /* 人数入力エリア */
+        .input-group { margin-bottom: 15px; display: flex; align-items: center; justify-content: center; gap: 10px;}
+        .input-group label { font-size: 14px; color: #ccc; }
+        .input-group input { width: 60px; padding: 5px; border-radius: 5px; border: 1px solid #555; background: #222; color: white; text-align: center; font-size: 16px; outline: none; }
+
+        /* ルーム作成ボタン */
+        .create-btn-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; width: 100%; }
+        .btn-create { background-color: #e94560; color: white; border: none; border-radius: 8px; padding: 10px 0; font-size: 14px; font-weight: bold; cursor: pointer; flex: 1; transition: background-color 0.2s; }
+        .btn-create:active { background-color: #c8304a; transform: scale(0.95); }
+        .btn-create.private { background-color: #0f3460; border: 1px solid #00ffff; }
+        
+        /* 一覧エリア */
+        .room-list-container { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 10px; min-height: 160px; margin-bottom: 15px; }
+        .room-item { background: #2a2a35; border: 1px solid #444; border-radius: 6px; padding: 10px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .room-info { display: flex; flex-direction: column; gap: 4px; }
+        .room-id { font-weight: bold; font-size: 14px; }
+        .room-players { font-size: 12px; color: #aaa; }
+        
+        .btn-join { background: #4CAF50; color: white; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-join:active { background: #388E3C; transform: scale(0.95); }
+        .empty-text { text-align: center; color: #777; font-size: 14px; padding: 20px 0; }
+        
+        /* ローカルプレイボタン */
+        .btn-secondary { background: transparent; color: #aaa; border: 1px solid #555; padding: 10px 20px; border-radius: 20px; cursor: pointer; align-self: center; font-size: 14px; transition: 0.2s; width: 100%; font-weight: bold; }
+        .btn-secondary:hover { background: rgba(255,255,255,0.1); color: white; }
+    </style>
 </head>
 <body>
-  <!-- 
-    UI要素（ボタンやジョイスティック）はすべて JS で生成されます。
-    HTMLは フルパスで loader.js を読み込むだけです。
-  -->
-  <script src="https://namnam2727.github.io/Fall_Gra/loader.js"></script>
+
+<!-- ゲーム起動までのUI (マッチング完了で非表示になります) -->
+<div id="startup-ui">
+    
+    <!-- ローディング画面 -->
+    <div id="screen-loading" class="screen active">
+        <div class="title-logo">Loading...</div>
+        <div class="sys-msg" id="loading-msg">通信環境を確認しています...</div>
+    </div>
+
+    <!-- ロビー画面 -->
+    <div id="screen-room" class="screen">
+        <div class="room-panel">
+            <div class="room-header">マルチプレイ ロビー</div>
+            
+            <div class="input-group">
+                <label for="input-max-players">最大人数 (1〜10人):</label>
+                <input type="number" id="input-max-players" min="1" max="10" value="10">
+            </div>
+
+            <div class="create-btn-container">
+                <button id="btn-create-public" class="btn-create">公開<br>ルーム作成</button>
+                <button id="btn-create-private" class="btn-create private">非公開<br>ルーム作成</button>
+            </div>
+            
+            <div style="font-size:14px; margin-bottom:5px; color:#aaa; display:flex; justify-content:space-between; align-items:center;">
+                公開ルーム一覧
+                <button id="btn-refresh" style="background:none; border:1px solid #555; color:#ccc; border-radius:4px; padding:2px 8px; cursor:pointer; font-size:12px;">更新</button>
+            </div>
+            <div class="room-list-container" id="room-list">
+                <div class="empty-text">公開されている部屋がありません。</div>
+            </div>
+            
+            <button id="btn-local-play" class="btn-secondary">ローカルでプレイ (1人用)</button>
+        </div>
+    </div>
+</div>
+
+<!-- SDK初期化とマッチングUIを制御するスクリプト -->
+<script src="https://namnam2727.github.io/Fall_Gra/js/gravity_setup.js?v=1"></script>
+
 </body>
 </html>
+
