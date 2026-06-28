@@ -1,6 +1,5 @@
 // =====================================
 // main.js
-// ゲームの初期化、レンダリングループ、プレイヤー更新
 // =====================================
 
 function initThreeJS() {
@@ -29,7 +28,6 @@ function initThreeJS() {
     dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
     scene.add(dirLight);
 
-    // マップ生成 (map.js)
     generateMap();
     const boxGeo = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
     const instancedMat = new THREE.MeshStandardMaterial({ roughness: 0.8 });
@@ -56,8 +54,13 @@ function initThreeJS() {
     }
     scene.add(instancedMesh);
 
-    // プレイヤー生成 (player.js)
+    // プレイヤーの初期化
     initPlayer();
+
+    // ★マルチプレイ用に、既に入室しているメンバーを3D空間に出現させる
+    if (window.MultiplayerManager) {
+        window.MultiplayerManager.initExistingPlayers();
+    }
 
     updateCamera(true);
     window.addEventListener('resize', onWindowResize);
@@ -72,7 +75,15 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
     const delta = Math.min(clock.getDelta(), 0.1); 
+    
+    // 自身の移動処理
     updatePlayer(delta);
+    
+    // ★マルチプレイ通信：自分の座標送信 ＆ 他人の座標更新
+    if (window.MultiplayerManager) {
+        window.MultiplayerManager.update(delta);
+    }
+    
     updateCamera(false);
     renderer.render(scene, camera);
 }
@@ -80,7 +91,6 @@ function animate() {
 function updatePlayer(delta) {
     const rotationSpeed = 12; 
     
-    // 現在の足場の高さを取得
     const currentCells = getIntersectingCells(player.position.x, player.position.z, playerRadius);
     let currentGroundY = -100;
     for (let i = 0; i < currentCells.length; i++) {
@@ -90,7 +100,6 @@ function updatePlayer(delta) {
         }
     }
 
-    // 移動と壁判定
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
@@ -104,7 +113,6 @@ function updatePlayer(delta) {
         const nextX = player.position.x + mX;
         const nextZ = player.position.z + mZ;
 
-        // X軸方向の壁判定
         if (Math.abs(mX) > 0.001) {
             const cellsX = getIntersectingCells(nextX, player.position.z, playerRadius);
             let canMoveX = true;
@@ -114,7 +122,6 @@ function updatePlayer(delta) {
             if (canMoveX) player.position.x = nextX;
         }
 
-        // Z軸方向の壁判定
         if (Math.abs(mZ) > 0.001) {
             const cellsZ = getIntersectingCells(player.position.x, nextZ, playerRadius);
             let canMoveZ = true;
@@ -137,7 +144,6 @@ function updatePlayer(delta) {
         }
     }
 
-    // ジャンプと重力
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -156,7 +162,6 @@ function updatePlayer(delta) {
         }
     }
     
-    // 奈落
     if (player.position.y < -30) {
         player.position.set(0, 20, 0); 
         isJumping = true; 
