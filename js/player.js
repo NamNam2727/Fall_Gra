@@ -3,7 +3,7 @@
 // プレイヤーキャラクターの生成とテクスチャ（高画質版）
 // =====================================
 
-// 仮のアイコンテクスチャを生成する関数（高解像度 512x512 に引き上げ）
+// 仮のアイコンテクスチャを生成する関数
 function createIconTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 512; 
@@ -42,15 +42,47 @@ function createIconTexture() {
     texture.center.set(0.5, 0.5);
     texture.rotation = -Math.PI / 2; // 正面を向くように回転
     
-    // 【画質向上設定】
     if (renderer) {
-        // 斜めから見た時のテクスチャのぼやけを防ぐ（異方性フィルタリング）
         texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
     }
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
     
     return texture;
+}
+
+// ★NEW: ユーザー名のネームプレート(Sprite)を生成する関数
+function createNameSprite(name) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.font = 'bold 60px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // 文字の縁取り（黒）で視認性を上げる
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#000000';
+    ctx.strokeText(name, 256, 64);
+    
+    // 文字の塗り（白）
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(name, 256, 64);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter; // 文字がぼやけないように設定
+    
+    // SpriteMaterialを使うことで常にカメラの方を向く板ポリゴンになる
+    const material = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(material);
+    
+    // 3D空間でのサイズと高さを調整
+    sprite.scale.set(8, 2, 1);
+    sprite.position.y = 2.5; // キャラクターの頭上に来る高さ
+    
+    return sprite;
 }
 
 function initPlayer() {
@@ -67,18 +99,25 @@ function initPlayer() {
     // 白い上層と顔アイコン
     const topGeo = new THREE.CylinderGeometry(playerRadius, playerRadius, 0.2, 32);
     
-    // デフォルト（仮）のアイコンテクスチャを設定
     const defaultIconTexture = createIconTexture();
     
     const sideMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
     const topMat = new THREE.MeshStandardMaterial({ map: defaultIconTexture, roughness: 0.7 });
     const bottomMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
     
-    // [側面, 上面, 底面] の順にマテリアルを適用
     const topMesh = new THREE.Mesh(topGeo, [sideMat, topMat, bottomMat]);
     topMesh.position.y = 0.3; 
     topMesh.castShadow = true; 
     player.add(topMesh);
+
+    // ★NEW: ユーザー名を取得して頭上にセット
+    let userName = "Player";
+    // gravity_setup.js でセットされた GameState から名前を取得する
+    if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.name) {
+        userName = window.GameState.userInfo.name;
+    }
+    const nameSprite = createNameSprite(userName);
+    player.add(nameSprite);
 
     player.position.set(0, 20, 0);
     scene.add(player);
@@ -98,17 +137,15 @@ function initPlayer() {
                 loadedTexture.center.set(0.5, 0.5);
                 loadedTexture.rotation = -Math.PI / 2;
                 
-                // 【画質向上設定】
                 if (renderer) {
                     loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
                 }
                 loadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
                 loadedTexture.magFilter = THREE.LinearFilter;
                 
-                // テクスチャを差し替え
                 topMesh.material[1].map = loadedTexture;
                 topMesh.material[1].needsUpdate = true;
-                console.log('ユーザーアイコンの読み込みに成功しました (高画質設定適用)');
+                console.log('ユーザーアイコンの読み込みに成功しました');
             },
             undefined,
             function (err) {

@@ -4,16 +4,10 @@
 // =====================================
 
 function initUI() {
-    // 1. スタイルの生成と追加
+    // 1. スタイルの生成と追加（左上の説明書き用のCSSを削除）
     const style = document.createElement('style');
     style.innerHTML = `
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        #instructions {
-            position: absolute; top: 20px; left: 20px; color: #fff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 15px; font-weight: bold;
-            text-shadow: 1px 1px 3px rgba(0,0,0,0.8); background: rgba(0, 0, 0, 0.4);
-            padding: 10px 15px; border-radius: 8px;
-        }
         #joystick-base {
             position: absolute; width: 120px; height: 120px; border: 3px solid rgba(255, 255, 255, 0.6);
             border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.3) 100%);
@@ -39,10 +33,7 @@ function initUI() {
     const uiLayer = document.createElement('div');
     uiLayer.id = 'ui-layer';
 
-    const instructions = document.createElement('div');
-    instructions.id = 'instructions';
-    instructions.innerHTML = '移動：画面左側ドラッグ<br>ジャンプ：右下ボタン';
-    uiLayer.appendChild(instructions);
+    // ★ここにあった instructions (操作説明テキスト) の生成処理を削除しました。
 
     const joystickBase = document.createElement('div');
     joystickBase.id = 'joystick-base';
@@ -58,4 +49,3 @@ function initUI() {
 
     document.body.appendChild(uiLayer);
 }
-
