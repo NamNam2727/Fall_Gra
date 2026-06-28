@@ -54,10 +54,8 @@ function initThreeJS() {
     }
     scene.add(instancedMesh);
 
-    // プレイヤーの初期化
     initPlayer();
 
-    // ★マルチプレイ用に、既に入室しているメンバーを3D空間に出現させる
     if (window.MultiplayerManager) {
         window.MultiplayerManager.initExistingPlayers();
     }
@@ -76,10 +74,8 @@ function animate() {
     requestAnimationFrame(animate);
     const delta = Math.min(clock.getDelta(), 0.1); 
     
-    // 自身の移動処理
     updatePlayer(delta);
     
-    // ★マルチプレイ通信：自分の座標送信 ＆ 他人の座標更新
     if (window.MultiplayerManager) {
         window.MultiplayerManager.update(delta);
     }
@@ -91,6 +87,17 @@ function animate() {
 function updatePlayer(delta) {
     const rotationSpeed = 12; 
     
+    // ★自分自身のチャットタイマーを減算し、0になったら吹き出しを消す
+    if (player.chatTimer > 0) {
+        player.chatTimer -= delta;
+        if (player.chatTimer <= 0 && player.chatSprite) {
+            player.remove(player.chatSprite);
+            if (player.chatSprite.material.map) player.chatSprite.material.map.dispose();
+            player.chatSprite.material.dispose();
+            player.chatSprite = null;
+        }
+    }
+
     const currentCells = getIntersectingCells(player.position.x, player.position.z, playerRadius);
     let currentGroundY = -100;
     for (let i = 0; i < currentCells.length; i++) {

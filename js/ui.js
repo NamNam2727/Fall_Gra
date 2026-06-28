@@ -4,15 +4,14 @@
 // =====================================
 
 function initUI() {
-    // 1. スタイルの生成と追加（左上の説明書き用のCSSを削除）
     const style = document.createElement('style');
     style.innerHTML = `
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
         #joystick-base {
             position: absolute; width: 120px; height: 120px; border: 3px solid rgba(255, 255, 255, 0.6);
             border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.3) 100%);
-            transform: translate(-50%, -50%); display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            pointer-events: none;
+            transform: translate(-50%, -50%); display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: none;
         }
         #joystick-stick {
             position: absolute; width: 60px; height: 60px; background: rgba(255, 255, 255, 0.9);
@@ -26,14 +25,28 @@ function initUI() {
             pointer-events: auto; cursor: pointer;
         }
         #jump-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
+
+        /* チャットシステム用スタイル */
+        #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 300px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; }
+        #floatingLog { width: 100%; height: 120px; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; margin-bottom: 5px; }
+        .log-line { font-size: 13px; line-height: 1.4; color: white; text-shadow: 1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; margin-top: 3px; word-wrap: break-word; }
+        .log-line.fade-out { opacity: 0; }
+        #bottomTabs { display: flex; pointer-events: auto; }
+        .bottom-tab-btn { background-color: rgba(40, 40, 40, 0.9); border: 2px solid #555; border-bottom: none; color: #ccc; font-size: 12px; padding: 6px 15px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: bold; margin-right: -1px; -webkit-tap-highlight-color: transparent; outline: none; }
+        .bottom-tab-btn.active { background-color: rgba(20, 20, 20, 0.85); color: #fff; border-color: #777; z-index: 2; }
+        #bottomContentArea { height: 140px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; display: flex; flex-direction: column; }
+        .bottom-content { flex: 1; display: none; flex-direction: column; padding: 5px; overflow: hidden; }
+        .bottom-content.active { display: flex; }
+        #fullLogContent, #chatLogContent { flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.5; color: #ddd; display: flex; flex-direction: column; }
+        .full-log-line { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 2px; word-wrap: break-word; }
+        #chatInputArea { display: flex; margin-top: 5px; }
+        #chatInputArea input { flex: 1; background: rgba(0,0,0,0.5); border: 1px solid #555; color: white; padding: 8px; font-size: 14px; box-sizing: border-box; border-radius: 4px 0 0 4px; outline: none; pointer-events: auto; }
+        #chatInputArea button { background: #4CAF50; border: none; color: white; padding: 8px 15px; cursor: pointer; font-size: 14px; font-weight: bold; border-radius: 0 4px 4px 0; pointer-events: auto; }
     `;
     document.head.appendChild(style);
 
-    // 2. DOM要素の生成と追加
     const uiLayer = document.createElement('div');
     uiLayer.id = 'ui-layer';
-
-    // ★ここにあった instructions (操作説明テキスト) の生成処理を削除しました。
 
     const joystickBase = document.createElement('div');
     joystickBase.id = 'joystick-base';
@@ -47,5 +60,45 @@ function initUI() {
     jumpBtn.innerText = 'JUMP';
     uiLayer.appendChild(jumpBtn);
 
+    // ★チャットUIの生成
+    const bottomUI = document.createElement('div');
+    bottomUI.id = 'bottomUIContainer';
+    bottomUI.innerHTML = `
+        <div id="floatingLog"></div>
+        <div id="bottomTabs">
+            <button class="bottom-tab-btn active" data-target="chat">チャット</button>
+            <button class="bottom-tab-btn" data-target="log">システム</button>
+        </div>
+        <div id="bottomContentArea">
+            <div id="content-chat" class="bottom-content active">
+                <div id="chatLogContent"></div>
+                <div id="chatInputArea">
+                    <input type="text" id="chatInput" placeholder="発言を入力..." autocomplete="off">
+                    <button id="chatSendBtn">送信</button>
+                </div>
+            </div>
+            <div id="content-log" class="bottom-content">
+                <div id="fullLogContent"></div>
+            </div>
+        </div>
+    `;
+    
+    // タッチ操作がジョイスティックと干渉しないように伝播をストップ
+    bottomUI.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+    bottomUI.addEventListener('pointerdown', e => e.stopPropagation());
+    bottomUI.addEventListener('mousedown', e => e.stopPropagation());
+
+    // タブ切り替え処理
+    bottomUI.querySelectorAll('.bottom-tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            bottomUI.querySelectorAll('.bottom-tab-btn').forEach(b => b.classList.remove('active'));
+            bottomUI.querySelectorAll('.bottom-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            const target = btn.getAttribute('data-target');
+            document.getElementById('content-' + target).classList.add('active');
+        });
+    });
+
+    uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 }
