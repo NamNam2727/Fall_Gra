@@ -1,21 +1,10 @@
 // =========================================================
 // chat_system.js
-// チャットUIの処理と送信イベントの管理
+// チャットUI、フローティングログ、ショートカット機能を管理
 // =========================================================
 
-// ログの追加処理
 window.addLog = function(htmlText, type = 'sys') {
-    const fullLogContent = document.getElementById('fullLogContent');
-    if (!fullLogContent) return; 
-
-    // システムログへ追加
-    const fullLine = document.createElement('div');
-    fullLine.className = `full-log-line log-type-${type}`;
-    fullLine.innerHTML = htmlText;
-    fullLogContent.appendChild(fullLine);
-    fullLogContent.scrollTop = fullLogContent.scrollHeight; 
-
-    // チャットログ(専用)へ追加
+    // 1. チャットログ(専用)へ追加
     if (type === 'chat') {
         const chatLogContent = document.getElementById('chatLogContent');
         if (chatLogContent) {
@@ -27,7 +16,16 @@ window.addLog = function(htmlText, type = 'sys') {
         }
     }
 
-    // 画面中央のフローティングログへ追加
+    // ★ 2. チャットタブが開いているか確認
+    const chatTabBtn = document.querySelector('.bottom-tab-btn[data-target="chat"]');
+    const isChatActive = chatTabBtn && chatTabBtn.classList.contains('active');
+    
+    // チャットタブが開いている時は、上に被るフローティングログは表示しない
+    if (isChatActive) {
+        return; 
+    }
+
+    // 3. 画面中央のフローティングログへ追加
     const floatingLog = document.getElementById('floatingLog');
     if (!floatingLog) return;
     
@@ -57,45 +55,103 @@ window.addLog = function(htmlText, type = 'sys') {
     }
 };
 
+// ==========================================
+// チャット発信の共通処理（テキスト入力＆ショートカットから呼ばれる）
+// ==========================================
+window.sendChatMessage = function(text) {
+    if (!text) return;
+    
+    let myName = 'Player';
+    if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.name) {
+        myName = window.GameState.userInfo.name;
+    }
+
+    // 1. ローカルのログに表示
+    window.addLog(`<span style="color: #00ffff;">${myName}:</span> ${text}`, 'chat');
+    
+    // 2. 自分のキャラクターの頭上に吹き出しを表示させる (player.js の関数を呼び出し)
+    if (window.player && typeof window.showChatBubble === 'function') {
+        window.showChatBubble(window.player, text);
+    }
+    
+    // 3. マルチプレイ時、他プレイヤーにチャットを送信
+    if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
+        window.MultiplayerManager.sendData({
+            type: 'chat',
+            senderName: myName,
+            text: text
+        });
+    }
+};
+
 window.initChatSystem = function() {
+    // === 手入力チャットの登録 ===
     const chatSendBtn = document.getElementById('chatSendBtn');
     const chatInput = document.getElementById('chatInput');
 
     if (chatSendBtn && chatInput) {
-        // Enterキーでも送信可能にする
         chatInput.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
-                chatSendBtn.click();
+                window.sendChatMessage(chatInput.value.trim());
+                chatInput.value = '';
             }
         });
 
-        chatSendBtn.addEventListener('click', (e) => {
-            const text = chatInput.value.trim();
-            if (text) {
-                let myName = 'Player';
-                if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.name) {
-                    myName = window.GameState.userInfo.name;
-                }
-
-                // ローカルのログに表示
-                window.addLog(`<span style="color: #00ffff;">${myName}:</span> ${text}`, 'chat');
-                
-                // 自分のキャラクターの頭上に吹き出しを表示させる
-                if (window.player && typeof window.showChatBubble === 'function') {
-                    window.showChatBubble(window.player, text);
-                }
-                
-                // マルチプレイ時、他プレイヤーにチャットを送信
-                if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
-                    window.MultiplayerManager.sendData({
-                        type: 'chat', // 通信タイプをチャットに指定
-                        senderName: myName,
-                        text: text
-                    });
-                }
-
-                chatInput.value = ''; // 入力欄をクリア
-            }
+        chatSendBtn.addEventListener('click', () => {
+            window.sendChatMessage(chatInput.value.trim());
+            chatInput.value = '';
         });
     }
+
+    // === ★ショートカット機能の登録 ===
+    let shortcuts = JSON.parse(localStorage.getItem('fallGraShortcuts')) || [
+        "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "助けて！", "お疲れ様！"
+    ];
+    let isEditMode = false;
+
+    function renderShortcuts() {
+        const grid = document.getElementById('shortcutGrid');
+        if (!grid) return;
+        grid.innerHTML = '';
+        
+        shortcuts.forEach((text, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'shortcut-btn';
+            btn.innerText = text || '(空)';
+            
+            // 編集モード時の見た目変更
+            if (isEditMode) {
+                btn.style.borderColor = '#ffaa00';
+                btn.style.color = '#ffaa00';
+            }
+            
+            btn.addEventListener('click', () => {
+                if (isEditMode) {
+                    const newText = prompt('ショートカット文を入力してください:', text);
+                    if (newText !== null) {
+                        shortcuts[i] = newText.trim();
+                        localStorage.setItem('fallGraShortcuts', JSON.stringify(shortcuts));
+                        renderShortcuts();
+                    }
+                } else {
+                    if (text) {
+                        window.sendChatMessage(text);
+                    }
+                }
+            });
+            grid.appendChild(btn);
+        });
+    }
+
+    const editBtn = document.getElementById('editShortcutBtn');
+    if (editBtn) {
+        editBtn.addEventListener('click', () => {
+            isEditMode = !isEditMode;
+            editBtn.innerText = isEditMode ? '編集モード: ON' : '編集モード: OFF';
+            editBtn.style.backgroundColor = isEditMode ? '#aa3333' : '#444';
+            renderShortcuts();
+        });
+    }
+
+    renderShortcuts();
 };

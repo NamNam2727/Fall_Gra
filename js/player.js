@@ -1,40 +1,30 @@
 // =====================================
 // player.js
-// プレイヤーキャラクターの生成とテクスチャ
+// プレイヤーキャラクターの生成とテクスチャ、吹き出し処理
 // =====================================
 
 function createIconTexture() {
     const canvas = document.createElement('canvas');
-    canvas.width = 512; 
-    canvas.height = 512;
+    canvas.width = 512; canvas.height = 512;
     const ctx = canvas.getContext('2d');
     
-    ctx.fillStyle = '#ffffff'; 
-    ctx.fillRect(0, 0, 512, 512);
-    ctx.beginPath(); 
-    ctx.arc(256, 256, 240, 0, Math.PI * 2);
-    ctx.fillStyle = '#FFDD88'; 
-    ctx.fill();
-    ctx.lineWidth = 12; 
-    ctx.strokeStyle = '#FFAA00'; 
-    ctx.stroke();
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 512, 512);
+    ctx.beginPath(); ctx.arc(256, 256, 240, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFDD88'; ctx.fill();
+    ctx.lineWidth = 12; ctx.strokeStyle = '#FFAA00'; ctx.stroke();
 
     ctx.fillStyle = '#333333';
-    ctx.beginPath(); ctx.arc(180, 320, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(180, 320, 30, 0, Math.PI * 2); ctx.fill(); 
     ctx.beginPath(); ctx.arc(332, 320, 30, 0, Math.PI * 2); ctx.fill(); 
     ctx.beginPath(); ctx.arc(256, 320, 80, 0.2 * Math.PI, 0.8 * Math.PI); 
-    ctx.lineWidth = 16; 
-    ctx.strokeStyle = '#333333'; 
-    ctx.stroke();
+    ctx.lineWidth = 16; ctx.strokeStyle = '#333333'; ctx.stroke();
 
-    ctx.fillStyle = '#FFFFFF'; 
-    ctx.font = 'bold 90px sans-serif'; 
-    ctx.textAlign = 'center';
-    ctx.fillText('G', 256, 220);
+    ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 90px sans-serif'; 
+    ctx.textAlign = 'center'; ctx.fillText('G', 256, 220);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.center.set(0.5, 0.5);
-    texture.rotation = -Math.PI / 2;
+    texture.rotation = -Math.PI / 2; 
     
     if (renderer) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
     texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -44,20 +34,12 @@ function createIconTexture() {
 
 function createNameSprite(name) {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 128;
+    canvas.width = 512; canvas.height = 128;
     const ctx = canvas.getContext('2d');
     
-    ctx.font = 'bold 50px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = '#000000';
-    ctx.strokeText(name, 256, 64);
-    
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(name, 256, 64);
+    ctx.font = 'bold 50px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6; ctx.strokeStyle = '#000000'; ctx.strokeText(name, 256, 64);
+    ctx.fillStyle = '#FFFFFF'; ctx.fillText(name, 256, 64);
     
     const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter; 
@@ -71,7 +53,7 @@ function createNameSprite(name) {
     return sprite;
 }
 
-// ★NEW: チャットの吹き出し(Sprite)を生成・管理する関数
+// ★ チャットの吹き出し(Sprite)を生成・管理する関数
 window.showChatBubble = function(targetMesh, text) {
     // 既に吹き出しがあれば削除
     if (targetMesh.chatSprite) {
@@ -82,11 +64,10 @@ window.showChatBubble = function(targetMesh, text) {
     }
 
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 256; // 吹き出しなので少し縦長
+    canvas.width = 512; canvas.height = 256; 
     const ctx = canvas.getContext('2d');
     
-    // 吹き出しの背景（角丸）
+    // 吹き出しの背景（角丸＋しっぽ）
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 6;
@@ -99,9 +80,8 @@ window.showChatBubble = function(targetMesh, text) {
     ctx.lineTo(x + width, y + height - radius);
     ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
     
-    // 吹き出しのしっぽ部分
     ctx.lineTo(276, y + height);
-    ctx.lineTo(256, y + height + 30); // しっぽの先端
+    ctx.lineTo(256, y + height + 30); 
     ctx.lineTo(236, y + height);
     
     ctx.lineTo(x + radius, y + height);
@@ -109,8 +89,7 @@ window.showChatBubble = function(targetMesh, text) {
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    ctx.fill(); ctx.stroke();
 
     // 文字の描画
     ctx.fillStyle = '#000000';
@@ -118,7 +97,6 @@ window.showChatBubble = function(targetMesh, text) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
-    // 長い場合は適当に省略 (より高度にするなら改行処理が必要)
     let displayText = text;
     if (displayText.length > 15) displayText = displayText.substring(0, 15) + '...';
     ctx.fillText(displayText, 256, y + height / 2);
@@ -129,16 +107,13 @@ window.showChatBubble = function(targetMesh, text) {
     const material = new THREE.SpriteMaterial({ map: texture, depthTest: false }); // 壁に埋まらないようにする
     const sprite = new THREE.Sprite(material);
     
-    // 3D空間でのサイズ
     sprite.scale.set(5, 2.5, 1);
-    // ネームプレート(1.8)よりさらに上に配置
-    sprite.position.y = 3.5; 
+    sprite.position.y = 3.5; // ネームプレートより上に配置
     
     targetMesh.add(sprite);
     targetMesh.chatSprite = sprite;
     targetMesh.chatTimer = 5.0; // 5秒表示
 };
-
 
 function initPlayer() {
     player = new THREE.Group();
@@ -146,8 +121,7 @@ function initPlayer() {
     const baseGeo = new THREE.CylinderGeometry(playerRadius, playerRadius, 0.2, 32);
     const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
     const baseMesh = new THREE.Mesh(baseGeo, blackMat);
-    baseMesh.position.y = 0.1; 
-    baseMesh.castShadow = true; 
+    baseMesh.position.y = 0.1; baseMesh.castShadow = true; 
     player.add(baseMesh);
 
     const topGeo = new THREE.CylinderGeometry(playerRadius, playerRadius, 0.2, 32);
@@ -155,9 +129,9 @@ function initPlayer() {
     const sideMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
     const topMat = new THREE.MeshStandardMaterial({ map: defaultIconTexture, roughness: 0.7 });
     const bottomMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
+    
     const topMesh = new THREE.Mesh(topGeo, [sideMat, topMat, bottomMat]);
-    topMesh.position.y = 0.3; 
-    topMesh.castShadow = true; 
+    topMesh.position.y = 0.3; topMesh.castShadow = true; 
     player.add(topMesh);
 
     let userName = "Player";
@@ -186,8 +160,8 @@ function initPlayer() {
                 topMesh.material[1].map = loadedTexture;
                 topMesh.material[1].needsUpdate = true;
             },
-            undefined,
-            function (err) {}
+            undefined, function (err) {}
         );
     }
 }
+
