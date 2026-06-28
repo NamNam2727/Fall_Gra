@@ -1,6 +1,6 @@
 // =====================================
 // player.js
-// プレイヤーキャラクターの生成とテクスチャ（高画質版）
+// プレイヤーキャラクターの生成とテクスチャ
 // =====================================
 
 // 仮のアイコンテクスチャを生成する関数
@@ -51,36 +51,37 @@ function createIconTexture() {
     return texture;
 }
 
-// ★NEW: ユーザー名のネームプレート(Sprite)を生成する関数
+// ユーザー名のネームプレート(Sprite)を生成する関数
 function createNameSprite(name) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 128;
     const ctx = canvas.getContext('2d');
     
-    ctx.font = 'bold 60px sans-serif';
+    ctx.font = 'bold 50px sans-serif'; // 少し小さくして枠内に余裕を持たせる
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
-    // 文字の縁取り（黒）で視認性を上げる
-    ctx.lineWidth = 8;
+    // 文字の縁取り
+    ctx.lineWidth = 6;
     ctx.strokeStyle = '#000000';
     ctx.strokeText(name, 256, 64);
     
-    // 文字の塗り（白）
+    // 文字の塗り
     ctx.fillStyle = '#FFFFFF';
     ctx.fillText(name, 256, 64);
     
     const texture = new THREE.CanvasTexture(canvas);
-    texture.minFilter = THREE.LinearFilter; // 文字がぼやけないように設定
+    texture.minFilter = THREE.LinearFilter; 
     
-    // SpriteMaterialを使うことで常にカメラの方を向く板ポリゴンになる
     const material = new THREE.SpriteMaterial({ map: texture });
     const sprite = new THREE.Sprite(material);
     
-    // 3D空間でのサイズと高さを調整
-    sprite.scale.set(8, 2, 1);
-    sprite.position.y = 2.5; // キャラクターの頭上に来る高さ
+    // ★修正: 3D空間での表示サイズを半分ほどに縮小 (4:1の比率)
+    sprite.scale.set(4, 1, 1);
+    
+    // ★修正: サイズが小さくなった分、キャラクターの頭に少し近づける
+    sprite.position.y = 1.8; 
     
     return sprite;
 }
@@ -110,9 +111,8 @@ function initPlayer() {
     topMesh.castShadow = true; 
     player.add(topMesh);
 
-    // ★NEW: ユーザー名を取得して頭上にセット
+    // ユーザー名を取得して頭上にセット
     let userName = "Player";
-    // gravity_setup.js でセットされた GameState から名前を取得する
     if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.name) {
         userName = window.GameState.userInfo.name;
     }
