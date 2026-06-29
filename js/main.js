@@ -89,7 +89,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★1. 下向きRaycasterによる正確な床判定（トンネルの天井を無視する）
+    // 1. 下向きRaycasterによる正確な床判定
     let currentGroundY = -100;
     let groundNormal = new THREE.Vector3(0, 1, 0);
     
@@ -115,7 +115,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★2. 水平Raycasterによる壁・坂道判定と移動
+    // 2. 水平Raycasterによる壁・坂道判定と移動
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
@@ -129,9 +129,8 @@ function updatePlayer(delta) {
         const nextX = player.position.x + mX;
         const nextZ = player.position.z + mZ;
 
-        let margin = pRadius * 0.8; // 当たり判定の大きさ（厚み）
+        let margin = pRadius * 0.8; 
         
-        // 足元(段差を越えられない高さ)と、頭の高さの2箇所で横向きに光線を飛ばす
         let wallCheckY = player.position.y + myStepHeight * 0.8; 
         let headCheckY = player.position.y + pRadius * 1.8; 
 
@@ -148,12 +147,10 @@ function updatePlayer(delta) {
                 raycaster.set(origin, dirX);
                 let interX = raycaster.intersectObject(mapMesh, false);
                 if (interX.length > 0 && interX[0].distance < margin + Math.abs(mX)) {
-                    // 当たった面の傾きを調べる
                     let normal = interX[0].face.normal.clone();
                     let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
                     normal.applyMatrix3(normalMatrix).normalize();
                     
-                    // 垂直に近い壁（法線のY成分が0.6未満）なら進行不可。坂道なら通れる。
                     if (normal.y < 0.6) {
                         canMoveX = false;
                         break;
@@ -193,9 +190,8 @@ function updatePlayer(delta) {
         const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
         
-        // ★修正: 完全に接地している時だけ地面の傾きを適用する（ジャンプ中の空中傾斜を防止）
-        let isGroundedStrict = !isJumping && (Math.abs(player.position.y - currentGroundY) < 0.2);
-        const effectiveNormal = isGroundedStrict ? groundNormal : new THREE.Vector3(0, 1, 0);
+        // ★修正: ジャンプ中でなければ（坂道歩行中を含む）常に地面の傾きを適用する
+        const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         
         const targetQuaternion = tiltQuat.multiply(rotQuat);
@@ -209,16 +205,15 @@ function updatePlayer(delta) {
             cameraAngle += diff * 3.0 * delta;
         }
     } else {
-        // 停止中も厳密な接地判定で姿勢を戻す
+        // ★修正: 停止中も同様に、ジャンプ中でなければ傾きを適用する
         const currentRotY = new THREE.Euler().setFromQuaternion(player.quaternion, 'YXZ').y;
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentRotY);
-        let isGroundedStrict = !isJumping && (Math.abs(player.position.y - currentGroundY) < 0.2);
-        const effectiveNormal = isGroundedStrict ? groundNormal : new THREE.Vector3(0, 1, 0);
+        const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
-    // ★3. Y座標の更新
+    // 3. Y座標の更新
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -291,4 +286,3 @@ function updateCamera(instant) {
     else camera.position.lerp(targetCamPos, 0.1);
     camera.lookAt(player.position);
 }
-
