@@ -6,23 +6,26 @@
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
-    // ★更新: mapGenerator.js を追加し、読み込み順を調整
-    const scriptsToLoad = [
+    // ★変更: js/ サブフォルダを廃止し、すべてルートディレクトリから読み込む
+    const coreScripts = [
         'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
-        'js/globals.js',
-        'js/ui.js',
-        'js/chat_system.js',
-        'js/mapGenerator.js', // 新しい地形生成ロジック
-        'js/map.js',          // 多彩な地形データの定義
-        'js/player.js',
-        'js/input.js',
-        'js/multiplayer.js',
-        'js/main.js'
+        'globals.js',
+        'ui.js',
+        'chat_system.js',
+        'mapGenerator.js',
+        'map.js',
+        'player.js',
+        'input.js',
+        'multiplayer.js',
+        'main.js'
     ];
 
     let loadedCount = 0;
 
-    function loadScript(src, callback) {
+    // ★追加・変更: スクリプトを読み込む関数をグローバルに公開する
+    // 今後、UIボタンを押した際に window.loadGameScript('minigame/gameA.js', callback) 
+    // のように呼び出すことで、後からミニゲームを動的に追加・実行できるようになります。
+    window.loadGameScript = function(src, callback) {
         const script = document.createElement('script');
         script.type = 'text/javascript';
         
@@ -34,22 +37,22 @@
         
         script.onload = () => {
             console.log(`Loaded: ${src}`);
-            callback();
+            if (typeof callback === 'function') callback();
         };
         script.onerror = () => {
             console.error(`Failed to load: ${src}`);
         };
         document.head.appendChild(script);
-    }
+    };
 
     function loadNext() {
-        if (loadedCount < scriptsToLoad.length) {
-            loadScript(scriptsToLoad[loadedCount], () => {
+        if (loadedCount < coreScripts.length) {
+            window.loadGameScript(coreScripts[loadedCount], () => {
                 loadedCount++;
                 loadNext();
             });
         } else {
-            console.log('All scripts loaded. Initializing game...');
+            console.log('All core scripts loaded. Initializing game...');
             startGame();
         }
     }
@@ -69,5 +72,6 @@
         requestAnimationFrame(window.animate);
     }
 
+    // 読み込み開始
     loadNext();
 })();
