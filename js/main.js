@@ -1,6 +1,12 @@
 // =====================================
 // main.js
+// 新しい地形(BufferGeometry)とRaycasterによる3D物理演算
 // =====================================
+
+// グローバル変数の追加（Raycaster用）
+let mapMesh;
+let raycaster = new THREE.Raycaster();
+let downVector = new THREE.Vector3(0, -1, 0);
 
 function initThreeJS() {
     scene = new THREE.Scene();
@@ -28,31 +34,13 @@ function initThreeJS() {
     dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
     scene.add(dirLight);
 
-    generateMap();
-    const boxGeo = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
-    const instancedMat = new THREE.MeshStandardMaterial({ roughness: 0.8 });
-    const instancedMesh = new THREE.InstancedMesh(boxGeo, instancedMat, gridW * gridD);
-    instancedMesh.receiveShadow = true; instancedMesh.castShadow = true;
-
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    let index = 0;
-    for (let i = 0; i < gridW; i++) {
-        for (let j = 0; j < gridD; j++) {
-            let h = mapData[i][j];
-            let px = (i - gridW/2 + 0.5) * blockSize, pz = (j - gridD/2 + 0.5) * blockSize;
-            let blockHeight = blockSize + h + 20; 
-            dummy.position.set(px, h - blockHeight/2, pz); 
-            dummy.scale.set(1, blockHeight / blockSize, 1);
-            dummy.updateMatrix();
-            instancedMesh.setMatrixAt(index, dummy.matrix);
-            
-            if ((i + j) % 2 === 0) color.setHex(0x4CAF50); else color.setHex(0x81C784);
-            instancedMesh.setColorAt(index, color);
-            index++;
-        }
+    // ★旧来のInstancedMeshによるマップ生成を削除し、新しいMapGeneratorを呼び出す
+    if (window.MapGenerator && typeof window.MapGenerator.createMesh === 'function') {
+        mapMesh = window.MapGenerator.createMesh();
+        scene.add(mapMesh);
+    } else {
+        console.error("MapGeneratorが見つかりません。mapGenerator.jsが読み込まれているか確認してください。");
     }
-    scene.add(instancedMesh);
 
     initPlayer();
 
@@ -101,17 +89,29 @@ function updatePlayer(delta) {
         }
     }
 
-    // 1. 地形ブロックとの足場判定（他プレイヤーは一切足場にしない）
-    const currentCells = getIntersectingCells(player.position.x, player.position.z, playerRadius);
+    // ★1. Raycasterによる3D床判定（トンネル・坂道対応）
     let currentGroundY = -100;
-    for (let i = 0; i < currentCells.length; i++) {
-        const cell = currentCells[i];
-        if (cell.h <= player.position.y + stepHeight && cell.h > currentGroundY) {
-            currentGroundY = cell.h;
+    let groundNormal = new THREE.Vector3(0, 1, 0);
+    
+    if (mapMesh) {
+        // キャラクターの少し上（トンネルの天井に邪魔されない高さ）から真下へ光線を飛ばす
+        let rayOffsetHeight = typeof playerRadius !== 'undefined' ? playerRadius * 3 : 3.0;
+        let origin = new THREE.Vector3(player.position.x, player.position.y + rayOffsetHeight, player.position.z);
+        
+        raycaster.set(origin, downVector);
+        // マップメッシュとの交差点（床）を探す
+        let intersects = raycaster.intersectObject(mapMesh, false);
+        
+        if (intersects.length > 0) {
+            currentGroundY = intersects[0].point.y;
+            // 坂道でキャラを傾けるための「面の向き（法線）」を取得
+            groundNormal.copy(intersects[0].face.normal);
+            let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+            groundNormal.applyMatrix3(normalMatrix).normalize();
         }
     }
 
-    // 2. 移動入力と地形の壁判定
+    // ★2. 移動入力と、Raycasterによる坂道・壁判定
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
@@ -125,40 +125,61 @@ function updatePlayer(delta) {
         const nextX = player.position.x + mX;
         const nextZ = player.position.z + mZ;
 
-        // X軸方向の壁判定（地形のみ）
-        if (Math.abs(mX) > 0.001) {
-            const cellsX = getIntersectingCells(nextX, player.position.z, playerRadius);
-            let canMoveX = true;
-            for (let i = 0; i < cellsX.length; i++) {
-                if (cellsX[i].h > player.position.y + stepHeight) { canMoveX = false; break; }
-            }
-            if (canMoveX) player.position.x = nextX;
-        }
+        let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
+        let rayOffsetHeight = typeof playerRadius !== 'undefined' ? playerRadius * 3 : 3.0;
 
-        // Z軸方向の壁判定（地形のみ）
-        if (Math.abs(mZ) > 0.001) {
-            const cellsZ = getIntersectingCells(player.position.x, nextZ, playerRadius);
-            let canMoveZ = true;
-            for (let i = 0; i < cellsZ.length; i++) {
-                if (cellsZ[i].h > player.position.y + stepHeight) { canMoveZ = false; break; }
+        // X軸方向の段差・壁判定
+        let canMoveX = true;
+        if (Math.abs(mX) > 0.001 && mapMesh) {
+            raycaster.set(new THREE.Vector3(nextX, player.position.y + rayOffsetHeight, player.position.z), downVector);
+            let interX = raycaster.intersectObject(mapMesh, false);
+            // 移動先の床が、自分が登れる段差（stepHeight）より高ければ壁とみなす
+            if (interX.length > 0 && interX[0].point.y > player.position.y + myStepHeight) {
+                canMoveX = false; 
             }
-            if (canMoveZ) player.position.z = nextZ;
         }
+        if (canMoveX) player.position.x = nextX;
 
-        const targetRotation = Math.atan2(moveDirection.x, moveDirection.y);
-        const targetQuaternion = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotation);
+        // Z軸方向の段差・壁判定
+        let canMoveZ = true;
+        if (Math.abs(mZ) > 0.001 && mapMesh) {
+            raycaster.set(new THREE.Vector3(player.position.x, player.position.y + rayOffsetHeight, nextZ), downVector);
+            let interZ = raycaster.intersectObject(mapMesh, false);
+            if (interZ.length > 0 && interZ[0].point.y > player.position.y + myStepHeight) {
+                canMoveZ = false; 
+            }
+        }
+        if (canMoveZ) player.position.z = nextZ;
+
+        // ★キャラクターを坂道に沿って傾ける処理
+        const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
+        // 進行方向を向く回転
+        const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
+        // 地面の法線（傾き）に合わせる回転
+        const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), groundNormal);
+        
+        // 傾きと進行方向の回転を合成する
+        const targetQuaternion = tiltQuat.multiply(rotQuat);
         player.quaternion.slerp(targetQuaternion, rotationSpeed * delta);
 
         if (moveVector.y <= 0.2 && Math.abs(moveVector.x) > 0.05) {
-            let targetCameraAngle = targetRotation + Math.PI;
+            let targetCameraAngle = targetRotationY + Math.PI;
             let diff = targetCameraAngle - cameraAngle;
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
             cameraAngle += diff * 3.0 * delta;
         }
+    } else {
+        // 停止中も地面の傾きに合わせて直立させる（スノボのように斜面に立つ）
+        const currentRotY = new THREE.Euler().setFromQuaternion(player.quaternion, 'YXZ').y;
+        const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentRotY);
+        const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), groundNormal);
+        player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
-    // 3. Y座標（ジャンプ・落下）の更新
+    // ★3. Y座標（ジャンプ・落下と坂道の吸い付き）の更新
+    let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
+
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -173,11 +194,14 @@ function updatePlayer(delta) {
             }
         }
     } else {
-        if (player.position.y > currentGroundY + stepHeight) { 
+        // 地面から離れたらジャンプ（落下）状態へ
+        if (player.position.y > currentGroundY + myStepHeight) { 
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
-            player.position.y = currentGroundY;
+            // スティックを倒すだけで坂道をスムーズに登り降りできるよう、床の高さにスナップさせる
+            // 急なガタつきを防ぐため lerp を使って滑らかに沿わせる
+            player.position.y += (currentGroundY - player.position.y) * 0.3;
         }
     }
     
@@ -188,9 +212,10 @@ function updatePlayer(delta) {
     }
 
     // ★4. 他プレイヤーとの衝突判定（見えない半球壁としての押し出し・滑り落ち）
-    // 自身の移動と落下の「後」に処理することで、めり込みを即座に補正する
     if (window.MultiplayerManager) {
         const others = window.MultiplayerManager.otherPlayers;
+        let myRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.0;
+        
         for (let id in others) {
             let other = others[id];
             if (other.mesh) {
@@ -200,30 +225,25 @@ function updatePlayer(delta) {
                 let distXZ = Math.hypot(dx, dz);
                 
                 // お互いの半径を合わせた衝突距離（少し大きめにして壁の厚みを作る）
-                let combinedRadius = playerRadius * 1.8; 
+                let combinedRadius = myRadius * 1.8; 
                 
                 // 自分が「相手の足元少し下 〜 相手の頭上少し上」の範囲にいるか
                 if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
                     
-                    // 完全に座標が一致してしまった場合のゼロ除算回避
-                    if (distXZ === 0) {
+                    if (distXZ === 0) { // ゼロ除算回避
                         dx = (Math.random() - 0.5) * 0.1;
                         dz = (Math.random() - 0.5) * 0.1;
                         distXZ = Math.hypot(dx, dz);
                     }
                     
-                    // どれくらい相手にめり込んでいるか
                     let overlap = combinedRadius - distXZ;
                     
                     if (Math.abs(dy) < 0.4) {
-                        // 【同じ高さでの衝突】
-                        // 互いに反発するように外側へ押し出す（押し合い）
+                        // 【同じ高さでの衝突】互いに反発するように外側へ押し出す
                         player.position.x += (dx / distXZ) * overlap * 0.5;
                         player.position.z += (dz / distXZ) * overlap * 0.5;
                     } else if (dy >= 0.4) {
-                        // 【上に乗った場合】
-                        // 頭頂部（半球）を滑り落ちるように、外側へ押し出される。
-                        // Y座標は地形の重力に任せて落ちるため、結果的にツルッと滑り落ちる挙動になる。
+                        // 【上に乗った場合】頭頂部（半球）を滑り落ちるように、外側へ押し出される
                         let slideForce = overlap * 0.15; // 滑り落ちる勢い
                         player.position.x += (dx / distXZ) * slideForce;
                         player.position.z += (dz / distXZ) * slideForce;

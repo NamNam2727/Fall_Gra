@@ -1,55 +1,85 @@
 // =====================================
 // map.js
-// マップの生成と当たり判定
+// 新仕様の collisionMap データの構築と設定
 // =====================================
 
-function generateMap() {
-    for (let i = 0; i < gridW; i++) {
-        mapData[i] = [];
-        for (let j = 0; j < gridD; j++) {
-            let x = i - gridW/2, z = j - gridD/2, h = 0;
-            if (Math.abs(x) < 3 && Math.abs(z) < 3) h = 0;
-            else if (x >= 4 && x <= 12 && z >= 4 && z <= 12) h = Math.min(x - 4, 12 - x, z - 4, 12 - z);
-            else if (x <= -4 && x >= -12 && z >= 4 && z <= 12) {
-                h = (Math.sin(x*5) + Math.cos(z*5)) > 0 ? 1 : 0;
-                if(Math.abs(x)===8 && Math.abs(z)===8) h = 2;
-            } else if (z <= -6 && z >= -8 && Math.abs(x) < 10) h = 2;
-            else if (Math.random() < 0.1) h = 1;
-            mapData[i][j] = h * blockSize;
-        }
-    }
-}
-
-// プレイヤーの円形とブロックの交差判定
-function getIntersectingCells(px, pz, radius) {
-    const cells = [];
-    const r = radius * 0.85; 
+(function() {
+    // 21x21のテスト用マップ
+    const mapW = 21;
+    const mapD = 21;
+    const map = [];
     
-    const minCol = Math.floor((px - r + (gridW * blockSize) / 2) / blockSize);
-    const maxCol = Math.floor((px + r + (gridW * blockSize) / 2) / blockSize);
-    const minRow = Math.floor((pz - r + (gridD * blockSize) / 2) / blockSize);
-    const maxRow = Math.floor((pz + r + (gridD * blockSize) / 2) / blockSize);
-
-    for (let col = minCol; col <= maxCol; col++) {
-        for (let row = minRow; row <= maxRow; row++) {
-            if (col < 0 || col >= gridW || row < 0 || row >= gridD) {
-                cells.push({ h: -100, isWall: true }); 
-                continue;
-            }
-            const cellMinX = (col - gridW/2) * blockSize;
-            const cellMaxX = cellMinX + blockSize;
-            const cellMinZ = (row - gridD/2) * blockSize;
-            const cellMaxZ = cellMinZ + blockSize;
-
-            const closestX = Math.max(cellMinX, Math.min(px, cellMaxX));
-            const closestZ = Math.max(cellMinZ, Math.min(pz, cellMaxZ));
-
-            const dx = px - closestX;
-            const dz = pz - closestZ;
-            if ((dx * dx + dz * dz) < (r * r)) {
-                cells.push({ h: mapData[col][row], col: col, row: row });
+    // 【ベース生成】基本は平地（高さ1.0 = "2"）と外壁（高さ3.0 = "6"）
+    for(let x=0; x<mapW; x++) {
+        map[x] = [];
+        for(let z=0; z<mapD; z++) {
+            if(x===0 || x===mapW-1 || z===0 || z===mapD-1) {
+                map[x][z] = "6"; // 落ちないための外壁
+            } else {
+                map[x][z] = "2"; // 平地
             }
         }
     }
-    return cells;
-}
+
+    // 1. 陥没（すり鉢状）エリア
+    // 中心(5,5)が低く、周囲が高い
+    for(let x=3; x<=7; x++) {
+        for(let z=3; z<=7; z++) {
+            map[x][z] = "4"; // 周囲の高台 (高さ2.0)
+        }
+    }
+    for(let x=4; x<=6; x++) {
+        for(let z=4; z<=6; z++) {
+            map[x][z] = "3"; // 下り坂 (高さ1.5)
+        }
+    }
+    map[5][5] = "2"; // 陥没の中心 (高さ1.0)
+
+    // 2. 突起（ピラミッド状）エリア
+    // 中心(15,5)が高く、周囲が低い
+    for(let x=14; x<=16; x++) {
+        for(let z=4; z<=6; z++) {
+            map[x][z] = "3"; // 上り坂 (高さ1.5)
+        }
+    }
+    map[15][5] = "4"; // 突起の中心 (高さ2.0)
+
+    // 3. スロープ（長い階段状の坂道）
+    // z=15 のラインに沿って東(x=3~9)に向けて徐々に高くする
+    map[3][15] = "3"; // 高さ 1.5
+    map[4][15] = "4"; // 高さ 2.0
+    map[5][15] = "5"; // 高さ 2.5
+    map[6][15] = "6"; // 高さ 3.0
+    map[7][15] = "7"; // 高さ 3.5
+    map[8][15] = "8"; // 高さ 4.0
+    map[9][15] = "8"; // 踊り場
+
+    // 4. トンネル（多層構造）エリア
+    // x: 10~17, z: 10~15
+    // 桁数ルール: 右端から [1層目(床), 2層目(空間), 3層目(屋根)]
+    // "242" = 床(高さ1.0), 空間(高さ2.0), 屋根(高さ1.0) -> 屋根の上端は高さ4.0
+    for(let x=10; x<=17; x++) {
+        for(let z=10; z<=15; z++) {
+            map[x][z] = "242"; 
+        }
+    }
+
+    // トンネルの屋根の上を少しデコボコにする（屋根の上に坂道と突起を表現）
+    // 3桁目（一番左）を奇数にすると屋根が坂になる
+    // "342" = 床(1.0), 空間(2.0), 屋根(1.5=坂)
+    map[13][12] = "342";
+    map[14][12] = "442";
+    map[15][12] = "342";
+
+    // 5. 落下穴（奈落）
+    // "0" を指定すると何もない空間になり、落ちる
+    map[5][18] = "0";
+    map[5][19] = "0";
+    map[6][18] = "0";
+    map[6][19] = "0";
+
+    // 先に読み込まれた MapGenerator に作成したマップデータを渡す
+    if (window.MapGenerator) {
+        window.MapGenerator.rawMapData = map;
+    }
+})();
