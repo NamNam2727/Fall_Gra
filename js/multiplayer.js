@@ -43,6 +43,21 @@ window.MultiplayerManager = {
         this.lastSendTime = performance.now();
     },
 
+    // ★追加: 相手を持ち上げるメッセージを送信する関数
+    sendLiftMessage: function(targetId, vy) {
+        const now = Date.now();
+        // 連続送信を防ぐ（0.3秒に1回まで）
+        if (!this.lastLiftSent) this.lastLiftSent = {};
+        if (now - (this.lastLiftSent[targetId] || 0) < 300) return; 
+        this.lastLiftSent[targetId] = now;
+
+        this.sendData({
+            type: 'lift',
+            targetId: targetId,
+            vy: vy
+        });
+    },
+
     update: function(delta) {
         if (typeof player === 'undefined' || !player) return;
 
@@ -110,6 +125,21 @@ window.MultiplayerManager = {
                     const p = this.otherPlayers[data.user_id];
                     if (p && p.mesh && typeof window.showChatBubble === 'function') {
                         window.showChatBubble(p.mesh, msgData.text);
+                    }
+                // ★追加: 持ち上げメッセージの受信処理
+                } else if (msgData.type === 'lift') {
+                    const myId = window.GameState && window.GameState.userInfo ? window.GameState.userInfo.user_id : null;
+                    // 自分が持ち上げ対象であればジャンプする
+                    if (myId && msgData.targetId === myId) {
+                        if (typeof isJumping !== 'undefined') {
+                            isJumping = true;
+                            verticalVelocity = msgData.vy || 10;
+                            if (typeof player !== 'undefined' && player) {
+                                // 貫通を防ぐために少し上に強制移動させる
+                                player.position.y += 0.2; 
+                            }
+                            this.forceSendPos(); // 持ち上げられた状態を即座に共有
+                        }
                     }
                 }
             } catch(e) {}

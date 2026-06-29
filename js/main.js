@@ -273,6 +273,36 @@ function updatePlayer(delta) {
         }
     }
 
+    // ★追加: 自分が上昇中（ジャンプ等）の場合、頭上の他プレイヤーに持ち上げメッセージを飛ばす
+    if (isJumping && verticalVelocity > 0 && window.MultiplayerManager) {
+        let myTop = player.position.y + 0.4; // 自分の頭の高さ
+        const others = window.MultiplayerManager.otherPlayers;
+        for (let id in others) {
+            let other = others[id];
+            if (other.mesh) {
+                let dx = player.position.x - other.mesh.position.x;
+                let dz = player.position.z - other.mesh.position.z;
+                let distSq = dx * dx + dz * dz;
+                if (distSq < (playerRadius * 1.5) * (playerRadius * 1.5)) {
+                    let otherY = other.mesh.position.y;
+                    // 自分が下で、相手が上にいる場合
+                    if (player.position.y < otherY) {
+                        // 自分の頭が相手の足元に接触・めり込んでいる場合
+                        if (myTop >= otherY - 0.2 && myTop <= otherY + 0.5) {
+                            if (typeof window.MultiplayerManager.sendLiftMessage === 'function') {
+                                // 相手に持ち上げメッセージを送信
+                                window.MultiplayerManager.sendLiftMessage(id, verticalVelocity);
+                                
+                                // ローカルの見た目でも強制的に少し押し上げておく（ラグによる貫通防止の補助）
+                                other.targetPos.y = Math.max(other.targetPos.y, myTop);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
