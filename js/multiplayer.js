@@ -14,36 +14,38 @@ window.MultiplayerManager = {
         }
     },
     
-    // ★追加: 全員に位置情報の送信を要求する
+    // 全員に位置情報の送信を要求する
     requestPositions: function() {
         this.sendData({ type: 'pos_req' });
     },
     
+    // 即座に自分の現在位置(高さ含む)を送信する
     forceSendPos: function() {
-        if (!window.player) return;
+        // ★修正: window.player ではなくグローバルの player を参照
+        if (typeof player === 'undefined' || !player) return;
         this.sendData({
             type: 'move',
-            x: window.player.position.x,
-            y: window.player.position.y,
-            z: window.player.position.z,
-            qx: window.player.quaternion.x,
-            qy: window.player.quaternion.y,
-            qz: window.player.quaternion.z,
-            qw: window.player.quaternion.w
+            x: player.position.x,
+            y: player.position.y,
+            z: player.position.z,
+            qx: player.quaternion.x,
+            qy: player.quaternion.y,
+            qz: player.quaternion.z,
+            qw: player.quaternion.w
         });
-        this.lastSentPos.x = window.player.position.x;
-        this.lastSentPos.y = window.player.position.y;
-        this.lastSentPos.z = window.player.position.z;
+        this.lastSentPos.x = player.position.x;
+        this.lastSentPos.y = player.position.y;
+        this.lastSentPos.z = player.position.z;
         this.lastSendTime = performance.now();
     },
 
     update: function(delta) {
-        if (!window.player) return;
+        if (typeof player === 'undefined' || !player) return;
 
         const now = performance.now();
-        // ★高さ(Y軸)の変動も厳密にチェックして送信トリガーにする
-        const dist = Math.hypot(window.player.position.x - this.lastSentPos.x, window.player.position.z - this.lastSentPos.z);
-        const yDiff = Math.abs(window.player.position.y - this.lastSentPos.y);
+        // 高さ(Y軸)の変動もチェックして送信トリガーにする
+        const dist = Math.hypot(player.position.x - this.lastSentPos.x, player.position.z - this.lastSentPos.z);
+        const yDiff = Math.abs(player.position.y - this.lastSentPos.y);
         
         if (dist > 0.05 || yDiff > 0.05) {
             if (now - this.lastSendTime > this.sendInterval) {
@@ -79,16 +81,20 @@ window.MultiplayerManager = {
         if (type === 'aitools_game_joinroom') {
             this.addPlayer(data);
             const userName = data.user_name || data.name || '誰か';
-            // ★入室ログを送信
-            if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${userName} が入室しました。</span>`, 'sys');
+            // ★入室ログを送信 (チャット欄にも表示されます)
+            if (typeof window.addLog === 'function') {
+                window.addLog(`<span style="color:#aaffaa;">[入室] ${userName} が参加しました。</span>`, 'sys');
+            }
             // 新しく入ってきた人に自分の位置を教えてあげる
             this.forceSendPos();
             
         } else if (type === 'aitools_game_exitroom') {
-            this.removePlayer(data);
             const userName = data.user_name || data.name || '誰か';
             // ★退室ログを送信
-            if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${userName} が退室しました。</span>`, 'sys');
+            if (typeof window.addLog === 'function') {
+                window.addLog(`<span style="color:#ffaaaa;">[退室] ${userName} が退出しました。</span>`, 'sys');
+            }
+            this.removePlayer(data);
             
         } else if (type === 'aitools_game_sendmsg') {
             try {
@@ -98,7 +104,7 @@ window.MultiplayerManager = {
                     this.updatePlayerPos(data.user_id, msgData);
                     
                 } else if (msgData.type === 'pos_req') {
-                    // ★誰かが「位置教えて」と言ってきたら即座に現在位置(高さ含む)を送信する
+                    // ★誰かが「位置教えて」と言ってきたら即座に現在位置を送信する
                     this.forceSendPos();
                     
                 } else if (msgData.type === 'chat') {
@@ -140,7 +146,6 @@ window.MultiplayerManager = {
     updatePlayerPos: function(userId, data) {
         const p = this.otherPlayers[userId];
         if (p) {
-            // 高さ(Z軸にあたるY軸)もしっかりターゲットに設定
             p.targetPos.set(data.x, data.y, data.z);
             if (data.qw !== undefined) {
                 p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);

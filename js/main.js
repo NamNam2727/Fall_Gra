@@ -56,14 +56,13 @@ function initThreeJS() {
 
     initPlayer();
 
-    // マルチプレイの初期化
     if (window.MultiplayerManager) {
         window.MultiplayerManager.initExistingPlayers();
         
-        // ★追加: ゲームの読み込みと通信の準備が完了したら、他プレイヤーに現在位置を要求する
+        // ★追加: 通信の準備が整ったら全員に「位置情報を送って」と要求する
         setTimeout(() => {
             window.MultiplayerManager.requestPositions();
-            window.MultiplayerManager.forceSendPos(); // ついでに自分の初期位置(落下中)も送信
+            window.MultiplayerManager.forceSendPos(); 
         }, 1000);
     }
 
@@ -114,7 +113,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★2. 他プレイヤーとの接触判定（相手の上にジャンプで乗れるようにする）
+    // ★2. 他プレイヤーの頭上を足場とする判定（タワージャンプ対応）
     if (window.MultiplayerManager) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
@@ -123,15 +122,16 @@ function updatePlayer(delta) {
                 let dx = player.position.x - other.mesh.position.x;
                 let dz = player.position.z - other.mesh.position.z;
                 let distSq = dx * dx + dz * dz;
-                let combinedRadius = playerRadius * 1.5; 
+                let combinedRadius = playerRadius * 1.5; // 乗る時は少し余裕を持たせる
                 
-                // 重なっている場合
                 if (distSq < combinedRadius * combinedRadius) {
-                    // 相手の頭上の高さを算出 (厚み0.4)
-                    let otherTopY = other.mesh.position.y + 0.4; 
-                    // 相手の頭上が自分の足元より下、かつ現在の足場より高ければ上に乗る
-                    if (otherTopY <= player.position.y + stepHeight && otherTopY > currentGroundY) {
-                        currentGroundY = otherTopY;
+                    let otherTopY = other.mesh.position.y + 0.4; // 相手の頭上の高さ
+                    
+                    // 下から突き上げられた時に落ちないよう、Y軸の許容範囲を広くとる
+                    if (otherTopY >= player.position.y - 1.5 && otherTopY <= player.position.y + 2.5) {
+                        if (otherTopY > currentGroundY) {
+                            currentGroundY = otherTopY;
+                        }
                     }
                 }
             }
@@ -158,15 +158,22 @@ function updatePlayer(delta) {
             for (let i = 0; i < cellsX.length; i++) {
                 if (cellsX[i].h > player.position.y + stepHeight) { canMoveX = false; break; }
             }
-            // 他プレイヤーとの壁判定 (X軸)
+            
+            // ★他プレイヤーとの平たい壁判定 (X軸)
             if (canMoveX && window.MultiplayerManager) {
+                let myTop = player.position.y + 0.4;
+                let myBottom = player.position.y + stepHeight; // これ以下の段差は登れる
+                
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let other = window.MultiplayerManager.otherPlayers[id];
                     if (other.mesh) {
                         let dx = nextX - other.mesh.position.x;
                         let dz = player.position.z - other.mesh.position.z;
                         if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
-                            if (other.mesh.position.y + 0.4 > player.position.y + stepHeight) {
+                            let otherTop = other.mesh.position.y + 0.4;
+                            let otherBottom = other.mesh.position.y;
+                            // 相手が自分が登れる高さより高く、かつ自分の頭より下まである場合に壁となる
+                            if (otherTop > myBottom && otherBottom < myTop) {
                                 canMoveX = false; break;
                             }
                         }
@@ -183,15 +190,21 @@ function updatePlayer(delta) {
             for (let i = 0; i < cellsZ.length; i++) {
                 if (cellsZ[i].h > player.position.y + stepHeight) { canMoveZ = false; break; }
             }
-            // 他プレイヤーとの壁判定 (Z軸)
+            
+            // ★他プレイヤーとの平たい壁判定 (Z軸)
             if (canMoveZ && window.MultiplayerManager) {
+                let myTop = player.position.y + 0.4;
+                let myBottom = player.position.y + stepHeight;
+                
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let other = window.MultiplayerManager.otherPlayers[id];
                     if (other.mesh) {
                         let dx = player.position.x - other.mesh.position.x;
                         let dz = nextZ - other.mesh.position.z;
                         if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
-                            if (other.mesh.position.y + 0.4 > player.position.y + stepHeight) {
+                            let otherTop = other.mesh.position.y + 0.4;
+                            let otherBottom = other.mesh.position.y;
+                            if (otherTop > myBottom && otherBottom < myTop) {
                                 canMoveZ = false; break;
                             }
                         }
@@ -214,7 +227,6 @@ function updatePlayer(delta) {
         }
     }
 
-    // ジャンプと重力（高さの同期を含む）
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -233,7 +245,7 @@ function updatePlayer(delta) {
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
-            // ★自分が乗っている他プレイヤーが下からジャンプした場合、この処理で自分も一緒に上に持ち上げられます！
+            // 足場（地形や他のプレイヤーの頭）に高さを合わせる
             player.position.y = currentGroundY;
         }
     }

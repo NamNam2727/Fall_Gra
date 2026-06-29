@@ -60,8 +60,9 @@ window.sendChatMessage = function(text) {
 
     window.addLog(`<span style="color: #00ffff;">${myName}:</span> ${text}`, 'chat');
     
-    if (window.player && typeof window.showChatBubble === 'function') {
-        window.showChatBubble(window.player, text);
+    // ★修正: window.player ではなくグローバルの player を参照
+    if (typeof player !== 'undefined' && player && typeof window.showChatBubble === 'function') {
+        window.showChatBubble(player, text);
     }
     
     if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
