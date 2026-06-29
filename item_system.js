@@ -36,14 +36,14 @@ window.ItemSystem = {
         };
         loop();
 
-        // ★確実なスポーン処理: ゲーム開始2秒後にプレイヤーの目の前に強制配置
+        // ゲーム初期化完了からさらに2秒後に、確実に見える位置へアイテムを置く
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
-                // プレイヤーが存在すればその少し前方、いなければ原点付近
                 let spawnPos = { x: 0, y: 3, z: 0 };
                 if (typeof player !== 'undefined' && player) {
-                    const forwardX = -Math.sin(typeof cameraAngle !== 'undefined' ? cameraAngle + Math.PI : 0);
-                    const forwardZ = -Math.cos(typeof cameraAngle !== 'undefined' ? cameraAngle + Math.PI : 0);
+                    let cAngle = typeof cameraAngle !== 'undefined' && !isNaN(cameraAngle) ? cameraAngle : 0;
+                    const forwardX = -Math.sin(cAngle + Math.PI);
+                    const forwardZ = -Math.cos(cAngle + Math.PI);
                     spawnPos = {
                         x: player.position.x + forwardX * 3, // 3マス前
                         y: player.position.y + 0.5,          // 床から少し浮かす
@@ -54,7 +54,6 @@ window.ItemSystem = {
                 const timestamp = Date.now();
                 this.placeFieldItem(spawnPos, timestamp);
                 
-                // マルチプレイ用同期
                 if (window.MultiplayerManager) {
                     window.MultiplayerManager.sendData({
                         type: 'item_spawn', pos: spawnPos, timestamp: timestamp
@@ -109,8 +108,10 @@ window.ItemSystem = {
     },
     
     placeFieldItem: function(pos, timestamp) {
+        // ★エラー防止: sceneがまだ生成されていない場合は処理を中断
+        if (typeof scene === 'undefined' || !scene) return;
+
         if (this.currentItemPosInfo && this.currentItemPosInfo.timestamp > timestamp) return;
-        
         this.currentItemPosInfo = { pos: pos, timestamp: timestamp };
         
         if (this.currentFieldItem) {
@@ -146,6 +147,8 @@ window.ItemSystem = {
     },
     
     pickupItem: function() {
+        if (typeof scene === 'undefined' || !scene) return;
+        
         if (this.currentFieldItem) {
             scene.remove(this.currentFieldItem);
             this.currentFieldItem = null;
@@ -155,7 +158,6 @@ window.ItemSystem = {
         this.mySlotItem = items[Math.floor(Math.random() * items.length)];
         this.updateSlotUI();
         
-        // 獲得後、再度新しいアイテムをランダムな位置にスポーン
         this.spawnNewItem(true);
     },
     
@@ -211,6 +213,7 @@ window.ItemSystem = {
     },
     
     placeBomb: function(pos, isOriginator) {
+        if (typeof scene === 'undefined' || !scene) return;
         const bombGroup = new THREE.Group();
         const geo = new THREE.SphereGeometry(0.5, 16, 16);
         const mat = new THREE.MeshStandardMaterial({color: 0x111111, roughness: 0.8});
@@ -229,6 +232,7 @@ window.ItemSystem = {
     },
     
     explodeBomb: function(bomb) {
+        if (typeof scene === 'undefined' || !scene) return;
         const expGeo = new THREE.SphereGeometry(3.0, 16, 16); 
         const expMat = new THREE.MeshBasicMaterial({color: 0xff3300, transparent: true, opacity: 0.6});
         const expMesh = new THREE.Mesh(expGeo, expMat);
@@ -250,6 +254,7 @@ window.ItemSystem = {
     },
     
     placeNet: function(pos, isOriginator) {
+        if (typeof scene === 'undefined' || !scene) return;
         const canvas = document.createElement('canvas');
         canvas.width = 128; canvas.height = 128;
         const ctx = canvas.getContext('2d');
@@ -305,7 +310,7 @@ window.ItemSystem = {
         const delta = (now - this.lastTime) / 1000;
         this.lastTime = now;
         
-        if (typeof scene === 'undefined') return;
+        if (typeof scene === 'undefined' || !scene) return;
 
         if (this.currentFieldItem) {
             const ud = this.currentFieldItem.userData;
@@ -378,6 +383,4 @@ window.ItemSystem = {
     }
 };
 
-setTimeout(() => {
-    if (window.ItemSystem) window.ItemSystem.init();
-}, 2000);
+// ★削除: setTimeoutでの自動初期化処理を消し、loader.js から呼ばれるように変更しました。

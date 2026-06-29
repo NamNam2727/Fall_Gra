@@ -114,8 +114,11 @@ function updatePlayer(delta) {
     }
 
     if (moveVector.lengthSq() > 0.01) {
-        const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
-        const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
+        // ★エラー防止: cameraAngleが未定義の場合の安全対策
+        let cAngle = typeof cameraAngle !== 'undefined' && !isNaN(cameraAngle) ? cameraAngle : 0;
+
+        const camForwardX = -Math.sin(cAngle), camForwardZ = -Math.cos(cAngle);
+        const camRightX = Math.cos(cAngle), camRightZ = -Math.sin(cAngle);
         const moveDirX = camRightX * moveVector.x + camForwardX * (-moveVector.y);
         const moveDirZ = camRightZ * moveVector.x + camForwardZ * (-moveVector.y);
         const moveDirection = new THREE.Vector2(moveDirX, moveDirZ).normalize();
@@ -190,10 +193,14 @@ function updatePlayer(delta) {
 
         if (moveVector.y <= 0.2 && Math.abs(moveVector.x) > 0.05) {
             let targetCameraAngle = targetRotationY + Math.PI;
-            let diff = targetCameraAngle - cameraAngle;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            cameraAngle += diff * 3.0 * delta;
+            
+            // ★エラー防止
+            if (typeof cameraAngle !== 'undefined') {
+                let diff = targetCameraAngle - cameraAngle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                cameraAngle += diff * 3.0 * delta;
+            }
         }
     } else {
         const currentRotY = new THREE.Euler().setFromQuaternion(player.quaternion, 'YXZ').y;
@@ -263,26 +270,24 @@ function updatePlayer(delta) {
     }
 }
 
-// ★追加・変更: スライダーと連動してカメラの高さと距離を動的に変更する処理
 function updateCamera(instant) {
-    // UIスライダーからの値を取得 (0.0〜1.0) 未定義の場合は0.5
     let camRatio = typeof window.cameraSliderValue !== 'undefined' ? window.cameraSliderValue : 0.5;
 
-    // スライダーに応じたカメラ高さ (下 2.5 〜 上 14.5)
     let currentHeight = 2.5 + (camRatio * 12.0);
-    // スライダーに応じたカメラ距離 (下 8.0 〜 上 5.0) 俯瞰の時は少し近づける
     let currentDistance = 5.0 + ((1.0 - camRatio) * 3.0);
+    
+    // ★エラー防止: cameraAngle が無い場合でも NaN で壊れないようにする
+    let cAngle = typeof cameraAngle !== 'undefined' && !isNaN(cameraAngle) ? cameraAngle : 0;
 
     const targetCamPos = new THREE.Vector3(
-        player.position.x + Math.sin(cameraAngle) * currentDistance,
+        player.position.x + Math.sin(cAngle) * currentDistance,
         player.position.y + currentHeight, 
-        player.position.z + Math.cos(cameraAngle) * currentDistance
+        player.position.z + Math.cos(cAngle) * currentDistance
     );
 
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
 
-    // キャラクターの少し上（頭のあたり）を常に見るようにする
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);

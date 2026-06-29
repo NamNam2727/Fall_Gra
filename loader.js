@@ -16,16 +16,13 @@
         'map.js',
         'player.js',
         'input.js',
-        'item_system.js', // ★追加: アイテムシステムをロードリストに追加
+        'item_system.js', // アイテムシステムをロードリストに追加
         'multiplayer.js',
         'main.js'
     ];
 
     let loadedCount = 0;
 
-    // ★追加・変更: スクリプトを読み込む関数をグローバルに公開する
-    // 今後、UIボタンを押した際に window.loadGameScript('minigame/gameA.js', callback) 
-    // のように呼び出すことで、後からミニゲームを動的に追加・実行できるようになります。
     window.loadGameScript = function(src, callback) {
         const script = document.createElement('script');
         script.type = 'text/javascript';
@@ -64,12 +61,20 @@
             return;
         }
 
+        // 1. UIとチャットの初期化
         if (typeof window.initUI === 'function') window.initUI();
         if (typeof window.initChatSystem === 'function') window.initChatSystem();
         
+        // 2. 3D空間とプレイヤーの初期化
         if (typeof window.initThreeJS === 'function') window.initThreeJS();
         if (typeof window.setupInputs === 'function') window.setupInputs();
 
+        // ★修正: 3D空間が作られた "後" にアイテムシステムを初期化する
+        if (window.ItemSystem && typeof window.ItemSystem.init === 'function') {
+            window.ItemSystem.init();
+        }
+
+        // 3. メインループ開始
         requestAnimationFrame(window.animate);
     }
 
