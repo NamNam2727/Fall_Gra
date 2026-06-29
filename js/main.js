@@ -87,7 +87,6 @@ function animate() {
 function updatePlayer(delta) {
     const rotationSpeed = 12; 
     
-    // ★自分自身のチャットタイマーを減算し、0になったら吹き出しを消す
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -98,12 +97,34 @@ function updatePlayer(delta) {
         }
     }
 
+    // ★1. 地形ブロックとの足場判定
     const currentCells = getIntersectingCells(player.position.x, player.position.z, playerRadius);
     let currentGroundY = -100;
     for (let i = 0; i < currentCells.length; i++) {
         const cell = currentCells[i];
         if (cell.h <= player.position.y + stepHeight && cell.h > currentGroundY) {
             currentGroundY = cell.h;
+        }
+    }
+
+    // ★2. 他プレイヤーとの接触判定（足場として上に乗れるようにする）
+    if (window.MultiplayerManager) {
+        const others = window.MultiplayerManager.otherPlayers;
+        for (let id in others) {
+            let other = others[id];
+            if (other.mesh) {
+                let dx = player.position.x - other.mesh.position.x;
+                let dz = player.position.z - other.mesh.position.z;
+                let distSq = dx * dx + dz * dz;
+                // 重なりやすくするために半径に少し余裕(1.5倍)を持たせる
+                let combinedRadius = playerRadius * 1.5; 
+                if (distSq < combinedRadius * combinedRadius) {
+                    let otherTopY = other.mesh.position.y + 0.4; // 相手の厚み分を足した高さを足場とする
+                    if (otherTopY <= player.position.y + stepHeight && otherTopY > currentGroundY) {
+                        currentGroundY = otherTopY;
+                    }
+                }
+            }
         }
     }
 
@@ -120,20 +141,52 @@ function updatePlayer(delta) {
         const nextX = player.position.x + mX;
         const nextZ = player.position.z + mZ;
 
+        // X軸方向の壁判定
         if (Math.abs(mX) > 0.001) {
             const cellsX = getIntersectingCells(nextX, player.position.z, playerRadius);
             let canMoveX = true;
             for (let i = 0; i < cellsX.length; i++) {
                 if (cellsX[i].h > player.position.y + stepHeight) { canMoveX = false; break; }
             }
+            // ★他プレイヤーとの壁判定 (X軸)
+            if (canMoveX && window.MultiplayerManager) {
+                for (let id in window.MultiplayerManager.otherPlayers) {
+                    let other = window.MultiplayerManager.otherPlayers[id];
+                    if (other.mesh) {
+                        let dx = nextX - other.mesh.position.x;
+                        let dz = player.position.z - other.mesh.position.z;
+                        if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
+                            if (other.mesh.position.y + 0.4 > player.position.y + stepHeight) {
+                                canMoveX = false; break;
+                            }
+                        }
+                    }
+                }
+            }
             if (canMoveX) player.position.x = nextX;
         }
 
+        // Z軸方向の壁判定
         if (Math.abs(mZ) > 0.001) {
             const cellsZ = getIntersectingCells(player.position.x, nextZ, playerRadius);
             let canMoveZ = true;
             for (let i = 0; i < cellsZ.length; i++) {
                 if (cellsZ[i].h > player.position.y + stepHeight) { canMoveZ = false; break; }
+            }
+            // ★他プレイヤーとの壁判定 (Z軸)
+            if (canMoveZ && window.MultiplayerManager) {
+                for (let id in window.MultiplayerManager.otherPlayers) {
+                    let other = window.MultiplayerManager.otherPlayers[id];
+                    if (other.mesh) {
+                        let dx = player.position.x - other.mesh.position.x;
+                        let dz = nextZ - other.mesh.position.z;
+                        if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
+                            if (other.mesh.position.y + 0.4 > player.position.y + stepHeight) {
+                                canMoveZ = false; break;
+                            }
+                        }
+                    }
+                }
             }
             if (canMoveZ) player.position.z = nextZ;
         }
@@ -159,12 +212,18 @@ function updatePlayer(delta) {
             player.position.y = currentGroundY; 
             isJumping = false; 
             verticalVelocity = 0;
+            
+            // ★追加: 着地時に即座に座標を送信
+            if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+                window.MultiplayerManager.forceSendPos();
+            }
         }
     } else {
         if (player.position.y > currentGroundY + stepHeight) { 
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
+            // ★自分が乗っている他プレイヤーがジャンプした場合、この処理で自分も一緒に持ち上げられます
             player.position.y = currentGroundY;
         }
     }

@@ -8,7 +8,7 @@ function setupInputs() {
     joystickStick = document.getElementById('joystick-stick');
     jumpBtn = document.getElementById('jump-btn');
 
-    if (!jumpBtn) return; // UI読み込み前対策
+    if (!jumpBtn) return;
 
     jumpBtn.addEventListener('mousedown', doJump);
     jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); doJump(); }, { passive: false });
@@ -23,7 +23,17 @@ function setupInputs() {
     document.addEventListener('touchcancel', onTouchEnd);
 }
 
-function doJump() { if (!isJumping) { isJumping = true; verticalVelocity = jumpPower; } }
+function doJump() { 
+    if (!isJumping) { 
+        isJumping = true; 
+        verticalVelocity = jumpPower; 
+        
+        // ★追加: ジャンプ開始時に即座に高さを送信する
+        if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+            window.MultiplayerManager.forceSendPos();
+        }
+    } 
+}
 
 let isMouseDown = false;
 
@@ -76,3 +86,4 @@ function hideJoystick() {
     if(joystickBase) joystickBase.style.display = 'none'; 
     moveVector.set(0, 0); 
 }
+

@@ -1,6 +1,5 @@
 // =========================================================
 // multiplayer.js
-// 他プレイヤーの座標同期、3Dモデル管理、チャット受信
 // =========================================================
 
 window.MultiplayerManager = {
@@ -15,30 +14,35 @@ window.MultiplayerManager = {
         }
     },
     
+    // ★追加: ジャンプ時などに即座に座標を送信するための関数
+    forceSendPos: function() {
+        if (!window.player) return;
+        this.sendData({
+            type: 'move',
+            x: window.player.position.x,
+            y: window.player.position.y,
+            z: window.player.position.z,
+            qx: window.player.quaternion.x,
+            qy: window.player.quaternion.y,
+            qz: window.player.quaternion.z,
+            qw: window.player.quaternion.w
+        });
+        this.lastSentPos.x = window.player.position.x;
+        this.lastSentPos.y = window.player.position.y;
+        this.lastSentPos.z = window.player.position.z;
+        this.lastSendTime = performance.now();
+    },
+
     update: function(delta) {
         if (!window.player) return;
 
         const now = performance.now();
-        const dist = Math.hypot(player.position.x - this.lastSentPos.x, player.position.z - this.lastSentPos.z);
-        const yDiff = Math.abs(player.position.y - this.lastSentPos.y);
+        const dist = Math.hypot(window.player.position.x - this.lastSentPos.x, window.player.position.z - this.lastSentPos.z);
+        const yDiff = Math.abs(window.player.position.y - this.lastSentPos.y);
         
         if (dist > 0.05 || yDiff > 0.05) {
             if (now - this.lastSendTime > this.sendInterval) {
-                this.sendData({
-                    type: 'move',
-                    x: player.position.x,
-                    y: player.position.y,
-                    z: player.position.z,
-                    qx: player.quaternion.x,
-                    qy: player.quaternion.y,
-                    qz: player.quaternion.z,
-                    qw: player.quaternion.w
-                });
-                
-                this.lastSentPos.x = player.position.x;
-                this.lastSentPos.y = player.position.y;
-                this.lastSentPos.z = player.position.z;
-                this.lastSendTime = now;
+                this.forceSendPos(); // 位置が変わっていたら定期送信
             }
         }
 
@@ -50,7 +54,6 @@ window.MultiplayerManager = {
                     p.mesh.quaternion.slerp(p.targetQuat, 12 * delta);
                 }
                 
-                // ★他プレイヤーのチャット吹き出しのタイマー処理
                 if (p.mesh.chatTimer > 0) {
                     p.mesh.chatTimer -= delta;
                     if (p.mesh.chatTimer <= 0 && p.mesh.chatSprite) {
@@ -69,24 +72,26 @@ window.MultiplayerManager = {
         
         if (type === 'aitools_game_joinroom') {
             this.addPlayer(data);
-            if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${data.name || '誰か'} が入室しました。</span>`, 'sys');
+            // ★追加: 入室ログをチャット欄にも表示
+            const userName = data.user_name || data.name || '誰か';
+            if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${userName} が入室しました。</span>`, 'sys');
+            
         } else if (type === 'aitools_game_exitroom') {
             this.removePlayer(data);
-            if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${data.name || '誰か'} が退室しました。</span>`, 'sys');
+            // ★追加: 退室ログをチャット欄にも表示
+            const userName = data.user_name || data.name || '誰か';
+            if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${userName} が退室しました。</span>`, 'sys');
+            
         } else if (type === 'aitools_game_sendmsg') {
             try {
                 const msgData = JSON.parse(data.msg_data);
                 
                 if (msgData.type === 'move') {
                     this.updatePlayerPos(data.user_id, msgData);
-                    
                 } else if (msgData.type === 'chat') {
-                    // ★チャットメッセージを受信した時の処理
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');
                     }
-                    
-                    // 相手のキャラクターの頭上に吹き出しを表示
                     const p = this.otherPlayers[data.user_id];
                     if (p && p.mesh && typeof window.showChatBubble === 'function') {
                         window.showChatBubble(p.mesh, msgData.text);
@@ -188,3 +193,4 @@ window.onMultiplayerMessage = function(payload) {
         window.MultiplayerManager.handleMessage(payload);
     }
 };
+

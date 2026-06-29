@@ -5,7 +5,8 @@
 
 window.addLog = function(htmlText, type = 'sys') {
     // 1. チャットログ(専用)へ追加
-    if (type === 'chat') {
+    // ★追加: 'sys' (システムメッセージ) の場合もチャットタブに表示されるようにしました
+    if (type === 'chat' || type === 'sys') {
         const chatLogContent = document.getElementById('chatLogContent');
         if (chatLogContent) {
             const chatLine = document.createElement('div');
@@ -16,7 +17,6 @@ window.addLog = function(htmlText, type = 'sys') {
         }
     }
 
-    // ★ 2. チャットタブが開いているか確認
     const chatTabBtn = document.querySelector('.bottom-tab-btn[data-target="chat"]');
     const isChatActive = chatTabBtn && chatTabBtn.classList.contains('active');
     
@@ -43,7 +43,7 @@ window.addLog = function(htmlText, type = 'sys') {
     };
     floatLine.timerId = setTimeout(removeFloatLine, 5000);
 
-    // 古いログを押し出す（最大5行）
+    // 古いログを押し出す
     const activeLines = Array.from(floatingLog.children).filter(child => !child.classList.contains('fade-out'));
     if (activeLines.length > 5) {
         const oldest = activeLines[0];
@@ -55,9 +55,6 @@ window.addLog = function(htmlText, type = 'sys') {
     }
 };
 
-// ==========================================
-// チャット発信の共通処理（テキスト入力＆ショートカットから呼ばれる）
-// ==========================================
 window.sendChatMessage = function(text) {
     if (!text) return;
     
@@ -66,15 +63,12 @@ window.sendChatMessage = function(text) {
         myName = window.GameState.userInfo.name;
     }
 
-    // 1. ローカルのログに表示
     window.addLog(`<span style="color: #00ffff;">${myName}:</span> ${text}`, 'chat');
     
-    // 2. 自分のキャラクターの頭上に吹き出しを表示させる (player.js の関数を呼び出し)
     if (window.player && typeof window.showChatBubble === 'function') {
         window.showChatBubble(window.player, text);
     }
     
-    // 3. マルチプレイ時、他プレイヤーにチャットを送信
     if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
         window.MultiplayerManager.sendData({
             type: 'chat',
@@ -85,7 +79,6 @@ window.sendChatMessage = function(text) {
 };
 
 window.initChatSystem = function() {
-    // === 手入力チャットの登録 ===
     const chatSendBtn = document.getElementById('chatSendBtn');
     const chatInput = document.getElementById('chatInput');
 
@@ -103,9 +96,8 @@ window.initChatSystem = function() {
         });
     }
 
-    // === ★ショートカット機能の登録 ===
     let shortcuts = JSON.parse(localStorage.getItem('fallGraShortcuts')) || [
-        "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "助けて！", "お疲れ様！"
+        "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "上に乗せて！", "お疲れ様！"
     ];
     let isEditMode = false;
 
@@ -119,7 +111,6 @@ window.initChatSystem = function() {
             btn.className = 'shortcut-btn';
             btn.innerText = text || '(空)';
             
-            // 編集モード時の見た目変更
             if (isEditMode) {
                 btn.style.borderColor = '#ffaa00';
                 btn.style.color = '#ffaa00';
@@ -155,3 +146,4 @@ window.initChatSystem = function() {
 
     renderShortcuts();
 };
+
