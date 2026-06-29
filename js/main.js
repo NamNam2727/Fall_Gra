@@ -1,5 +1,6 @@
 // =====================================
 // main.js
+// 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
 // =====================================
 
 let mapMesh;
@@ -75,6 +76,8 @@ function animate() {
 
 function updatePlayer(delta) {
     const rotationSpeed = 12; 
+    let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.0;
+    let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
     
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
@@ -86,24 +89,33 @@ function updatePlayer(delta) {
         }
     }
 
+    // ★1. 下向きRaycasterによる正確な床判定（トンネルの天井を無視する）
     let currentGroundY = -100;
     let groundNormal = new THREE.Vector3(0, 1, 0);
     
     if (mapMesh) {
-        let rayOffsetHeight = typeof playerRadius !== 'undefined' ? playerRadius * 3 : 3.0;
-        let origin = new THREE.Vector3(player.position.x, player.position.y + rayOffsetHeight, player.position.z);
-        
+        let origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 3.0, player.position.z);
         raycaster.set(origin, downVector);
         let intersects = raycaster.intersectObject(mapMesh, false);
         
-        if (intersects.length > 0) {
-            currentGroundY = intersects[0].point.y;
-            groundNormal.copy(intersects[0].face.normal);
+        for (let i = 0; i < intersects.length; i++) {
+            let hitNormal = intersects[i].face.normal.clone();
             let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
-            groundNormal.applyMatrix3(normalMatrix).normalize();
+            hitNormal.applyMatrix3(normalMatrix).normalize();
+            
+            // 下を向いている面（天井の裏側）は無視。上を向いている面（床・坂道）だけを探す
+            if (hitNormal.y > 0.3) {
+                // 自分の足元〜少し上の範囲にある床を「現在の地面」として採用
+                if (intersects[i].point.y <= player.position.y + myStepHeight + 0.5) {
+                    currentGroundY = intersects[i].point.y;
+                    groundNormal.copy(hitNormal);
+                    break;
+                }
+            }
         }
     }
 
+    // ★2. 水平Raycasterによる壁・坂道判定と移動
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
@@ -117,40 +129,73 @@ function updatePlayer(delta) {
         const nextX = player.position.x + mX;
         const nextZ = player.position.z + mZ;
 
-        // ★修正: 段差の許容値を小さく（厳しく）し、判定位置を「進行方向の先端」にオフセット
-        let myStepHeight = 0.6; // 1ブロック分(1.0)は登れない高さにする
-        let rayOffsetHeight = typeof playerRadius !== 'undefined' ? playerRadius * 3 : 3.0;
-        let margin = (typeof playerRadius !== 'undefined' ? playerRadius : 1.0) * 0.8; 
+        let margin = pRadius * 0.8; // 当たり判定の大きさ（厚み）
+        
+        // 足元(段差を越えられない高さ)と、頭の高さの2箇所で横向きに光線を飛ばす
+        let wallCheckY = player.position.y + myStepHeight * 0.8; 
+        let headCheckY = player.position.y + pRadius * 1.8; 
 
-        // X軸方向の段差・壁判定
+        // 【X軸方向】
         let canMoveX = true;
         if (Math.abs(mX) > 0.001 && mapMesh) {
-            let checkX = nextX + Math.sign(mX) * margin; // 進行方向の手前で判定
-            raycaster.set(new THREE.Vector3(checkX, player.position.y + rayOffsetHeight, player.position.z), downVector);
-            let interX = raycaster.intersectObject(mapMesh, false);
-            if (interX.length > 0 && interX[0].point.y > player.position.y + myStepHeight) {
-                canMoveX = false; 
+            let dirX = new THREE.Vector3(Math.sign(mX), 0, 0);
+            let checkOrigins = [
+                new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
+                new THREE.Vector3(player.position.x, headCheckY, player.position.z)
+            ];
+
+            for (let origin of checkOrigins) {
+                raycaster.set(origin, dirX);
+                let interX = raycaster.intersectObject(mapMesh, false);
+                if (interX.length > 0 && interX[0].distance < margin + Math.abs(mX)) {
+                    // 当たった面の傾きを調べる
+                    let normal = interX[0].face.normal.clone();
+                    let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+                    normal.applyMatrix3(normalMatrix).normalize();
+                    
+                    // 垂直に近い壁（法線のY成分が0.6未満）なら進行不可。坂道なら通れる。
+                    if (normal.y < 0.6) {
+                        canMoveX = false;
+                        break;
+                    }
+                }
             }
         }
         if (canMoveX) player.position.x = nextX;
 
-        // Z軸方向の段差・壁判定
+        // 【Z軸方向】
         let canMoveZ = true;
         if (Math.abs(mZ) > 0.001 && mapMesh) {
-            let checkZ = nextZ + Math.sign(mZ) * margin;
-            raycaster.set(new THREE.Vector3(player.position.x, player.position.y + rayOffsetHeight, checkZ), downVector);
-            let interZ = raycaster.intersectObject(mapMesh, false);
-            if (interZ.length > 0 && interZ[0].point.y > player.position.y + myStepHeight) {
-                canMoveZ = false; 
+            let dirZ = new THREE.Vector3(0, 0, Math.sign(mZ));
+            let checkOrigins = [
+                new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
+                new THREE.Vector3(player.position.x, headCheckY, player.position.z)
+            ];
+
+            for (let origin of checkOrigins) {
+                raycaster.set(origin, dirZ);
+                let interZ = raycaster.intersectObject(mapMesh, false);
+                if (interZ.length > 0 && interZ[0].distance < margin + Math.abs(mZ)) {
+                    let normal = interZ[0].face.normal.clone();
+                    let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+                    normal.applyMatrix3(normalMatrix).normalize();
+                    
+                    if (normal.y < 0.6) {
+                        canMoveZ = false;
+                        break;
+                    }
+                }
             }
         }
         if (canMoveZ) player.position.z = nextZ;
 
+        // キャラクターの回転と姿勢制御
         const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
         
-        // ★修正: 接地している(isJumping === false)時のみ、地面の法線に従って傾ける
-        const effectiveNormal = isJumping ? new THREE.Vector3(0, 1, 0) : groundNormal;
+        // ★修正: 完全に接地している時だけ地面の傾きを適用する（ジャンプ中の空中傾斜を防止）
+        let isGroundedStrict = !isJumping && (Math.abs(player.position.y - currentGroundY) < 0.2);
+        const effectiveNormal = isGroundedStrict ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         
         const targetQuaternion = tiltQuat.multiply(rotQuat);
@@ -164,14 +209,16 @@ function updatePlayer(delta) {
             cameraAngle += diff * 3.0 * delta;
         }
     } else {
-        // ★停止中の傾きも同様に修正
+        // 停止中も厳密な接地判定で姿勢を戻す
         const currentRotY = new THREE.Euler().setFromQuaternion(player.quaternion, 'YXZ').y;
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentRotY);
-        const effectiveNormal = isJumping ? new THREE.Vector3(0, 1, 0) : groundNormal;
+        let isGroundedStrict = !isJumping && (Math.abs(player.position.y - currentGroundY) < 0.2);
+        const effectiveNormal = isGroundedStrict ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
+    // ★3. Y座標の更新
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -186,11 +233,11 @@ function updatePlayer(delta) {
             }
         }
     } else {
-        // ★修正: 下り坂でカクカクしないように、落下判定の許容値を少し広げる（0.8）
         if (player.position.y > currentGroundY + 0.8) { 
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
+            // 坂道に滑らかに吸い付く
             player.position.y += (currentGroundY - player.position.y) * 0.3;
         }
     }
@@ -201,10 +248,9 @@ function updatePlayer(delta) {
         verticalVelocity = 0;
     }
 
+    // 4. 他プレイヤーとの半球衝突判定（変更なし）
     if (window.MultiplayerManager) {
         const others = window.MultiplayerManager.otherPlayers;
-        let myRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.0;
-        
         for (let id in others) {
             let other = others[id];
             if (other.mesh) {
@@ -212,8 +258,7 @@ function updatePlayer(delta) {
                 let dz = player.position.z - other.mesh.position.z;
                 let dy = player.position.y - other.mesh.position.y;
                 let distXZ = Math.hypot(dx, dz);
-                
-                let combinedRadius = myRadius * 1.8; 
+                let combinedRadius = pRadius * 1.8; 
                 
                 if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
                     if (distXZ === 0) { 
@@ -221,9 +266,7 @@ function updatePlayer(delta) {
                         dz = (Math.random() - 0.5) * 0.1;
                         distXZ = Math.hypot(dx, dz);
                     }
-                    
                     let overlap = combinedRadius - distXZ;
-                    
                     if (Math.abs(dy) < 0.4) {
                         player.position.x += (dx / distXZ) * overlap * 0.5;
                         player.position.z += (dz / distXZ) * overlap * 0.5;
@@ -248,3 +291,4 @@ function updateCamera(instant) {
     else camera.position.lerp(targetCamPos, 0.1);
     camera.lookAt(player.position);
 }
+
