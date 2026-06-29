@@ -6,12 +6,14 @@
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
+    // ★更新: mapGenerator.js を追加し、読み込み順を調整
     const scriptsToLoad = [
         'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
         'js/globals.js',
         'js/ui.js',
-        'js/chat_system.js', // ★追加: チャットシステム
-        'js/map.js',
+        'js/chat_system.js',
+        'js/mapGenerator.js', // 新しい地形生成ロジック
+        'js/map.js',          // 多彩な地形データの定義
         'js/player.js',
         'js/input.js',
         'js/multiplayer.js',
@@ -59,7 +61,7 @@
         }
 
         if (typeof window.initUI === 'function') window.initUI();
-        if (typeof window.initChatSystem === 'function') window.initChatSystem(); // ★追加
+        if (typeof window.initChatSystem === 'function') window.initChatSystem();
         
         if (typeof window.initThreeJS === 'function') window.initThreeJS();
         if (typeof window.setupInputs === 'function') window.setupInputs();
