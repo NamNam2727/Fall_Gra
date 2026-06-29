@@ -21,6 +21,7 @@ window.MultiplayerManager = {
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
         
+        // ラグ対策のためのタイムスタンプ
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
         
@@ -33,30 +34,13 @@ window.MultiplayerManager = {
             qy: player.quaternion.y,
             qz: player.quaternion.z,
             qw: player.quaternion.w,
-            timestamp: nowTime,
-            // 自分が現在空中にいるかどうかの状態を共有
-            isJumping: typeof isJumping !== 'undefined' ? isJumping : false
+            timestamp: nowTime
         });
         
         this.lastSentPos.x = player.position.x;
         this.lastSentPos.y = player.position.y;
         this.lastSentPos.z = player.position.z;
         this.lastSendTime = performance.now();
-    },
-
-    // ★修正: 持ち上げメッセージ（誰から誰へ、を明確にする）
-    sendLiftMessage: function(targetId, sourceId) {
-        const now = Date.now();
-        // 連続送信を防ぐ（0.3秒に1回まで）
-        if (!this.lastLiftSent) this.lastLiftSent = {};
-        if (now - (this.lastLiftSent[targetId] || 0) < 300) return; 
-        this.lastLiftSent[targetId] = now;
-
-        this.sendData({
-            type: 'lift',
-            targetId: targetId,
-            sourceId: sourceId
-        });
     },
 
     update: function(delta) {
@@ -127,41 +111,6 @@ window.MultiplayerManager = {
                     if (p && p.mesh && typeof window.showChatBubble === 'function') {
                         window.showChatBubble(p.mesh, msgData.text);
                     }
-                
-                // ★追加・修正: 持ち上げメッセージの受信と連鎖処理
-                } else if (msgData.type === 'lift') {
-                    const myId = window.GameState && window.GameState.userInfo ? window.GameState.userInfo.user_id : null;
-                    
-                    // 自分がターゲット（持ち上げられる側）の場合
-                    if (myId && msgData.targetId === myId) {
-                        if (typeof player !== 'undefined' && player) {
-                            // 相手を「動く足場」として認識する特権タイマーをセット（0.5秒間）
-                            player.liftedBy = msgData.sourceId;
-                            player.liftTimer = 0.5;
-                            
-                            // ★連鎖（伝播）の処理：自分の上にも誰か乗っていれば、その人へ持ち上げを伝える
-                            const others = this.otherPlayers;
-                            for (let id in others) {
-                                let other = others[id];
-                                if (other.mesh) {
-                                    let dx = player.position.x - other.mesh.position.x;
-                                    let dz = player.position.z - other.mesh.position.z;
-                                    let distSq = dx * dx + dz * dz;
-                                    let combinedRadius = (typeof playerRadius !== 'undefined' ? playerRadius : 0.5) * 1.5;
-                                    
-                                    if (distSq < combinedRadius * combinedRadius) {
-                                        let otherY = other.mesh.position.y;
-                                        let myY = player.position.y;
-                                        // 相手が自分の頭上にいる
-                                        if (otherY > myY - 0.2 && otherY < myY + 1.5) {
-                                            // 自分のIDをsourceとして、上の人へ伝播
-                                            this.sendLiftMessage(id, myId);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             } catch(e) {}
         }
@@ -179,8 +128,7 @@ window.MultiplayerManager = {
             mesh: mesh,
             targetPos: new THREE.Vector3(0, 20, 0),
             targetQuat: new THREE.Quaternion(),
-            lastMoveTime: 0,
-            isJumping: false
+            lastMoveTime: 0
         };
     },
 
@@ -195,15 +143,13 @@ window.MultiplayerManager = {
     updatePlayerPos: function(userId, data) {
         const p = this.otherPlayers[userId];
         if (p) {
+            // 受信したデータのタイムスタンプが古い場合は破棄してラグによる逆行を防ぐ
             if (!p.lastMoveTime || data.timestamp >= p.lastMoveTime) {
                 p.targetPos.set(data.x, data.y, data.z);
                 if (data.qw !== undefined) {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 p.lastMoveTime = data.timestamp;
-                if (data.isJumping !== undefined) {
-                    p.isJumping = data.isJumping;
-                }
             }
         }
     },

@@ -91,15 +91,6 @@ function animate() {
 function updatePlayer(delta) {
     const rotationSpeed = 12; 
     
-    // 持ち上げタイマー管理
-    if (typeof player.liftTimer === 'undefined') player.liftTimer = 0;
-    if (typeof player.liftedBy === 'undefined') player.liftedBy = null;
-    
-    if (player.liftTimer > 0) {
-        player.liftTimer -= delta;
-        if (player.liftTimer <= 0) player.liftedBy = null;
-    }
-    
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -110,7 +101,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // 1. 地形ブロックとの足場判定
+    // 1. 地形ブロックとの足場判定（他プレイヤーは一切足場にしない）
     const currentCells = getIntersectingCells(player.position.x, player.position.z, playerRadius);
     let currentGroundY = -100;
     for (let i = 0; i < currentCells.length; i++) {
@@ -120,75 +111,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★2. 他プレイヤーとの接触判定（貫通防止のクライアントサイド予測を導入）
-    if (window.MultiplayerManager) {
-        const others = window.MultiplayerManager.otherPlayers;
-        for (let id in others) {
-            let other = others[id];
-            if (other.mesh) {
-                let dx = player.position.x - other.mesh.position.x;
-                let dz = player.position.z - other.mesh.position.z;
-                let distSq = dx * dx + dz * dz;
-                let combinedRadius = playerRadius * 1.5; 
-                
-                if (distSq < combinedRadius * combinedRadius) {
-                    let otherY = other.mesh.position.y;
-                    let myY = player.position.y;
-                    let myTime = player.lastMoveTime || 0;
-                    let otherTime = other.lastMoveTime || 0;
-                    
-                    let isMeOnTop = false;
-                    if (myY > otherY + 0.1) {
-                        isMeOnTop = true;
-                    } else if (Math.abs(myY - otherY) <= 0.1) {
-                        if (myTime > otherTime) isMeOnTop = true;
-                    }
-                    
-                    let isLifter = (player.liftedBy === id && player.liftTimer > 0);
-                    
-                    // 【自分が上】相手を足場にする処理（ロケットジャンプ対応）
-                    if (isMeOnTop && (!other.isJumping || isLifter)) {
-                        let otherTopY = otherY + 0.4; 
-                        if (otherTopY >= myY - 1.5 && otherTopY <= myY + 2.5) {
-                            if (otherTopY > currentGroundY) {
-                                currentGroundY = otherTopY;
-                            }
-                        }
-                    } 
-                    // 【自分が下】相手を押し上げる処理
-                    else if (!isMeOnTop) {
-                        // ★貫通防止魔法1: 自分が上昇中、頭上にいる相手をローカルの画面内で強制的に押し上げる
-                        if (isJumping && verticalVelocity > 0) {
-                            if (otherY > myY - 0.5 && otherY < myY + 2.0) {
-                                let myTopY = myY + 0.4; // 自分の頭の高さ
-                                
-                                // 通信を待たずに、自分の画面内だけで相手を自分の頭上に固定する！
-                                if (other.targetPos.y < myTopY) {
-                                    other.targetPos.y = myTopY;
-                                }
-                                if (other.mesh.position.y < myTopY) {
-                                    other.mesh.position.y = myTopY;
-                                }
-                                
-                                // 相手に持ち上げメッセージを送信（ジャンプ1回につき、相手1人に対して1回だけ）
-                                if (!other.hasSentLift) {
-                                    const myId = window.GameState && window.GameState.userInfo ? window.GameState.userInfo.user_id : 'myself';
-                                    if (typeof window.MultiplayerManager.sendLiftMessage === 'function') {
-                                        window.MultiplayerManager.sendLiftMessage(id, myId);
-                                    }
-                                    other.hasSentLift = true;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // 相手が離れたら持ち上げメッセージ送信フラグをリセット
-                    other.hasSentLift = false;
-                }
-            }
-        }
-    }
-
+    // 2. 移動入力と地形の壁判定
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
@@ -202,86 +125,22 @@ function updatePlayer(delta) {
         const nextX = player.position.x + mX;
         const nextZ = player.position.z + mZ;
 
-        // X軸方向の壁判定
+        // X軸方向の壁判定（地形のみ）
         if (Math.abs(mX) > 0.001) {
             const cellsX = getIntersectingCells(nextX, player.position.z, playerRadius);
             let canMoveX = true;
             for (let i = 0; i < cellsX.length; i++) {
                 if (cellsX[i].h > player.position.y + stepHeight) { canMoveX = false; break; }
             }
-            
-            if (canMoveX && window.MultiplayerManager) {
-                let myTop = player.position.y + 0.4;
-                let myBottom = player.position.y + stepHeight; 
-                for (let id in window.MultiplayerManager.otherPlayers) {
-                    let other = window.MultiplayerManager.otherPlayers[id];
-                    if (other.mesh) {
-                        let dx = nextX - other.mesh.position.x;
-                        let dz = player.position.z - other.mesh.position.z;
-                        if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
-                            let otherY = other.mesh.position.y;
-                            let myY = player.position.y;
-                            let myTime = player.lastMoveTime || 0;
-                            let otherTime = other.lastMoveTime || 0;
-                            
-                            let isOtherOnTop = false;
-                            if (otherY > myY + 0.1) isOtherOnTop = true;
-                            else if (Math.abs(myY - otherY) <= 0.1) {
-                                if (otherTime > myTime) isOtherOnTop = true;
-                            }
-                            
-                            if (isOtherOnTop) {
-                                let otherTop = otherY + 0.4;
-                                let otherBottom = otherY;
-                                if (otherTop > myBottom && otherBottom < myTop) {
-                                    canMoveX = false; break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             if (canMoveX) player.position.x = nextX;
         }
 
-        // Z軸方向の壁判定
+        // Z軸方向の壁判定（地形のみ）
         if (Math.abs(mZ) > 0.001) {
             const cellsZ = getIntersectingCells(player.position.x, nextZ, playerRadius);
             let canMoveZ = true;
             for (let i = 0; i < cellsZ.length; i++) {
                 if (cellsZ[i].h > player.position.y + stepHeight) { canMoveZ = false; break; }
-            }
-            
-            if (canMoveZ && window.MultiplayerManager) {
-                let myTop = player.position.y + 0.4;
-                let myBottom = player.position.y + stepHeight;
-                for (let id in window.MultiplayerManager.otherPlayers) {
-                    let other = window.MultiplayerManager.otherPlayers[id];
-                    if (other.mesh) {
-                        let dx = player.position.x - other.mesh.position.x;
-                        let dz = nextZ - other.mesh.position.z;
-                        if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
-                            let otherY = other.mesh.position.y;
-                            let myY = player.position.y;
-                            let myTime = player.lastMoveTime || 0;
-                            let otherTime = other.lastMoveTime || 0;
-                            
-                            let isOtherOnTop = false;
-                            if (otherY > myY + 0.1) isOtherOnTop = true;
-                            else if (Math.abs(myY - otherY) <= 0.1) {
-                                if (otherTime > myTime) isOtherOnTop = true;
-                            }
-                            
-                            if (isOtherOnTop) {
-                                let otherTop = otherY + 0.4;
-                                let otherBottom = otherY;
-                                if (otherTop > myBottom && otherBottom < myTop) {
-                                    canMoveZ = false; break;
-                                }
-                            }
-                        }
-                    }
-                }
             }
             if (canMoveZ) player.position.z = nextZ;
         }
@@ -299,7 +158,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // 物理法則に基づくY座標の更新
+    // 3. Y座標（ジャンプ・落下）の更新
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -309,30 +168,15 @@ function updatePlayer(delta) {
             isJumping = false; 
             verticalVelocity = 0;
             
-            // 着地したら持ち上げ特権を終了
-            player.liftTimer = 0; 
-            player.liftedBy = null;
-            
-            // ★自分が着地したタイミングで、全プレイヤーの持ち上げフラグをリセット
-            if (window.MultiplayerManager) {
-                for (let id in window.MultiplayerManager.otherPlayers) {
-                    window.MultiplayerManager.otherPlayers[id].hasSentLift = false;
-                }
-            }
-            
             if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
                 window.MultiplayerManager.forceSendPos();
             }
         }
     } else {
-        // ★貫通防止魔法2: 持ち上げられている間は、通信ラグで足場が離れても安易に落下させない
-        let fallTolerance = (player.liftTimer > 0) ? 1.0 : stepHeight;
-        
-        if (player.position.y > currentGroundY + fallTolerance) { 
+        if (player.position.y > currentGroundY + stepHeight) { 
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
-            // 相手の頭にガッチリと吸い付く
             player.position.y = currentGroundY;
         }
     }
@@ -341,6 +185,52 @@ function updatePlayer(delta) {
         player.position.set(0, 20, 0); 
         isJumping = true; 
         verticalVelocity = 0;
+    }
+
+    // ★4. 他プレイヤーとの衝突判定（見えない半球壁としての押し出し・滑り落ち）
+    // 自身の移動と落下の「後」に処理することで、めり込みを即座に補正する
+    if (window.MultiplayerManager) {
+        const others = window.MultiplayerManager.otherPlayers;
+        for (let id in others) {
+            let other = others[id];
+            if (other.mesh) {
+                let dx = player.position.x - other.mesh.position.x;
+                let dz = player.position.z - other.mesh.position.z;
+                let dy = player.position.y - other.mesh.position.y;
+                let distXZ = Math.hypot(dx, dz);
+                
+                // お互いの半径を合わせた衝突距離（少し大きめにして壁の厚みを作る）
+                let combinedRadius = playerRadius * 1.8; 
+                
+                // 自分が「相手の足元少し下 〜 相手の頭上少し上」の範囲にいるか
+                if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
+                    
+                    // 完全に座標が一致してしまった場合のゼロ除算回避
+                    if (distXZ === 0) {
+                        dx = (Math.random() - 0.5) * 0.1;
+                        dz = (Math.random() - 0.5) * 0.1;
+                        distXZ = Math.hypot(dx, dz);
+                    }
+                    
+                    // どれくらい相手にめり込んでいるか
+                    let overlap = combinedRadius - distXZ;
+                    
+                    if (Math.abs(dy) < 0.4) {
+                        // 【同じ高さでの衝突】
+                        // 互いに反発するように外側へ押し出す（押し合い）
+                        player.position.x += (dx / distXZ) * overlap * 0.5;
+                        player.position.z += (dz / distXZ) * overlap * 0.5;
+                    } else if (dy >= 0.4) {
+                        // 【上に乗った場合】
+                        // 頭頂部（半球）を滑り落ちるように、外側へ押し出される。
+                        // Y座標は地形の重力に任せて落ちるため、結果的にツルッと滑り落ちる挙動になる。
+                        let slideForce = overlap * 0.15; // 滑り落ちる勢い
+                        player.position.x += (dx / distXZ) * slideForce;
+                        player.position.z += (dz / distXZ) * slideForce;
+                    }
+                }
+            }
+        }
     }
 }
 
