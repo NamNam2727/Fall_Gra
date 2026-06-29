@@ -1,11 +1,9 @@
 // =========================================================
 // chat_system.js
-// チャットUI、フローティングログ、ショートカット機能を管理
 // =========================================================
 
 window.addLog = function(htmlText, type = 'sys') {
-    // 1. チャットログ(専用)へ追加
-    // ★追加: 'sys' (システムメッセージ) の場合もチャットタブに表示されるようにしました
+    // ★ 'chat' または 'sys' の場合は、チャットログ画面に追加する
     if (type === 'chat' || type === 'sys') {
         const chatLogContent = document.getElementById('chatLogContent');
         if (chatLogContent) {
@@ -25,7 +23,6 @@ window.addLog = function(htmlText, type = 'sys') {
         return; 
     }
 
-    // 3. 画面中央のフローティングログへ追加
     const floatingLog = document.getElementById('floatingLog');
     if (!floatingLog) return;
     
@@ -34,7 +31,6 @@ window.addLog = function(htmlText, type = 'sys') {
     floatLine.innerHTML = htmlText;
     floatingLog.appendChild(floatLine);
 
-    // 5秒後にフェードアウトして消す
     const removeFloatLine = () => {
         if(!floatLine.classList.contains('fade-out')) {
             floatLine.classList.add('fade-out');
@@ -43,7 +39,6 @@ window.addLog = function(htmlText, type = 'sys') {
     };
     floatLine.timerId = setTimeout(removeFloatLine, 5000);
 
-    // 古いログを押し出す
     const activeLines = Array.from(floatingLog.children).filter(child => !child.classList.contains('fade-out'));
     if (activeLines.length > 5) {
         const oldest = activeLines[0];
@@ -146,4 +141,3 @@ window.initChatSystem = function() {
 
     renderShortcuts();
 };
-

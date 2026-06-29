@@ -14,7 +14,11 @@ window.MultiplayerManager = {
         }
     },
     
-    // ★追加: ジャンプ時などに即座に座標を送信するための関数
+    // ★追加: 全員に位置情報の送信を要求する
+    requestPositions: function() {
+        this.sendData({ type: 'pos_req' });
+    },
+    
     forceSendPos: function() {
         if (!window.player) return;
         this.sendData({
@@ -37,18 +41,20 @@ window.MultiplayerManager = {
         if (!window.player) return;
 
         const now = performance.now();
+        // ★高さ(Y軸)の変動も厳密にチェックして送信トリガーにする
         const dist = Math.hypot(window.player.position.x - this.lastSentPos.x, window.player.position.z - this.lastSentPos.z);
         const yDiff = Math.abs(window.player.position.y - this.lastSentPos.y);
         
         if (dist > 0.05 || yDiff > 0.05) {
             if (now - this.lastSendTime > this.sendInterval) {
-                this.forceSendPos(); // 位置が変わっていたら定期送信
+                this.forceSendPos();
             }
         }
 
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
             if (p.mesh && p.targetPos) {
+                // 他人の高さ(Y)も含めて滑らかに補間移動
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
                     p.mesh.quaternion.slerp(p.targetQuat, 12 * delta);
@@ -72,14 +78,16 @@ window.MultiplayerManager = {
         
         if (type === 'aitools_game_joinroom') {
             this.addPlayer(data);
-            // ★追加: 入室ログをチャット欄にも表示
             const userName = data.user_name || data.name || '誰か';
+            // ★入室ログを送信
             if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${userName} が入室しました。</span>`, 'sys');
+            // 新しく入ってきた人に自分の位置を教えてあげる
+            this.forceSendPos();
             
         } else if (type === 'aitools_game_exitroom') {
             this.removePlayer(data);
-            // ★追加: 退室ログをチャット欄にも表示
             const userName = data.user_name || data.name || '誰か';
+            // ★退室ログを送信
             if (typeof window.addLog === 'function') window.addLog(`<span style="color:#aaa;">[システム] ${userName} が退室しました。</span>`, 'sys');
             
         } else if (type === 'aitools_game_sendmsg') {
@@ -88,6 +96,11 @@ window.MultiplayerManager = {
                 
                 if (msgData.type === 'move') {
                     this.updatePlayerPos(data.user_id, msgData);
+                    
+                } else if (msgData.type === 'pos_req') {
+                    // ★誰かが「位置教えて」と言ってきたら即座に現在位置(高さ含む)を送信する
+                    this.forceSendPos();
+                    
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');
@@ -127,6 +140,7 @@ window.MultiplayerManager = {
     updatePlayerPos: function(userId, data) {
         const p = this.otherPlayers[userId];
         if (p) {
+            // 高さ(Z軸にあたるY軸)もしっかりターゲットに設定
             p.targetPos.set(data.x, data.y, data.z);
             if (data.qw !== undefined) {
                 p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
@@ -193,4 +207,3 @@ window.onMultiplayerMessage = function(payload) {
         window.MultiplayerManager.handleMessage(payload);
     }
 };
-
