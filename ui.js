@@ -28,6 +28,25 @@ function initUI() {
         }
         #jump-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
 
+        /* ★追加: アイテムスロット（ジャンプボタンの上） */
+        #item-slot {
+            position: absolute; bottom: 130px; right: 25px; width: 60px; height: 60px;
+            background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
+            display: flex; justify-content: center; align-items: center; font-size: 30px;
+            pointer-events: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+        }
+        #item-slot.active {
+            pointer-events: auto; cursor: pointer; background: rgba(255, 255, 255, 0.9);
+        }
+        #item-slot.active:active { transform: scale(0.9); }
+        #item-slot.cooling {
+            pointer-events: none; background: rgba(0, 0, 0, 0.8);
+        }
+        .item-timer {
+            position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif;
+        }
+
         /* チャットUI */
         #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 250px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; pointer-events: none; }
         #floatingLog { width: 100%; height: 120px; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; margin-bottom: 5px; }
@@ -51,7 +70,7 @@ function initUI() {
         .shortcut-btn:active { background: rgba(80,80,80,0.8); }
         #editShortcutBtn { width: 100%; background: #444; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
 
-        /* ★追加: ミニゲームボタンのスタイル */
+        /* ミニゲームボタンのスタイル */
         #minigame-btn {
             position: absolute; right: 10px; padding: 8px 16px;
             background: rgba(255, 150, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.9);
@@ -79,25 +98,24 @@ function initUI() {
     jumpBtn.innerText = 'JUMP';
     uiLayer.appendChild(jumpBtn);
 
-    // ★追加: 禁止エリア（Top Exclusion Zone）の高さを計算
+    // ★追加: アイテムスロット
+    const itemSlot = document.createElement('div');
+    itemSlot.id = 'item-slot';
+    uiLayer.appendChild(itemSlot);
+
     const screenHeight = window.innerHeight;
     const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-    // ★追加: ミニゲームボタンの生成と配置
     const minigameBtn = document.createElement('div');
     minigameBtn.id = 'minigame-btn';
     minigameBtn.innerText = 'ミニゲーム';
-    // 禁止エリアの下端 + 15pxの余白を空けて、安全な位置に配置
     minigameBtn.style.top = (topExclusionHeight + 15) + 'px';
-    
-    // 仮の動作（機能は後で実装）
     minigameBtn.addEventListener('click', () => {
         if (typeof window.addLog === 'function') {
             window.addLog('<span style="color:#ffaa00;">ミニゲーム機能は準備中です！</span>', 'sys');
         }
     });
     uiLayer.appendChild(minigameBtn);
-
 
     const bottomUI = document.createElement('div');
     bottomUI.id = 'bottomUIContainer';
@@ -139,3 +157,4 @@ function initUI() {
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 }
+

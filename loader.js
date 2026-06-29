@@ -16,6 +16,7 @@
         'map.js',
         'player.js',
         'input.js',
+        'item_system.js', // ★追加: アイテムシステムをロードリストに追加
         'multiplayer.js',
         'main.js'
     ];

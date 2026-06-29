@@ -21,7 +21,6 @@ window.MultiplayerManager = {
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
         
-        // ラグ対策のためのタイムスタンプ
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
         
@@ -111,6 +110,11 @@ window.MultiplayerManager = {
                     if (p && p.mesh && typeof window.showChatBubble === 'function') {
                         window.showChatBubble(p.mesh, msgData.text);
                     }
+                // ★追加: アイテム関連の通信を受信した際のルーティング
+                } else if (msgData.type.startsWith('item_')) {
+                    if (window.ItemSystem) {
+                        window.ItemSystem.handleNetworkMessage(msgData);
+                    }
                 }
             } catch(e) {}
         }
@@ -143,7 +147,6 @@ window.MultiplayerManager = {
     updatePlayerPos: function(userId, data) {
         const p = this.otherPlayers[userId];
         if (p) {
-            // 受信したデータのタイムスタンプが古い場合は破棄してラグによる逆行を防ぐ
             if (!p.lastMoveTime || data.timestamp >= p.lastMoveTime) {
                 p.targetPos.set(data.x, data.y, data.z);
                 if (data.qw !== undefined) {

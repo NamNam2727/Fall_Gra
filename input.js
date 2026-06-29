@@ -24,11 +24,13 @@ function setupInputs() {
 }
 
 function doJump() { 
-    if (!isJumping) { 
+    // ★追加: フライモード中は接地していなくてもジャンプ可能にする
+    const canFly = window.ItemSystem && window.ItemSystem.isFlyMode;
+    
+    if (!isJumping || canFly) { 
         isJumping = true; 
-        verticalVelocity = jumpPower; 
+        verticalVelocity = typeof jumpPower !== 'undefined' ? jumpPower : 0.3; 
         
-        // ★追加: ジャンプ開始時に即座に高さを送信する
         if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
             window.MultiplayerManager.forceSendPos();
         }
@@ -38,7 +40,8 @@ function doJump() {
 let isMouseDown = false;
 
 function onPointerDownPC(e) {
-    if (e.target.id === 'jump-btn') return;
+    // アイテムスロットのクリックを阻害しないように判定を追加
+    if (e.target.id === 'jump-btn' || e.target.id === 'item-slot') return;
     if (e.target.tagName.toLowerCase() === 'canvas' || e.target.id === 'ui-layer') {
         isMouseDown = true; startX = e.clientX; startY = e.clientY; showJoystick(startX, startY);
     }
@@ -47,7 +50,7 @@ function onPointerMovePC(e) { if (isMouseDown) updateJoystick(e.clientX, e.clien
 function onPointerUpPC(e) { isMouseDown = false; hideJoystick(); }
 
 function onTouchStart(e) {
-    if (e.target.id === 'jump-btn') return;
+    if (e.target.id === 'jump-btn' || e.target.id === 'item-slot') return;
     for (let i = 0; i < e.changedTouches.length; i++) {
         const touch = e.changedTouches[i];
         if (joystickTouchId === null) {
@@ -86,4 +89,3 @@ function hideJoystick() {
     if(joystickBase) joystickBase.style.display = 'none'; 
     moveVector.set(0, 0); 
 }
-
