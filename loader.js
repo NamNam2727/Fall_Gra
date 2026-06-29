@@ -16,7 +16,7 @@
         'map.js',
         'player.js',
         'input.js',
-        'item_system.js', // ★追加: アイテムシステムをロードリストに追加
+        'item_system.js', // ★アイテムシステム
         'multiplayer.js',
         'main.js'
     ];
@@ -39,6 +39,9 @@
         };
         script.onerror = () => {
             console.error(`Failed to load: ${src}`);
+            // ★致命的修正: ファイルが存在しない場合でも、止まらずに次のファイルを読み込む！
+            // これにより、item_system.js が無くても画面が青いままフリーズしなくなります。
+            if (typeof callback === 'function') callback();
         };
         document.head.appendChild(script);
     };
@@ -67,7 +70,6 @@
         if (typeof window.initThreeJS === 'function') window.initThreeJS();
         if (typeof window.setupInputs === 'function') window.setupInputs();
 
-        // ★修正: Three.jsの初期化が全て完了したあとにアイテムシステムを動かす
         if (window.ItemSystem && typeof window.ItemSystem.init === 'function') {
             window.ItemSystem.init();
         }

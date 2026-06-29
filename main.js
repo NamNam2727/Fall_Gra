@@ -264,25 +264,28 @@ function updatePlayer(delta) {
 }
 
 function updateCamera(instant) {
-    // ★追加: スライダーに応じてグローバルのカメラ距離と高さを上書きする
+    // ★安全装置: globals.js の変数を直接上書きせず、ローカル変数として扱う
+    let currentCameraHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
+    let currentCameraDistance = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
+
+    // スライダーの値がある場合は、ローカル変数の値を上書きする
     if (typeof window.cameraSliderValue !== 'undefined') {
         let camRatio = window.cameraSliderValue; // 0.0(下) 〜 1.0(上)
-        cameraHeight = 2.5 + (camRatio * 12.0);
-        cameraDistance = 5.0 + ((1.0 - camRatio) * 3.0);
+        currentCameraHeight = 2.5 + (camRatio * 12.0);
+        currentCameraDistance = 5.0 + ((1.0 - camRatio) * 3.0);
     }
 
     const targetCamPos = new THREE.Vector3(
-        player.position.x + Math.sin(cameraAngle) * cameraDistance,
-        player.position.y + cameraHeight, 
-        player.position.z + Math.cos(cameraAngle) * cameraDistance
+        player.position.x + Math.sin(cameraAngle) * currentCameraDistance,
+        player.position.y + currentCameraHeight, 
+        player.position.z + Math.cos(cameraAngle) * currentCameraDistance
     );
     
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
     
-    // ★追加: 少しだけ見下ろす位置に補正（キャラの頭上を注視する）
+    // ★追加: キャラクターの頭上（+1.0の高さ）を注視する
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);
 }
-
