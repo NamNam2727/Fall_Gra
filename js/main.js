@@ -58,8 +58,6 @@ function initThreeJS() {
 
     if (window.MultiplayerManager) {
         window.MultiplayerManager.initExistingPlayers();
-        
-        // ★追加: 通信の準備が整ったら全員に「位置情報を送って」と要求する
         setTimeout(() => {
             window.MultiplayerManager.requestPositions();
             window.MultiplayerManager.forceSendPos(); 
@@ -103,7 +101,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★1. 地形ブロックとの足場判定
+    // 1. 地形ブロックとの足場判定
     const currentCells = getIntersectingCells(player.position.x, player.position.z, playerRadius);
     let currentGroundY = -100;
     for (let i = 0; i < currentCells.length; i++) {
@@ -113,7 +111,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★2. 他プレイヤーの頭上を足場とする判定（タワージャンプ対応）
+    // ★2. 他プレイヤーとの接触判定（無限上昇を防ぐタイムスタンプによる上下決定）
     if (window.MultiplayerManager) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
@@ -122,15 +120,31 @@ function updatePlayer(delta) {
                 let dx = player.position.x - other.mesh.position.x;
                 let dz = player.position.z - other.mesh.position.z;
                 let distSq = dx * dx + dz * dz;
-                let combinedRadius = playerRadius * 1.5; // 乗る時は少し余裕を持たせる
+                let combinedRadius = playerRadius * 1.5; 
                 
                 if (distSq < combinedRadius * combinedRadius) {
-                    let otherTopY = other.mesh.position.y + 0.4; // 相手の頭上の高さ
+                    let otherY = other.mesh.position.y;
+                    let myY = player.position.y;
+                    let myTime = player.lastMoveTime || 0;
+                    let otherTime = other.lastMoveTime || 0;
                     
-                    // 下から突き上げられた時に落ちないよう、Y軸の許容範囲を広くとる
-                    if (otherTopY >= player.position.y - 1.5 && otherTopY <= player.position.y + 2.5) {
-                        if (otherTopY > currentGroundY) {
-                            currentGroundY = otherTopY;
+                    // ★どちらが上かを厳密に決定する
+                    let isMeOnTop = false;
+                    if (myY > otherY + 0.1) {
+                        isMeOnTop = true; // 自分が明確に高い場合は上
+                    } else if (Math.abs(myY - otherY) <= 0.1) {
+                        if (myTime > otherTime) {
+                            isMeOnTop = true; // 同じ高さなら後から来た方(時間が新しい方)を上とする
+                        }
+                    }
+                    
+                    // 自分が「上」と判定された場合のみ、相手を足場にする
+                    if (isMeOnTop) {
+                        let otherTopY = otherY + 0.4; 
+                        if (otherTopY >= myY - 1.5 && otherTopY <= myY + 2.5) {
+                            if (otherTopY > currentGroundY) {
+                                currentGroundY = otherTopY;
+                            }
                         }
                     }
                 }
@@ -162,7 +176,7 @@ function updatePlayer(delta) {
             // ★他プレイヤーとの平たい壁判定 (X軸)
             if (canMoveX && window.MultiplayerManager) {
                 let myTop = player.position.y + 0.4;
-                let myBottom = player.position.y + stepHeight; // これ以下の段差は登れる
+                let myBottom = player.position.y + stepHeight; 
                 
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let other = window.MultiplayerManager.otherPlayers[id];
@@ -170,11 +184,27 @@ function updatePlayer(delta) {
                         let dx = nextX - other.mesh.position.x;
                         let dz = player.position.z - other.mesh.position.z;
                         if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
-                            let otherTop = other.mesh.position.y + 0.4;
-                            let otherBottom = other.mesh.position.y;
-                            // 相手が自分が登れる高さより高く、かつ自分の頭より下まである場合に壁となる
-                            if (otherTop > myBottom && otherBottom < myTop) {
-                                canMoveX = false; break;
+                            let otherY = other.mesh.position.y;
+                            let myY = player.position.y;
+                            let myTime = player.lastMoveTime || 0;
+                            let otherTime = other.lastMoveTime || 0;
+                            
+                            // ★相手が「上」と判定された場合のみ壁として認識する
+                            let isOtherOnTop = false;
+                            if (otherY > myY + 0.1) {
+                                isOtherOnTop = true;
+                            } else if (Math.abs(myY - otherY) <= 0.1) {
+                                if (otherTime > myTime) {
+                                    isOtherOnTop = true;
+                                }
+                            }
+                            
+                            if (isOtherOnTop) {
+                                let otherTop = otherY + 0.4;
+                                let otherBottom = otherY;
+                                if (otherTop > myBottom && otherBottom < myTop) {
+                                    canMoveX = false; break;
+                                }
                             }
                         }
                     }
@@ -202,10 +232,26 @@ function updatePlayer(delta) {
                         let dx = player.position.x - other.mesh.position.x;
                         let dz = nextZ - other.mesh.position.z;
                         if (dx * dx + dz * dz < (playerRadius * 1.5) * (playerRadius * 1.5)) {
-                            let otherTop = other.mesh.position.y + 0.4;
-                            let otherBottom = other.mesh.position.y;
-                            if (otherTop > myBottom && otherBottom < myTop) {
-                                canMoveZ = false; break;
+                            let otherY = other.mesh.position.y;
+                            let myY = player.position.y;
+                            let myTime = player.lastMoveTime || 0;
+                            let otherTime = other.lastMoveTime || 0;
+                            
+                            let isOtherOnTop = false;
+                            if (otherY > myY + 0.1) {
+                                isOtherOnTop = true;
+                            } else if (Math.abs(myY - otherY) <= 0.1) {
+                                if (otherTime > myTime) {
+                                    isOtherOnTop = true;
+                                }
+                            }
+                            
+                            if (isOtherOnTop) {
+                                let otherTop = otherY + 0.4;
+                                let otherBottom = otherY;
+                                if (otherTop > myBottom && otherBottom < myTop) {
+                                    canMoveZ = false; break;
+                                }
                             }
                         }
                     }
@@ -245,7 +291,6 @@ function updatePlayer(delta) {
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
-            // 足場（地形や他のプレイヤーの頭）に高さを合わせる
             player.position.y = currentGroundY;
         }
     }

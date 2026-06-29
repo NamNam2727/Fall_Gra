@@ -14,15 +14,17 @@ window.MultiplayerManager = {
         }
     },
     
-    // 全員に位置情報の送信を要求する
     requestPositions: function() {
         this.sendData({ type: 'pos_req' });
     },
     
-    // 即座に自分の現在位置(高さ含む)を送信する
     forceSendPos: function() {
-        // ★修正: window.player ではなくグローバルの player を参照
         if (typeof player === 'undefined' || !player) return;
+        
+        // ★追加: 現在のタイムスタンプを取得して自分のキャラにも記録
+        const nowTime = Date.now();
+        player.lastMoveTime = nowTime;
+        
         this.sendData({
             type: 'move',
             x: player.position.x,
@@ -31,8 +33,10 @@ window.MultiplayerManager = {
             qx: player.quaternion.x,
             qy: player.quaternion.y,
             qz: player.quaternion.z,
-            qw: player.quaternion.w
+            qw: player.quaternion.w,
+            timestamp: nowTime // ★追加: 送信時間にタイムスタンプを付与
         });
+        
         this.lastSentPos.x = player.position.x;
         this.lastSentPos.y = player.position.y;
         this.lastSentPos.z = player.position.z;
@@ -43,7 +47,6 @@ window.MultiplayerManager = {
         if (typeof player === 'undefined' || !player) return;
 
         const now = performance.now();
-        // 高さ(Y軸)の変動もチェックして送信トリガーにする
         const dist = Math.hypot(player.position.x - this.lastSentPos.x, player.position.z - this.lastSentPos.z);
         const yDiff = Math.abs(player.position.y - this.lastSentPos.y);
         
@@ -56,7 +59,6 @@ window.MultiplayerManager = {
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
             if (p.mesh && p.targetPos) {
-                // 他人の高さ(Y)も含めて滑らかに補間移動
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
                     p.mesh.quaternion.slerp(p.targetQuat, 12 * delta);
@@ -81,16 +83,13 @@ window.MultiplayerManager = {
         if (type === 'aitools_game_joinroom') {
             this.addPlayer(data);
             const userName = data.user_name || data.name || '誰か';
-            // ★入室ログを送信 (チャット欄にも表示されます)
             if (typeof window.addLog === 'function') {
                 window.addLog(`<span style="color:#aaffaa;">[入室] ${userName} が参加しました。</span>`, 'sys');
             }
-            // 新しく入ってきた人に自分の位置を教えてあげる
             this.forceSendPos();
             
         } else if (type === 'aitools_game_exitroom') {
             const userName = data.user_name || data.name || '誰か';
-            // ★退室ログを送信
             if (typeof window.addLog === 'function') {
                 window.addLog(`<span style="color:#ffaaaa;">[退室] ${userName} が退出しました。</span>`, 'sys');
             }
@@ -102,11 +101,8 @@ window.MultiplayerManager = {
                 
                 if (msgData.type === 'move') {
                     this.updatePlayerPos(data.user_id, msgData);
-                    
                 } else if (msgData.type === 'pos_req') {
-                    // ★誰かが「位置教えて」と言ってきたら即座に現在位置を送信する
                     this.forceSendPos();
-                    
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');
@@ -131,7 +127,8 @@ window.MultiplayerManager = {
             id: user.user_id,
             mesh: mesh,
             targetPos: new THREE.Vector3(0, 20, 0),
-            targetQuat: new THREE.Quaternion()
+            targetQuat: new THREE.Quaternion(),
+            lastMoveTime: 0 // ★追加: 相手のタイムスタンプ記録用
         };
     },
 
@@ -146,9 +143,13 @@ window.MultiplayerManager = {
     updatePlayerPos: function(userId, data) {
         const p = this.otherPlayers[userId];
         if (p) {
-            p.targetPos.set(data.x, data.y, data.z);
-            if (data.qw !== undefined) {
-                p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
+            // ★追加: ラグ対策。受信したデータのタイムスタンプが古い（過去のデータ）なら破棄する
+            if (!p.lastMoveTime || data.timestamp >= p.lastMoveTime) {
+                p.targetPos.set(data.x, data.y, data.z);
+                if (data.qw !== undefined) {
+                    p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
+                }
+                p.lastMoveTime = data.timestamp; // 最新のタイムスタンプを保存
             }
         }
     },
