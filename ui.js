@@ -18,7 +18,6 @@ function initUI() {
             border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 4px 8px rgba(0,0,0,0.4);
         }
         
-        /* ジャンプボタンを右に寄せる */
         #jump-btn {
             position: absolute; bottom: 40px; right: 15px; width: 80px; height: 80px;
             background: rgba(255, 255, 255, 0.5); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
@@ -28,7 +27,6 @@ function initUI() {
         }
         #jump-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
 
-        /* ★追加: アイテムスロット（ジャンプボタンの上） */
         #item-slot {
             position: absolute; bottom: 130px; right: 25px; width: 60px; height: 60px;
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
@@ -36,18 +34,27 @@ function initUI() {
             pointer-events: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             transition: transform 0.1s;
         }
-        #item-slot.active {
-            pointer-events: auto; cursor: pointer; background: rgba(255, 255, 255, 0.9);
-        }
+        #item-slot.active { pointer-events: auto; cursor: pointer; background: rgba(255, 255, 255, 0.9); }
         #item-slot.active:active { transform: scale(0.9); }
-        #item-slot.cooling {
-            pointer-events: none; background: rgba(0, 0, 0, 0.8);
-        }
-        .item-timer {
-            position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif;
-        }
+        #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
+        .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
-        /* チャットUI */
+        /* カメラスライダーUI */
+        #camera-slider-container {
+            position: absolute; bottom: 200px; right: 25px; width: 40px; height: 130px;
+            background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; z-index: 100;
+            padding: 10px 0; box-sizing: border-box;
+        }
+        #camera-slider {
+            -webkit-appearance: slider-vertical;
+            writing-mode: bt-lr; 
+            appearance: slider-vertical;
+            width: 8px; height: 80px; outline: none; margin-top: 5px; cursor: pointer;
+        }
+        #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
+
         #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 250px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; pointer-events: none; }
         #floatingLog { width: 100%; height: 120px; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; margin-bottom: 5px; }
         .log-line { font-size: 13px; line-height: 1.4; color: white; text-shadow: 1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; margin-top: 3px; word-wrap: break-word; }
@@ -63,14 +70,11 @@ function initUI() {
         #chatInputArea { display: flex; margin-top: 5px; }
         #chatInputArea input { flex: 1; background: rgba(0,0,0,0.5); border: 1px solid #555; color: white; padding: 8px; font-size: 14px; box-sizing: border-box; border-radius: 4px 0 0 4px; outline: none; pointer-events: auto; }
         #chatInputArea button { background: #4CAF50; border: none; color: white; padding: 8px 15px; cursor: pointer; font-size: 14px; font-weight: bold; border-radius: 0 4px 4px 0; pointer-events: auto; }
-
-        /* ショートカットUI用スタイル */
         #shortcutGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; overflow-y: auto; flex: 1; padding-bottom: 5px; }
         .shortcut-btn { background: rgba(0,0,0,0.6); border: 1px solid #666; color: white; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold; }
         .shortcut-btn:active { background: rgba(80,80,80,0.8); }
         #editShortcutBtn { width: 100%; background: #444; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
 
-        /* ミニゲームボタンのスタイル */
         #minigame-btn {
             position: absolute; right: 10px; padding: 8px 16px;
             background: rgba(255, 150, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.9);
@@ -98,10 +102,27 @@ function initUI() {
     jumpBtn.innerText = 'JUMP';
     uiLayer.appendChild(jumpBtn);
 
-    // ★追加: アイテムスロット
     const itemSlot = document.createElement('div');
     itemSlot.id = 'item-slot';
     uiLayer.appendChild(itemSlot);
+
+    // カメラスライダーの要素とイベント処理
+    const cameraSliderContainer = document.createElement('div');
+    cameraSliderContainer.id = 'camera-slider-container';
+    cameraSliderContainer.innerHTML = `
+        <div id="camera-slider-label">CAM</div>
+        <input type="range" id="camera-slider" min="0" max="100" value="50">
+    `;
+    uiLayer.appendChild(cameraSliderContainer);
+
+    window.cameraSliderValue = 0.5;
+    const cameraSlider = document.getElementById('camera-slider');
+    cameraSlider.addEventListener('input', (e) => {
+        window.cameraSliderValue = e.target.value / 100;
+    });
+    cameraSliderContainer.addEventListener('mousedown', e => e.stopPropagation());
+    cameraSliderContainer.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+
 
     const screenHeight = window.innerHeight;
     const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
@@ -157,4 +178,3 @@ function initUI() {
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 }
-

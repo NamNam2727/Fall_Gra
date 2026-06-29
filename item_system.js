@@ -4,9 +4,9 @@
 // =====================================
 
 window.ItemSystem = {
-    enabled: true, // 今後ゲーム設定でON/OFFを切り替えるためのフラグ
+    enabled: true, 
     currentFieldItem: null,
-    currentItemPosInfo: null, // { pos: {x,y,z}, timestamp: number }
+    currentItemPosInfo: null, 
     mySlotItem: null,
     isFlyMode: false,
     isCoolingDown: false,
@@ -26,24 +26,42 @@ window.ItemSystem = {
             this.slotUI.addEventListener('touchstart', (e) => { e.preventDefault(); this.useItem(); }, {passive: false});
         }
         
-        // プレイヤーの速度減衰計算用
         if (typeof THREE !== 'undefined') {
             this.lastPlayerPos = new THREE.Vector3();
         }
         
-        // メインのゲームループとは独立してアイテムの状態を更新するループ
         const loop = () => {
             this.update();
             requestAnimationFrame(loop);
         };
         loop();
 
-        // ロード完了後、数秒待ってから最初のアイテムを配置する（同期チェック込み）
+        // ★確実なスポーン処理: ゲーム開始2秒後にプレイヤーの目の前に強制配置
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
-                this.spawnNewItem(true);
+                // プレイヤーが存在すればその少し前方、いなければ原点付近
+                let spawnPos = { x: 0, y: 3, z: 0 };
+                if (typeof player !== 'undefined' && player) {
+                    const forwardX = -Math.sin(typeof cameraAngle !== 'undefined' ? cameraAngle + Math.PI : 0);
+                    const forwardZ = -Math.cos(typeof cameraAngle !== 'undefined' ? cameraAngle + Math.PI : 0);
+                    spawnPos = {
+                        x: player.position.x + forwardX * 3, // 3マス前
+                        y: player.position.y + 0.5,          // 床から少し浮かす
+                        z: player.position.z + forwardZ * 3
+                    };
+                }
+                
+                const timestamp = Date.now();
+                this.placeFieldItem(spawnPos, timestamp);
+                
+                // マルチプレイ用同期
+                if (window.MultiplayerManager) {
+                    window.MultiplayerManager.sendData({
+                        type: 'item_spawn', pos: spawnPos, timestamp: timestamp
+                    });
+                }
             }
-        }, 5000);
+        }, 2000); 
     },
     
     spawnNewItem: function(isOriginator) {
@@ -55,21 +73,18 @@ window.ItemSystem = {
 
         const validSpawns = [];
         
-        // アイテムが出現可能なマスを計算
         for (let x = 0; x < mapW; x++) {
             for (let z = 0; z < mapD; z++) {
                 let layers = parsedMap[x][z];
                 if (layers.length > 0) {
                     let topLayer = layers[layers.length - 1]; 
-                    // 一番上の層が実体（0以外）であれば出現可能
                     if (topLayer.val > 0) {
                         let px = x - mapW / 2 + 0.5;
                         let pz = z - mapD / 2 + 0.5;
                         let py = topLayer.top;
                         
-                        // 坂道(奇数)の場合は中心の高さを取得
                         if (topLayer.isOdd) {
-                            let corners = MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, topLayer.top);
+                            let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, topLayer.top);
                             py = corners.center;
                         }
                         validSpawns.push({x: px, y: py, z: pz});
@@ -80,14 +95,12 @@ window.ItemSystem = {
         
         if (validSpawns.length === 0) return;
         
-        // ランダムな位置を選択
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
-        const pos = { x: spawn.x, y: spawn.y + 0.5, z: spawn.z }; // 床から少し浮かせる
+        const pos = { x: spawn.x, y: spawn.y + 0.5, z: spawn.z };
         const timestamp = Date.now();
         
         this.placeFieldItem(pos, timestamp);
         
-        // 自分が決定者なら他のプレイヤーに位置情報を送信
         if (isOriginator && window.MultiplayerManager) {
             window.MultiplayerManager.sendData({
                 type: 'item_spawn', pos: pos, timestamp: timestamp
@@ -96,22 +109,19 @@ window.ItemSystem = {
     },
     
     placeFieldItem: function(pos, timestamp) {
-        // ラグ対策: すでに受信済みの情報より古いタイムスタンプなら無視する
         if (this.currentItemPosInfo && this.currentItemPosInfo.timestamp > timestamp) return;
         
         this.currentItemPosInfo = { pos: pos, timestamp: timestamp };
         
-        // 既存のアイテムがあれば削除
         if (this.currentFieldItem) {
             scene.remove(this.currentFieldItem);
             this.currentFieldItem = null;
         }
         
-        // 透明な球体とハテナマークの生成
         const group = new THREE.Group();
-        const sphereGeo = new THREE.SphereGeometry(0.5, 16, 16);
+        const sphereGeo = new THREE.SphereGeometry(0.6, 16, 16);
         const glassMat = new THREE.MeshPhysicalMaterial({
-            color: 0xffffff, transmission: 0.9, opacity: 1, transparent: true, roughness: 0.1, ior: 1.5
+            color: 0xffffaa, transmission: 0.8, opacity: 1, transparent: true, roughness: 0.1, ior: 1.5, emissive: 0x332200
         });
         const sphere = new THREE.Mesh(sphereGeo, glassMat);
         group.add(sphere);
@@ -125,11 +135,11 @@ window.ItemSystem = {
         const tex = new THREE.CanvasTexture(canvas);
         const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false }); 
         const sprite = new THREE.Sprite(spriteMat);
-        sprite.scale.set(0.6, 0.6, 1);
+        sprite.scale.set(1.0, 1.0, 1); 
         group.add(sprite);
         
         group.position.set(pos.x, pos.y, pos.z);
-        group.userData = { baseY: pos.y, time: 0 }; // アニメーション用
+        group.userData = { baseY: pos.y, time: 0 }; 
         
         scene.add(group);
         this.currentFieldItem = group;
@@ -141,12 +151,11 @@ window.ItemSystem = {
             this.currentFieldItem = null;
         }
         
-        // ランダムなアイテムを獲得
         const items = ['fly', 'bomb', 'net'];
         this.mySlotItem = items[Math.floor(Math.random() * items.length)];
         this.updateSlotUI();
         
-        // 自分が獲得した場合、次のアイテムの出現位置を決定して同期
+        // 獲得後、再度新しいアイテムをランダムな位置にスポーン
         this.spawnNewItem(true);
     },
     
@@ -220,7 +229,6 @@ window.ItemSystem = {
     },
     
     explodeBomb: function(bomb) {
-        // 爆発エフェクトの生成
         const expGeo = new THREE.SphereGeometry(3.0, 16, 16); 
         const expMat = new THREE.MeshBasicMaterial({color: 0xff3300, transparent: true, opacity: 0.6});
         const expMesh = new THREE.Mesh(expGeo, expMat);
@@ -229,14 +237,13 @@ window.ItemSystem = {
         
         this.explosions.push({ mesh: expMesh, timer: 0.3 });
         
-        // プレイヤーの吹き飛ばし判定
         if (typeof player !== 'undefined' && player) {
             const dist = player.position.distanceTo(bomb.mesh.position);
             if (dist <= 3.5) {
-                window.verticalVelocity = 15; // 大きく上空へ吹き飛ぶ
+                window.verticalVelocity = 15; 
                 window.isJumping = true;
                 const dir = player.position.clone().sub(bomb.mesh.position).normalize();
-                player.position.add(dir.multiplyScalar(0.5)); // 爆心地から少し押し出す
+                player.position.add(dir.multiplyScalar(0.5)); 
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#ff3300;">💣 爆発に吹き飛ばされた！</span>', 'sys');
             }
         }
@@ -254,7 +261,6 @@ window.ItemSystem = {
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
         
-        // Raycasterを用いて足元の地形メッシュの法線を取得し、斜面に沿わせる
         const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + 1, pos.z), new THREE.Vector3(0, -1, 0));
         let terrainMesh = scene.children.find(c => c.userData && c.userData.isTerrain);
         if (terrainMesh) {
@@ -262,7 +268,7 @@ window.ItemSystem = {
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
-                mesh.position.y += 0.05; // 地面から少し浮かせる
+                mesh.position.y += 0.05; 
                 mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), hit.face.normal);
             } else {
                 mesh.position.set(pos.x, Math.floor(pos.y * 2) / 2 + 0.05, pos.z);
@@ -275,7 +281,6 @@ window.ItemSystem = {
         
         scene.add(mesh);
         
-        // 自分が設置したネットには自分が引っかからないようにフラグを持たせる
         this.activeNets.push({ mesh: mesh, timer: 5.0, isMine: isOriginator });
         
         if (isOriginator && window.MultiplayerManager) {
@@ -302,22 +307,20 @@ window.ItemSystem = {
         
         if (typeof scene === 'undefined') return;
 
-        // 1. フィールドアイテムのアニメーションとプレイヤーの取得判定
         if (this.currentFieldItem) {
             const ud = this.currentFieldItem.userData;
-            ud.time += delta * 2;
-            this.currentFieldItem.position.y = ud.baseY + Math.sin(ud.time) * 0.2;
+            ud.time += delta * 3;
+            this.currentFieldItem.position.y = ud.baseY + Math.sin(ud.time) * 0.3;
             this.currentFieldItem.rotation.y += delta;
             
             if (typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown) {
                 const dist = player.position.distanceTo(this.currentFieldItem.position);
-                if (dist < 1.2) { // 近づいたら取得
+                if (dist < 1.2) { 
                     this.pickupItem();
                 }
             }
         }
         
-        // 2. ボムの更新（拡縮アニメーションと爆発カウントダウン）
         for (let i = this.activeBombs.length - 1; i >= 0; i--) {
             let b = this.activeBombs[i];
             b.timer -= delta;
@@ -331,7 +334,6 @@ window.ItemSystem = {
             }
         }
         
-        // 3. 爆発エフェクトの更新（フェードアウト）
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             let exp = this.explosions[i];
             exp.timer -= delta;
@@ -342,7 +344,6 @@ window.ItemSystem = {
             }
         }
         
-        // 4. ネットの更新と速度低下の判定
         this.isOnNet = false;
         for (let i = this.activeNets.length - 1; i >= 0; i--) {
             let n = this.activeNets[i];
@@ -353,7 +354,6 @@ window.ItemSystem = {
                 continue;
             }
             
-            // 自分が設置したものではない場合のみ踏み判定を行う
             if (!n.isMine && typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
@@ -363,11 +363,10 @@ window.ItemSystem = {
             }
         }
         
-        // ネットによる速度制限の適用 (移動量の90%を打ち消すことで疑似的に速度0.1倍にする)
         if (typeof player !== 'undefined' && player && this.lastPlayerPos) {
             if (this.isOnNet) {
                 const deltaPos = player.position.clone().sub(this.lastPlayerPos);
-                deltaPos.y = 0; // 落下の動きなどは阻害しない
+                deltaPos.y = 0; 
                 if (deltaPos.lengthSq() > 0) {
                     const rollback = deltaPos.multiplyScalar(0.9);
                     player.position.x -= rollback.x;
@@ -379,7 +378,6 @@ window.ItemSystem = {
     }
 };
 
-// スクリプト読み込み時に初期化を実行
 setTimeout(() => {
     if (window.ItemSystem) window.ItemSystem.init();
 }, 2000);

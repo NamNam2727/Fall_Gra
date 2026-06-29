@@ -1,6 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
+// カメラスライダー連動機能追加
 // =====================================
 
 let mapMesh;
@@ -89,7 +90,6 @@ function updatePlayer(delta) {
         }
     }
 
-    // 1. 下向きRaycasterによる正確な床判定
     let currentGroundY = -100;
     let groundNormal = new THREE.Vector3(0, 1, 0);
     
@@ -103,9 +103,7 @@ function updatePlayer(delta) {
             let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
             hitNormal.applyMatrix3(normalMatrix).normalize();
             
-            // 下を向いている面（天井の裏側）は無視。上を向いている面（床・坂道）だけを探す
             if (hitNormal.y > 0.3) {
-                // 自分の足元〜少し上の範囲にある床を「現在の地面」として採用
                 if (intersects[i].point.y <= player.position.y + myStepHeight + 0.5) {
                     currentGroundY = intersects[i].point.y;
                     groundNormal.copy(hitNormal);
@@ -115,7 +113,6 @@ function updatePlayer(delta) {
         }
     }
 
-    // 2. 水平Raycasterによる壁・坂道判定と移動
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
@@ -130,11 +127,9 @@ function updatePlayer(delta) {
         const nextZ = player.position.z + mZ;
 
         let margin = pRadius * 0.8; 
-        
         let wallCheckY = player.position.y + myStepHeight * 0.8; 
         let headCheckY = player.position.y + pRadius * 1.8; 
 
-        // 【X軸方向】
         let canMoveX = true;
         if (Math.abs(mX) > 0.001 && mapMesh) {
             let dirX = new THREE.Vector3(Math.sign(mX), 0, 0);
@@ -160,7 +155,6 @@ function updatePlayer(delta) {
         }
         if (canMoveX) player.position.x = nextX;
 
-        // 【Z軸方向】
         let canMoveZ = true;
         if (Math.abs(mZ) > 0.001 && mapMesh) {
             let dirZ = new THREE.Vector3(0, 0, Math.sign(mZ));
@@ -186,11 +180,8 @@ function updatePlayer(delta) {
         }
         if (canMoveZ) player.position.z = nextZ;
 
-        // キャラクターの回転と姿勢制御
         const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
-        
-        // ★修正: ジャンプ中でなければ（坂道歩行中を含む）常に地面の傾きを適用する
         const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         
@@ -205,7 +196,6 @@ function updatePlayer(delta) {
             cameraAngle += diff * 3.0 * delta;
         }
     } else {
-        // ★修正: 停止中も同様に、ジャンプ中でなければ傾きを適用する
         const currentRotY = new THREE.Euler().setFromQuaternion(player.quaternion, 'YXZ').y;
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentRotY);
         const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
@@ -213,7 +203,6 @@ function updatePlayer(delta) {
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
-    // 3. Y座標の更新
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -232,7 +221,6 @@ function updatePlayer(delta) {
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
-            // 坂道に滑らかに吸い付く
             player.position.y += (currentGroundY - player.position.y) * 0.3;
         }
     }
@@ -243,7 +231,6 @@ function updatePlayer(delta) {
         verticalVelocity = 0;
     }
 
-    // 4. 他プレイヤーとの半球衝突判定（変更なし）
     if (window.MultiplayerManager) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
@@ -276,13 +263,27 @@ function updatePlayer(delta) {
     }
 }
 
+// ★追加・変更: スライダーと連動してカメラの高さと距離を動的に変更する処理
 function updateCamera(instant) {
+    // UIスライダーからの値を取得 (0.0〜1.0) 未定義の場合は0.5
+    let camRatio = typeof window.cameraSliderValue !== 'undefined' ? window.cameraSliderValue : 0.5;
+
+    // スライダーに応じたカメラ高さ (下 2.5 〜 上 14.5)
+    let currentHeight = 2.5 + (camRatio * 12.0);
+    // スライダーに応じたカメラ距離 (下 8.0 〜 上 5.0) 俯瞰の時は少し近づける
+    let currentDistance = 5.0 + ((1.0 - camRatio) * 3.0);
+
     const targetCamPos = new THREE.Vector3(
-        player.position.x + Math.sin(cameraAngle) * cameraDistance,
-        player.position.y + cameraHeight, 
-        player.position.z + Math.cos(cameraAngle) * cameraDistance
+        player.position.x + Math.sin(cameraAngle) * currentDistance,
+        player.position.y + currentHeight, 
+        player.position.z + Math.cos(cameraAngle) * currentDistance
     );
+
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
-    camera.lookAt(player.position);
+
+    // キャラクターの少し上（頭のあたり）を常に見るようにする
+    let lookTarget = player.position.clone();
+    lookTarget.y += 1.0;
+    camera.lookAt(lookTarget);
 }
