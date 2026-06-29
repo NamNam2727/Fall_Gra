@@ -91,6 +91,15 @@ function animate() {
 function updatePlayer(delta) {
     const rotationSpeed = 12; 
     
+    // 持ち上げタイマー管理
+    if (typeof player.liftTimer === 'undefined') player.liftTimer = 0;
+    if (typeof player.liftedBy === 'undefined') player.liftedBy = null;
+    
+    if (player.liftTimer > 0) {
+        player.liftTimer -= delta;
+        if (player.liftTimer <= 0) player.liftedBy = null;
+    }
+    
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -111,7 +120,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★2. 他プレイヤーとの接触判定（無限上昇を防ぐタイムスタンプによる上下決定）
+    // ★2. 他プレイヤーとの接触判定（貫通防止のクライアントサイド予測を導入）
     if (window.MultiplayerManager) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
@@ -128,25 +137,53 @@ function updatePlayer(delta) {
                     let myTime = player.lastMoveTime || 0;
                     let otherTime = other.lastMoveTime || 0;
                     
-                    // ★どちらが上かを厳密に決定する
                     let isMeOnTop = false;
                     if (myY > otherY + 0.1) {
-                        isMeOnTop = true; // 自分が明確に高い場合は上
+                        isMeOnTop = true;
                     } else if (Math.abs(myY - otherY) <= 0.1) {
-                        if (myTime > otherTime) {
-                            isMeOnTop = true; // 同じ高さなら後から来た方(時間が新しい方)を上とする
-                        }
+                        if (myTime > otherTime) isMeOnTop = true;
                     }
                     
-                    // 自分が「上」と判定された場合のみ、相手を足場にする
-                    if (isMeOnTop) {
+                    let isLifter = (player.liftedBy === id && player.liftTimer > 0);
+                    
+                    // 【自分が上】相手を足場にする処理（ロケットジャンプ対応）
+                    if (isMeOnTop && (!other.isJumping || isLifter)) {
                         let otherTopY = otherY + 0.4; 
                         if (otherTopY >= myY - 1.5 && otherTopY <= myY + 2.5) {
                             if (otherTopY > currentGroundY) {
                                 currentGroundY = otherTopY;
                             }
                         }
+                    } 
+                    // 【自分が下】相手を押し上げる処理
+                    else if (!isMeOnTop) {
+                        // ★貫通防止魔法1: 自分が上昇中、頭上にいる相手をローカルの画面内で強制的に押し上げる
+                        if (isJumping && verticalVelocity > 0) {
+                            if (otherY > myY - 0.5 && otherY < myY + 2.0) {
+                                let myTopY = myY + 0.4; // 自分の頭の高さ
+                                
+                                // 通信を待たずに、自分の画面内だけで相手を自分の頭上に固定する！
+                                if (other.targetPos.y < myTopY) {
+                                    other.targetPos.y = myTopY;
+                                }
+                                if (other.mesh.position.y < myTopY) {
+                                    other.mesh.position.y = myTopY;
+                                }
+                                
+                                // 相手に持ち上げメッセージを送信（ジャンプ1回につき、相手1人に対して1回だけ）
+                                if (!other.hasSentLift) {
+                                    const myId = window.GameState && window.GameState.userInfo ? window.GameState.userInfo.user_id : 'myself';
+                                    if (typeof window.MultiplayerManager.sendLiftMessage === 'function') {
+                                        window.MultiplayerManager.sendLiftMessage(id, myId);
+                                    }
+                                    other.hasSentLift = true;
+                                }
+                            }
+                        }
                     }
+                } else {
+                    // 相手が離れたら持ち上げメッセージ送信フラグをリセット
+                    other.hasSentLift = false;
                 }
             }
         }
@@ -173,11 +210,9 @@ function updatePlayer(delta) {
                 if (cellsX[i].h > player.position.y + stepHeight) { canMoveX = false; break; }
             }
             
-            // ★他プレイヤーとの平たい壁判定 (X軸)
             if (canMoveX && window.MultiplayerManager) {
                 let myTop = player.position.y + 0.4;
                 let myBottom = player.position.y + stepHeight; 
-                
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let other = window.MultiplayerManager.otherPlayers[id];
                     if (other.mesh) {
@@ -189,14 +224,10 @@ function updatePlayer(delta) {
                             let myTime = player.lastMoveTime || 0;
                             let otherTime = other.lastMoveTime || 0;
                             
-                            // ★相手が「上」と判定された場合のみ壁として認識する
                             let isOtherOnTop = false;
-                            if (otherY > myY + 0.1) {
-                                isOtherOnTop = true;
-                            } else if (Math.abs(myY - otherY) <= 0.1) {
-                                if (otherTime > myTime) {
-                                    isOtherOnTop = true;
-                                }
+                            if (otherY > myY + 0.1) isOtherOnTop = true;
+                            else if (Math.abs(myY - otherY) <= 0.1) {
+                                if (otherTime > myTime) isOtherOnTop = true;
                             }
                             
                             if (isOtherOnTop) {
@@ -221,11 +252,9 @@ function updatePlayer(delta) {
                 if (cellsZ[i].h > player.position.y + stepHeight) { canMoveZ = false; break; }
             }
             
-            // ★他プレイヤーとの平たい壁判定 (Z軸)
             if (canMoveZ && window.MultiplayerManager) {
                 let myTop = player.position.y + 0.4;
                 let myBottom = player.position.y + stepHeight;
-                
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let other = window.MultiplayerManager.otherPlayers[id];
                     if (other.mesh) {
@@ -238,12 +267,9 @@ function updatePlayer(delta) {
                             let otherTime = other.lastMoveTime || 0;
                             
                             let isOtherOnTop = false;
-                            if (otherY > myY + 0.1) {
-                                isOtherOnTop = true;
-                            } else if (Math.abs(myY - otherY) <= 0.1) {
-                                if (otherTime > myTime) {
-                                    isOtherOnTop = true;
-                                }
+                            if (otherY > myY + 0.1) isOtherOnTop = true;
+                            else if (Math.abs(myY - otherY) <= 0.1) {
+                                if (otherTime > myTime) isOtherOnTop = true;
                             }
                             
                             if (isOtherOnTop) {
@@ -273,36 +299,7 @@ function updatePlayer(delta) {
         }
     }
 
-    // ★追加: 自分が上昇中（ジャンプ等）の場合、頭上の他プレイヤーに持ち上げメッセージを飛ばす
-    if (isJumping && verticalVelocity > 0 && window.MultiplayerManager) {
-        let myTop = player.position.y + 0.4; // 自分の頭の高さ
-        const others = window.MultiplayerManager.otherPlayers;
-        for (let id in others) {
-            let other = others[id];
-            if (other.mesh) {
-                let dx = player.position.x - other.mesh.position.x;
-                let dz = player.position.z - other.mesh.position.z;
-                let distSq = dx * dx + dz * dz;
-                if (distSq < (playerRadius * 1.5) * (playerRadius * 1.5)) {
-                    let otherY = other.mesh.position.y;
-                    // 自分が下で、相手が上にいる場合
-                    if (player.position.y < otherY) {
-                        // 自分の頭が相手の足元に接触・めり込んでいる場合
-                        if (myTop >= otherY - 0.2 && myTop <= otherY + 0.5) {
-                            if (typeof window.MultiplayerManager.sendLiftMessage === 'function') {
-                                // 相手に持ち上げメッセージを送信
-                                window.MultiplayerManager.sendLiftMessage(id, verticalVelocity);
-                                
-                                // ローカルの見た目でも強制的に少し押し上げておく（ラグによる貫通防止の補助）
-                                other.targetPos.y = Math.max(other.targetPos.y, myTop);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
+    // 物理法則に基づくY座標の更新
     if (isJumping) {
         verticalVelocity += gravity * delta;
         player.position.y += verticalVelocity * delta;
@@ -312,15 +309,30 @@ function updatePlayer(delta) {
             isJumping = false; 
             verticalVelocity = 0;
             
+            // 着地したら持ち上げ特権を終了
+            player.liftTimer = 0; 
+            player.liftedBy = null;
+            
+            // ★自分が着地したタイミングで、全プレイヤーの持ち上げフラグをリセット
+            if (window.MultiplayerManager) {
+                for (let id in window.MultiplayerManager.otherPlayers) {
+                    window.MultiplayerManager.otherPlayers[id].hasSentLift = false;
+                }
+            }
+            
             if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
                 window.MultiplayerManager.forceSendPos();
             }
         }
     } else {
-        if (player.position.y > currentGroundY + stepHeight) { 
+        // ★貫通防止魔法2: 持ち上げられている間は、通信ラグで足場が離れても安易に落下させない
+        let fallTolerance = (player.liftTimer > 0) ? 1.0 : stepHeight;
+        
+        if (player.position.y > currentGroundY + fallTolerance) { 
             isJumping = true; 
             verticalVelocity = 0; 
         } else {
+            // 相手の頭にガッチリと吸い付く
             player.position.y = currentGroundY;
         }
     }
