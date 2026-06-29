@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -61,16 +62,13 @@
 </head>
 <body>
 
-<!-- ゲーム起動までのUI (マッチング完了で非表示になります) -->
 <div id="startup-ui">
     
-    <!-- ローディング画面 -->
     <div id="screen-loading" class="screen active">
         <div class="title-logo">Loading...</div>
         <div class="sys-msg" id="loading-msg">通信環境を確認しています...</div>
     </div>
 
-    <!-- ロビー画面 -->
     <div id="screen-room" class="screen">
         <div class="room-panel">
             <div class="room-header">マルチプレイ ロビー</div>
@@ -98,9 +96,10 @@
     </div>
 </div>
 
-<!-- SDK初期化とマッチングUIを制御するスクリプト -->
-<script src="https://namnam2727.github.io/Fall_Gra/js/gravity_setup.js?v=1"></script>
+<!-- ★修正: js/ サブフォルダの指定を削除しました -->
+<script src="https://namnam2727.github.io/Fall_Gra/gravity_setup.js?v=2"></script>
 
 </body>
 </html>
 
+```
