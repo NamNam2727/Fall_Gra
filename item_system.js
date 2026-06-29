@@ -36,25 +36,15 @@ window.ItemSystem = {
         };
         loop();
 
-        // ゲーム初期化完了からさらに2秒後に、確実に見える位置へアイテムを置く
+        // テスト用アイテムの出現（エラーを完全に防ぐため、固定座標でスポーン）
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
+                // プレイヤーの位置などの計算を省き、エラーなく安全に(0, 3, 0)に配置
                 let spawnPos = { x: 0, y: 3, z: 0 };
-                if (typeof player !== 'undefined' && player) {
-                    let cAngle = typeof cameraAngle !== 'undefined' && !isNaN(cameraAngle) ? cameraAngle : 0;
-                    const forwardX = -Math.sin(cAngle + Math.PI);
-                    const forwardZ = -Math.cos(cAngle + Math.PI);
-                    spawnPos = {
-                        x: player.position.x + forwardX * 3, // 3マス前
-                        y: player.position.y + 0.5,          // 床から少し浮かす
-                        z: player.position.z + forwardZ * 3
-                    };
-                }
-                
                 const timestamp = Date.now();
                 this.placeFieldItem(spawnPos, timestamp);
                 
-                if (window.MultiplayerManager) {
+                if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
                     window.MultiplayerManager.sendData({
                         type: 'item_spawn', pos: spawnPos, timestamp: timestamp
                     });
@@ -100,7 +90,7 @@ window.ItemSystem = {
         
         this.placeFieldItem(pos, timestamp);
         
-        if (isOriginator && window.MultiplayerManager) {
+        if (isOriginator && window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
                 type: 'item_spawn', pos: pos, timestamp: timestamp
             });
@@ -108,7 +98,6 @@ window.ItemSystem = {
     },
     
     placeFieldItem: function(pos, timestamp) {
-        // ★エラー防止: sceneがまだ生成されていない場合は処理を中断
         if (typeof scene === 'undefined' || !scene) return;
 
         if (this.currentItemPosInfo && this.currentItemPosInfo.timestamp > timestamp) return;
@@ -224,7 +213,7 @@ window.ItemSystem = {
         
         this.activeBombs.push({ mesh: bombGroup, timer: 3.0 });
         
-        if (isOriginator && window.MultiplayerManager) {
+        if (isOriginator && window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
                 type: 'item_bomb', pos: {x: pos.x, y: pos.y, z: pos.z}
             });
@@ -244,8 +233,8 @@ window.ItemSystem = {
         if (typeof player !== 'undefined' && player) {
             const dist = player.position.distanceTo(bomb.mesh.position);
             if (dist <= 3.5) {
-                window.verticalVelocity = 15; 
-                window.isJumping = true;
+                if(typeof verticalVelocity !== 'undefined') verticalVelocity = 15; 
+                if(typeof isJumping !== 'undefined') isJumping = true;
                 const dir = player.position.clone().sub(bomb.mesh.position).normalize();
                 player.position.add(dir.multiplyScalar(0.5)); 
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#ff3300;">💣 爆発に吹き飛ばされた！</span>', 'sys');
@@ -288,7 +277,7 @@ window.ItemSystem = {
         
         this.activeNets.push({ mesh: mesh, timer: 5.0, isMine: isOriginator });
         
-        if (isOriginator && window.MultiplayerManager) {
+        if (isOriginator && window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
                 type: 'item_net', pos: {x: pos.x, y: pos.y, z: pos.z}
             });
@@ -382,5 +371,3 @@ window.ItemSystem = {
         }
     }
 };
-
-// ★削除: setTimeoutでの自動初期化処理を消し、loader.js から呼ばれるように変更しました。

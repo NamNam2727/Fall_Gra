@@ -1,7 +1,6 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// カメラスライダー連動機能追加
 // =====================================
 
 let mapMesh;
@@ -114,11 +113,8 @@ function updatePlayer(delta) {
     }
 
     if (moveVector.lengthSq() > 0.01) {
-        // ★エラー防止: cameraAngleが未定義の場合の安全対策
-        let cAngle = typeof cameraAngle !== 'undefined' && !isNaN(cameraAngle) ? cameraAngle : 0;
-
-        const camForwardX = -Math.sin(cAngle), camForwardZ = -Math.cos(cAngle);
-        const camRightX = Math.cos(cAngle), camRightZ = -Math.sin(cAngle);
+        const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
+        const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
         const moveDirX = camRightX * moveVector.x + camForwardX * (-moveVector.y);
         const moveDirZ = camRightZ * moveVector.x + camForwardZ * (-moveVector.y);
         const moveDirection = new THREE.Vector2(moveDirX, moveDirZ).normalize();
@@ -130,6 +126,7 @@ function updatePlayer(delta) {
         const nextZ = player.position.z + mZ;
 
         let margin = pRadius * 0.8; 
+        
         let wallCheckY = player.position.y + myStepHeight * 0.8; 
         let headCheckY = player.position.y + pRadius * 1.8; 
 
@@ -193,14 +190,10 @@ function updatePlayer(delta) {
 
         if (moveVector.y <= 0.2 && Math.abs(moveVector.x) > 0.05) {
             let targetCameraAngle = targetRotationY + Math.PI;
-            
-            // ★エラー防止
-            if (typeof cameraAngle !== 'undefined') {
-                let diff = targetCameraAngle - cameraAngle;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                cameraAngle += diff * 3.0 * delta;
-            }
+            let diff = targetCameraAngle - cameraAngle;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            cameraAngle += diff * 3.0 * delta;
         }
     } else {
         const currentRotY = new THREE.Euler().setFromQuaternion(player.quaternion, 'YXZ').y;
@@ -271,24 +264,25 @@ function updatePlayer(delta) {
 }
 
 function updateCamera(instant) {
-    let camRatio = typeof window.cameraSliderValue !== 'undefined' ? window.cameraSliderValue : 0.5;
-
-    let currentHeight = 2.5 + (camRatio * 12.0);
-    let currentDistance = 5.0 + ((1.0 - camRatio) * 3.0);
-    
-    // ★エラー防止: cameraAngle が無い場合でも NaN で壊れないようにする
-    let cAngle = typeof cameraAngle !== 'undefined' && !isNaN(cameraAngle) ? cameraAngle : 0;
+    // ★追加: スライダーに応じてグローバルのカメラ距離と高さを上書きする
+    if (typeof window.cameraSliderValue !== 'undefined') {
+        let camRatio = window.cameraSliderValue; // 0.0(下) 〜 1.0(上)
+        cameraHeight = 2.5 + (camRatio * 12.0);
+        cameraDistance = 5.0 + ((1.0 - camRatio) * 3.0);
+    }
 
     const targetCamPos = new THREE.Vector3(
-        player.position.x + Math.sin(cAngle) * currentDistance,
-        player.position.y + currentHeight, 
-        player.position.z + Math.cos(cAngle) * currentDistance
+        player.position.x + Math.sin(cameraAngle) * cameraDistance,
+        player.position.y + cameraHeight, 
+        player.position.z + Math.cos(cameraAngle) * cameraDistance
     );
-
+    
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
-
+    
+    // ★追加: 少しだけ見下ろす位置に補正（キャラの頭上を注視する）
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);
 }
+
