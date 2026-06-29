@@ -1,6 +1,7 @@
 // =====================================
 // item_system.js
 // ミニゲーム用アイテムの出現、取得、効果、および同期を管理
+// ★正常に動いていた「自己初期化版」に完全復元
 // =====================================
 
 window.ItemSystem = {
@@ -36,10 +37,9 @@ window.ItemSystem = {
         };
         loop();
 
-        // テスト用アイテムの出現（エラーを完全に防ぐため、固定座標でスポーン）
+        // テスト用アイテムの出現（固定座標で安全にスポーン）
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
-                // プレイヤーの位置などの計算を省き、エラーなく安全に(0, 3, 0)に配置
                 let spawnPos = { x: 0, y: 3, z: 0 };
                 const timestamp = Date.now();
                 this.placeFieldItem(spawnPos, timestamp);
@@ -50,7 +50,7 @@ window.ItemSystem = {
                     });
                 }
             }
-        }, 2000); 
+        }, 3000); 
     },
     
     spawnNewItem: function(isOriginator) {
@@ -371,3 +371,8 @@ window.ItemSystem = {
         }
     }
 };
+
+// スクリプト読み込みから数秒後に自動で初期化
+setTimeout(() => {
+    if (window.ItemSystem) window.ItemSystem.init();
+}, 2000);

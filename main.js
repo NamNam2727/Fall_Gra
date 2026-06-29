@@ -1,13 +1,15 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
+// ★オリジナルコードを復元し、カメラ部分だけを追記
 // =====================================
 
 let mapMesh;
 let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
-function initThreeJS() {
+// ★エラー回避のため、明示的にwindowオブジェクトに割り当て
+window.initThreeJS = function() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
     scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
@@ -52,16 +54,16 @@ function initThreeJS() {
 
     updateCamera(true);
     window.addEventListener('resize', onWindowResize);
-}
+};
 
-function onWindowResize() {
+window.onWindowResize = function() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-}
+};
 
-function animate() {
-    requestAnimationFrame(animate);
+window.animate = function() {
+    requestAnimationFrame(window.animate);
     const delta = Math.min(clock.getDelta(), 0.1); 
     
     updatePlayer(delta);
@@ -72,9 +74,9 @@ function animate() {
     
     updateCamera(false);
     renderer.render(scene, camera);
-}
+};
 
-function updatePlayer(delta) {
+window.updatePlayer = function(delta) {
     const rotationSpeed = 12; 
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.0;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
@@ -261,31 +263,31 @@ function updatePlayer(delta) {
             }
         }
     }
-}
+};
 
-function updateCamera(instant) {
-    // ★安全装置: globals.js の変数を直接上書きせず、ローカル変数として扱う
-    let currentCameraHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
-    let currentCameraDistance = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
+window.updateCamera = function(instant) {
+    // globals.jsから変数を取得し、存在しない場合はデフォルト値を使用
+    let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
+    let cDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
+    let cHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
 
-    // スライダーの値がある場合は、ローカル変数の値を上書きする
+    // スライダーの値がある場合は、カメラの距離と高さを上書きする
     if (typeof window.cameraSliderValue !== 'undefined') {
-        let camRatio = window.cameraSliderValue; // 0.0(下) 〜 1.0(上)
-        currentCameraHeight = 2.5 + (camRatio * 12.0);
-        currentCameraDistance = 5.0 + ((1.0 - camRatio) * 3.0);
+        cHeight = 2.5 + (window.cameraSliderValue * 12.0);
+        cDist = 5.0 + ((1.0 - window.cameraSliderValue) * 3.0);
     }
 
     const targetCamPos = new THREE.Vector3(
-        player.position.x + Math.sin(cameraAngle) * currentCameraDistance,
-        player.position.y + currentCameraHeight, 
-        player.position.z + Math.cos(cameraAngle) * currentCameraDistance
+        player.position.x + Math.sin(cAngle) * cDist,
+        player.position.y + cHeight, 
+        player.position.z + Math.cos(cAngle) * cDist
     );
     
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
     
-    // ★追加: キャラクターの頭上（+1.0の高さ）を注視する
+    // ★追加: カメラがキャラクターの頭上を注視するようにする
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);
-}
+};
