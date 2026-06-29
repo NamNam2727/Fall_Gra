@@ -106,7 +106,7 @@ function initUI() {
     itemSlot.id = 'item-slot';
     uiLayer.appendChild(itemSlot);
 
-    // カメラスライダーの要素とイベント処理
+    // カメラスライダーの要素を作成
     const cameraSliderContainer = document.createElement('div');
     cameraSliderContainer.id = 'camera-slider-container';
     cameraSliderContainer.innerHTML = `
@@ -116,10 +116,15 @@ function initUI() {
     uiLayer.appendChild(cameraSliderContainer);
 
     window.cameraSliderValue = 0.5;
-    const cameraSlider = document.getElementById('camera-slider');
-    cameraSlider.addEventListener('input', (e) => {
-        window.cameraSliderValue = e.target.value / 100;
-    });
+    
+    // ★エラーの完全修正: 画面に追加される前の要素から querySelector で正しく取得する
+    const cameraSlider = cameraSliderContainer.querySelector('#camera-slider');
+    if (cameraSlider) {
+        cameraSlider.addEventListener('input', (e) => {
+            window.cameraSliderValue = e.target.value / 100;
+        });
+    }
+    
     cameraSliderContainer.addEventListener('mousedown', e => e.stopPropagation());
     cameraSliderContainer.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
 
@@ -176,5 +181,6 @@ function initUI() {
     });
 
     uiLayer.appendChild(bottomUI);
+    // ここで初めて画面(DOM)に要素が追加される
     document.body.appendChild(uiLayer);
 }

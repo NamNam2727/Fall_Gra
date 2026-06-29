@@ -1,14 +1,12 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★オリジナルコードを復元し、カメラ部分だけを追記
 // =====================================
 
 let mapMesh;
 let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
-// ★エラー回避のため、明示的にwindowオブジェクトに割り当て
 window.initThreeJS = function() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
@@ -266,7 +264,6 @@ window.updatePlayer = function(delta) {
 };
 
 window.updateCamera = function(instant) {
-    // globals.jsから変数を取得し、存在しない場合はデフォルト値を使用
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
     let cDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let cHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
@@ -286,7 +283,6 @@ window.updateCamera = function(instant) {
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
     
-    // ★追加: カメラがキャラクターの頭上を注視するようにする
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);

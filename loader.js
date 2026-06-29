@@ -6,7 +6,7 @@
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
-    // ★js/ サブフォルダを廃止し、すべてルートディレクトリから読み込む（オリジナル通り）
+    // ★js/ サブフォルダを廃止し、すべてルートディレクトリから読み込む
     const coreScripts = [
         'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
         'globals.js',
@@ -16,7 +16,7 @@
         'map.js',
         'player.js',
         'input.js',
-        'item_system.js', // アイテムシステムを追加
+        'item_system.js',
         'multiplayer.js',
         'main.js'
     ];
@@ -39,7 +39,6 @@
         };
         script.onerror = () => {
             console.error(`Failed to load: ${src}`);
-            // エラーで止まらずに強引に次を読み込む
             if (typeof callback === 'function') callback();
         };
         document.head.appendChild(script);
@@ -58,13 +57,11 @@
     }
 
     function startGame() {
-        // ★青い画面のまま止まる原因を特定するためのデバッグ機能を搭載
         try {
-            // 関数が認識されているかチェック
             if (typeof window.animate !== 'function' && typeof animate !== 'function') {
-                const errMsg = 'Error: main.js の初期化関数(animate)が見つかりません。ファイル内に構文エラーがある可能性があります。';
+                const errMsg = 'Error: main.js の初期化関数(animate)が見つかりません。';
                 console.error(errMsg);
-                document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:10px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px; pointer-events:auto;">${errMsg}</div>`;
+                document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:10px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px;">${errMsg}</div>`;
                 return;
             }
 
@@ -80,13 +77,11 @@
             if (typeof window.setupInputs === 'function') window.setupInputs();
             else if (typeof setupInputs === 'function') setupInputs();
 
-            // 確実に関数を取得してループ開始
             const animFunc = typeof window.animate === 'function' ? window.animate : animate;
             requestAnimationFrame(animFunc);
             
         } catch (e) {
-            // 例外エラーが発生した場合も画面に表示する
-            document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:60px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px; pointer-events:auto;">起動エラー: ${e.message}</div>`;
+            document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:60px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px;">起動エラー: ${e.message}</div>`;
             console.error(e);
         }
     }
@@ -94,3 +89,4 @@
     // 読み込み開始
     loadNext();
 })();
+
