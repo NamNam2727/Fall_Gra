@@ -14,8 +14,9 @@ window.ItemSystem = {
     activeBombs: [],
     activeNets: [],
     explosions: [],
+    knockback: null, // ボムのノックバックアニメーション用
     isOnNet: false,
-    defaultMoveSpeed: null, // ★追加: 遅延効果のために元の移動速度を保存
+    defaultMoveSpeed: null, // ネットの遅延効果のための元速度保持
     
     lastTime: performance.now(),
 
@@ -47,7 +48,6 @@ window.ItemSystem = {
         const mapW = mapInfo.mapW;
         const mapD = mapInfo.mapD;
         const rawMap = window.MapGenerator.rawMapData;
-
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
 
         const validSpawns = [];
@@ -65,7 +65,6 @@ window.ItemSystem = {
                     if (isSolid && val > 0) {
                         let py = currentY + height;
                         let isOdd = (val % 2 !== 0);
-                        
                         let spaceVal = (i - 1 >= 0) ? parseInt(str[i - 1], 10) : -1;
                         
                         if (spaceVal > 0 || spaceVal === -1) {
@@ -73,16 +72,10 @@ window.ItemSystem = {
                                 let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, py);
                                 py = corners.center;
                             }
-                            
                             if (py < 3.0) {
                                 let px = x - mapW / 2 + 0.5;
                                 let pz = z - mapD / 2 + 0.5;
-                                
-                                validSpawns.push({
-                                    x: px * bs, 
-                                    y: py * bs, 
-                                    z: pz * bs
-                                });
+                                validSpawns.push({ x: px * bs, y: py * bs, z: pz * bs });
                             }
                         }
                     }
@@ -95,7 +88,6 @@ window.ItemSystem = {
         if (validSpawns.length === 0) validSpawns.push({ x: 0, y: 2.0 * bs, z: 0 });
         
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
-        
         const itemYOffset = 1.5; 
         const pos = { x: spawn.x, y: spawn.y + itemYOffset, z: spawn.z };
         const timestamp = Date.now();
@@ -111,26 +103,19 @@ window.ItemSystem = {
     
     placeFieldItem: function(pos, timestamp) {
         if (typeof scene === 'undefined' || !scene) return;
-
         if (this.currentItemPosInfo && this.currentItemPosInfo.timestamp >= timestamp) return;
-        this.currentItemPosInfo = { pos: pos, timestamp: timestamp };
         
+        this.currentItemPosInfo = { pos: pos, timestamp: timestamp };
         if (this.currentFieldItem) {
             scene.remove(this.currentFieldItem);
             this.currentFieldItem = null;
         }
         
         const group = new THREE.Group();
-        
         const sphereGeo = new THREE.SphereGeometry(1.2, 16, 16);
         const glassMat = new THREE.MeshStandardMaterial({
-            color: 0xffffff, 
-            transparent: true, 
-            opacity: 0.3, 
-            roughness: 0.1,
-            metalness: 0.2,
-            emissive: 0x333333,
-            depthWrite: false 
+            color: 0xffffff, transparent: true, opacity: 0.3, 
+            roughness: 0.1, metalness: 0.2, emissive: 0x333333, depthWrite: false 
         });
         const sphere = new THREE.Mesh(sphereGeo, glassMat);
         group.add(sphere);
@@ -140,45 +125,32 @@ window.ItemSystem = {
         const ctx = canvas.getContext('2d');
         ctx.font = 'bold 80px sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.8)';
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
-        ctx.fillStyle = '#ffcc00'; 
-        ctx.fillText('❓', 64, 64);
+        ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+        ctx.fillStyle = '#ffcc00'; ctx.fillText('❓', 64, 64);
         
         const tex = new THREE.CanvasTexture(canvas);
         tex.needsUpdate = true;
-        
-        const spriteMat = new THREE.SpriteMaterial({ 
-            map: tex, 
-            depthTest: true, 
-            depthWrite: false, 
-            transparent: true 
-        }); 
+        const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: true, depthWrite: false, transparent: true }); 
         const sprite = new THREE.Sprite(spriteMat);
         sprite.scale.set(1.8, 1.8, 1); 
         group.add(sprite);
         
         group.position.set(pos.x, pos.y, pos.z);
         group.userData = { baseY: pos.y, time: 0 }; 
-        
         scene.add(group);
         this.currentFieldItem = group;
     },
     
     pickupItem: function() {
         if (typeof scene === 'undefined' || !scene) return;
-        
         if (this.currentFieldItem) {
             scene.remove(this.currentFieldItem);
             this.currentFieldItem = null;
         }
-        
         const items = ['fly', 'bomb', 'net'];
         this.mySlotItem = items[Math.floor(Math.random() * items.length)];
         this.updateSlotUI();
-        
         this.spawnNewItem(true);
     },
     
@@ -200,16 +172,11 @@ window.ItemSystem = {
         const item = this.mySlotItem;
         this.mySlotItem = null;
         this.updateSlotUI();
-        
         if (typeof player === 'undefined' || !player) return;
         
-        if (item === 'fly') {
-            this.startFly();
-        } else if (item === 'bomb') {
-            this.placeBomb(player.position, true);
-        } else if (item === 'net') {
-            this.placeNet(player.position, true);
-        }
+        if (item === 'fly') this.startFly();
+        else if (item === 'bomb') this.placeBomb(player.position, true);
+        else if (item === 'net') this.placeNet(player.position, true);
     },
     
     startFly: function() {
@@ -225,10 +192,7 @@ window.ItemSystem = {
                 clearInterval(interval);
                 this.isFlyMode = false;
                 this.isCoolingDown = false;
-                
-                // ★修正: フライ終了後にロック(pointer-events: none)を解除する
                 this.slotUI.classList.remove('cooling');
-                
                 this.updateSlotUI(); 
             } else {
                 const timerEl = this.slotUI.querySelector('.item-timer');
@@ -258,13 +222,10 @@ window.ItemSystem = {
     
     explodeBomb: function(bomb) {
         if (typeof scene === 'undefined' || !scene) return;
-        
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
-        // ★修正: 直径9マス（半径4.5マス）分の巨大な爆発に広げる
         const maxRadius = 4.5 * bs; 
         
         const expGroup = new THREE.Group();
-        
         const expGeo = new THREE.SphereGeometry(maxRadius * 0.1, 16, 16); 
         const expMat = new THREE.MeshBasicMaterial({color: 0xff4400, transparent: true, opacity: 0.8});
         const expMesh = new THREE.Mesh(expGeo, expMat);
@@ -278,30 +239,32 @@ window.ItemSystem = {
 
         expGroup.position.copy(bomb.mesh.position);
         scene.add(expGroup);
-        
         this.explosions.push({ mesh: expMesh, ring: ringMesh, group: expGroup, timer: 0.5, maxRadius: maxRadius });
         
         if (typeof player !== 'undefined' && player) {
             const dist = player.position.distanceTo(bomb.mesh.position);
             
             if (dist <= maxRadius) {
-                // ★修正: 大きく高く、強力に弾き飛ばすノックバック処理
-                window.verticalVelocity = 40; 
+                // ★修正: フワッと大きく吹き飛ぶノックバック
+                window.verticalVelocity = 35; // 高くジャンプさせる
                 window.isJumping = true;
+                player.position.y += 2.0; // 地面貫通を防ぐため強制的に浮かす
                 
                 const dir = player.position.clone().sub(bomb.mesh.position);
-                dir.y = 0; // 水平方向への吹き飛ばし
+                dir.y = 0; // 下への力は無効化（水平方向のみに）
                 if (dir.lengthSq() === 0) dir.set(1, 0, 0);
                 dir.normalize();
                 
-                // 3マス分一気に外側へ弾く
-                player.position.add(dir.multiplyScalar(bs * 3.0)); 
+                // ノックバックアニメーション用に状態をセット（数フレームかけて滑らかに飛ぶ）
+                this.knockback = {
+                    dir: dir,
+                    speed: bs * 5.0, // 初速
+                    timer: 0.8       // 0.8秒かけて減速
+                };
                 
-                // 強制的に位置情報を送信して他プレイヤーにも吹き飛んだことを見せる
                 if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
                     window.MultiplayerManager.forceSendPos();
                 }
-                
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#ff3300;">💣 大爆発に吹き飛ばされた！</span>', 'sys');
             }
         }
@@ -318,10 +281,7 @@ window.ItemSystem = {
         ctx.fillText('🕸️', 128, 128);
         const tex = new THREE.CanvasTexture(canvas);
         
-        // ★修正: PlaneGeometryを「あらかじめ横向き(X-Z平面)に寝かせて生成する」
         const geo = new THREE.PlaneGeometry(bs * 1.5, bs * 1.5);
-        geo.rotateX(-Math.PI / 2); // これで確実に床と平行になる
-        
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
         
@@ -333,20 +293,32 @@ window.ItemSystem = {
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
-                mesh.position.y += 0.2; // めり込まないように少し浮かせる
+                mesh.position.y += 0.2; 
                 
-                // X-Z平面に生成してあるので、法線ベクトルをそのまま適用するだけで床に張り付く
-                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), hit.face.normal);
+                // ★修正: ワールド空間の法線ベクトルを求めて、Z軸向きの平面を法線に向ける（ペタッと張り付く）
+                let normal = hit.face.normal.clone();
+                let normalMatrix = new THREE.Matrix3().getNormalMatrix(terrainMesh.matrixWorld);
+                normal.applyMatrix3(normalMatrix).normalize();
+                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
             } else {
                 mesh.position.set(pos.x, pos.y + 0.2, pos.z);
+                mesh.rotation.x = -Math.PI / 2;
             }
         } else {
             mesh.position.set(pos.x, pos.y + 0.2, pos.z);
+            mesh.rotation.x = -Math.PI / 2;
         }
         
         scene.add(mesh);
         
-        this.activeNets.push({ mesh: mesh, timer: 5.0, isMine: isOriginator });
+        // ★修正: 寿命と状態の管理プロパティを追加
+        this.activeNets.push({ 
+            mesh: mesh, 
+            timer: 5.0, 
+            isMine: isOriginator,
+            timeSincePlaced: 0.0,
+            isTriggered: false
+        });
         
         if (isOriginator && window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
@@ -356,13 +328,9 @@ window.ItemSystem = {
     },
     
     handleNetworkMessage: function(msgData) {
-        if (msgData.type === 'item_spawn') {
-            this.placeFieldItem(msgData.pos, msgData.timestamp);
-        } else if (msgData.type === 'item_bomb') {
-            this.placeBomb(msgData.pos, false);
-        } else if (msgData.type === 'item_net') {
-            this.placeNet(msgData.pos, false);
-        }
+        if (msgData.type === 'item_spawn') this.placeFieldItem(msgData.pos, msgData.timestamp);
+        else if (msgData.type === 'item_bomb') this.placeBomb(msgData.pos, false);
+        else if (msgData.type === 'item_net') this.placeNet(msgData.pos, false);
     },
     
     update: function() {
@@ -372,6 +340,18 @@ window.ItemSystem = {
         
         if (typeof scene === 'undefined' || !scene) return;
 
+        // --- ボムのノックバックアニメーション ---
+        if (this.knockback && typeof player !== 'undefined' && player) {
+            this.knockback.timer -= delta;
+            if (this.knockback.timer > 0) {
+                player.position.x += this.knockback.dir.x * this.knockback.speed * delta;
+                player.position.z += this.knockback.dir.z * this.knockback.speed * delta;
+                this.knockback.speed *= 0.9; // 空気抵抗のようにフワッと減速
+            } else {
+                this.knockback = null;
+            }
+        }
+
         if (this.currentFieldItem) {
             const ud = this.currentFieldItem.userData;
             ud.time += delta * 2.5;
@@ -380,9 +360,8 @@ window.ItemSystem = {
             
             if (typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown) {
                 const dist = player.position.distanceTo(this.currentFieldItem.position);
-                if (dist < 1.8) { 
-                    this.pickupItem();
-                }
+                const pickupRadius = typeof playerRadius !== 'undefined' ? playerRadius * 3.0 : 3.0;
+                if (dist < pickupRadius) this.pickupItem();
             }
         }
         
@@ -391,7 +370,6 @@ window.ItemSystem = {
             b.timer -= delta;
             const scale = 1.0 + Math.sin(b.timer * 15) * 0.2;
             b.mesh.scale.set(scale, scale, scale);
-            
             if (b.timer <= 0) {
                 this.explodeBomb(b);
                 scene.remove(b.mesh);
@@ -402,15 +380,13 @@ window.ItemSystem = {
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             let exp = this.explosions[i];
             exp.timer -= delta;
-            
             let progress = 1.0 - (exp.timer / 0.5); 
             
-            // ★爆発アニメーションも大きく広げる
-            let ballScale = 1.0 + progress * 10.0; 
+            let ballScale = 1.0 + progress * 2.3; 
             exp.mesh.scale.set(ballScale, ballScale, ballScale);
             exp.mesh.material.opacity = (1.0 - progress) * 0.8;
             
-            let ringScale = 1.0 + progress * 15.0;
+            let ringScale = 1.0 + progress * 3.0;
             exp.ring.scale.set(ringScale, ringScale, ringScale);
             exp.ring.material.opacity = (1.0 - progress);
             
@@ -420,39 +396,74 @@ window.ItemSystem = {
             }
         }
         
+        // --- ネットのロジック更新 ---
         this.isOnNet = false;
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
         
         for (let i = this.activeNets.length - 1; i >= 0; i--) {
             let n = this.activeNets[i];
-            n.timer -= delta;
-            if (n.timer <= 0) {
-                scene.remove(n.mesh);
-                this.activeNets.splice(i, 1);
-                continue;
-            }
+            n.timeSincePlaced += delta;
             
-            if (!n.isMine && typeof player !== 'undefined' && player) {
+            // 設置者自身への影響は1秒後から有効になる
+            let canAffectMe = !n.isMine || (n.isMine && n.timeSincePlaced >= 1.0);
+            
+            if (typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
-                if (dist < (bs * 0.8) && yDist < (bs * 1.0)) {
-                    this.isOnNet = true;
+                
+                if (dist < (bs * 0.8) && yDist < (bs * 1.5)) {
+                    n.isTriggered = true; // 誰かが踏んだのでカウントダウン開始
+                    if (canAffectMe) {
+                        this.isOnNet = true;
+                    }
+                }
+            }
+            
+            // 他のプレイヤーが踏んだ場合もトリガーをONにする
+            if (window.MultiplayerManager) {
+                const others = window.MultiplayerManager.otherPlayers;
+                for (let id in others) {
+                    let p = others[id];
+                    if (p.mesh) {
+                        const dist = Math.hypot(p.mesh.position.x - n.mesh.position.x, p.mesh.position.z - n.mesh.position.z);
+                        const yDist = Math.abs(p.mesh.position.y - n.mesh.position.y);
+                        if (dist < (bs * 0.8) && yDist < (bs * 1.5)) {
+                            n.isTriggered = true;
+                        }
+                    }
+                }
+            }
+            
+            // カウントダウン開始
+            if (n.isTriggered) {
+                n.timer -= delta;
+                
+                // 消滅が近くなると点滅する
+                if (n.timer < 2.0) {
+                    n.mesh.material.opacity = (Math.sin(n.timer * 15) * 0.5 + 0.5);
+                }
+                
+                if (n.timer <= 0) {
+                    scene.remove(n.mesh);
+                    this.activeNets.splice(i, 1);
                 }
             }
         }
         
-        // ★修正: ネットによる遅延効果の適用方法を、「速度を直接書き換える」形に変更し、確実に遅くさせる
-        if (typeof window.moveSpeed !== 'undefined') {
-            // 初回のみデフォルトの速度を保存しておく
-            if (this.defaultMoveSpeed === null) {
-                this.defaultMoveSpeed = window.moveSpeed;
+        // ★修正: ネットによる遅延効果（元の速度変数を直接書き換えることで確実に遅くする）
+        try {
+            if (typeof moveSpeed !== 'undefined') {
+                if (this.defaultMoveSpeed === null) {
+                    this.defaultMoveSpeed = moveSpeed; // 元の速度を記憶
+                }
+                if (this.isOnNet) {
+                    moveSpeed = this.defaultMoveSpeed * 0.15; // 0.15倍の鈍足
+                } else {
+                    moveSpeed = this.defaultMoveSpeed; // ネット外なら元に戻す
+                }
             }
-            
-            if (this.isOnNet) {
-                window.moveSpeed = this.defaultMoveSpeed * 0.1; // 速度を10分の1に強制減速
-            } else {
-                window.moveSpeed = this.defaultMoveSpeed; // ネットから出たら元に戻す
-            }
+        } catch (e) {
+            // 変数がconstなどで上書きできない環境の保険
         }
     }
 };
