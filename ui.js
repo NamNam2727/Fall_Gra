@@ -39,16 +39,20 @@ function initUI() {
         #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
         .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
-        /* ★変更: メンバーボタン (bottom: 210px) */
+        /* ★変更: メンバーボタン (GRAVITYのUIデザインに寄せる) */
         #member-btn {
-            position: absolute; bottom: 210px; right: 25px; width: 40px; height: 35px;
-            background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 8px;
-            display: flex; justify-content: center; align-items: center; color: white; font-size: 16px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; cursor: pointer; z-index: 100;
+            position: absolute; bottom: 210px; right: -2px; /* 画面右端にくっつける */
+            padding: 10px 12px 10px 18px;
+            background-color: #fce4b2; /* 画像の肌色を抽出 */
+            border: 2px solid #000; 
+            border-radius: 25px 0 0 25px; /* 左側だけを半円にする */
+            display: flex; justify-content: center; align-items: center; 
+            color: #000; font-size: 15px; font-weight: bold; font-family: sans-serif;
+            box-shadow: -2px 4px 10px rgba(0,0,0,0.2); 
+            pointer-events: auto; cursor: pointer; z-index: 100;
         }
-        #member-btn:active { transform: scale(0.95); }
+        #member-btn:active { transform: scale(0.95); transform-origin: right center; }
 
-        /* ★変更: カメラスライダー (bottom: 250px) */
         #camera-slider-container {
             position: absolute; bottom: 250px; right: 25px; width: 40px; height: 130px;
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
@@ -64,7 +68,6 @@ function initUI() {
         }
         #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
 
-        /* ★追加: メンバーリストウィンドウ */
         #member-window {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 85%; max-width: 350px; height: 60%; max-height: 400px;
@@ -146,13 +149,13 @@ function initUI() {
     itemSlot.id = 'item-slot';
     uiLayer.appendChild(itemSlot);
 
-    // ★追加: メンバーボタン
+    // メンバーリストボタンの生成
     const memberBtn = document.createElement('div');
     memberBtn.id = 'member-btn';
-    memberBtn.innerText = '👥';
+    memberBtn.innerText = 'メンバーリスト';
     uiLayer.appendChild(memberBtn);
 
-    // ★追加: メンバーリストウィンドウの生成
+    // メンバーリストウィンドウの生成
     const memberWindow = document.createElement('div');
     memberWindow.id = 'member-window';
     memberWindow.innerHTML = `
@@ -164,7 +167,6 @@ function initUI() {
     `;
     uiLayer.appendChild(memberWindow);
 
-    // メンバーリストの更新・表示ロジック
     window.updateMemberList = function() {
         const listEl = document.getElementById('member-list-content');
         if (!listEl) return;
@@ -175,7 +177,6 @@ function initUI() {
             allUsers = [...window.GameState.roomUsers];
         }
         
-        // 自分がリストにいない場合は追加
         if (window.GameState && window.GameState.userInfo) {
             const myId = window.GameState.userInfo.user_id;
             const hasMe = allUsers.some(u => u.user_id === myId);
@@ -217,15 +218,12 @@ function initUI() {
         memberWindow.style.display = 'flex';
     });
 
-    // 閉じるボタンのイベント
     memberWindow.querySelector('#member-close-btn').addEventListener('click', () => {
         memberWindow.style.display = 'none';
     });
-    // ウィンドウ自体をタップしても裏の移動操作に反応しないようにブロック
     memberWindow.addEventListener('mousedown', e => e.stopPropagation());
     memberWindow.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
 
-    // カメラスライダーの要素を作成
     const cameraSliderContainer = document.createElement('div');
     cameraSliderContainer.id = 'camera-slider-container';
     cameraSliderContainer.innerHTML = `
