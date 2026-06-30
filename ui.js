@@ -39,15 +39,14 @@ function initUI() {
         #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
         .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
-        /* ★変更: メンバーボタンを「ルーム招待」に近いサイズ感へ縮小 */
         #member-btn {
             position: absolute; bottom: 210px; right: -2px;
-            padding: 6px 10px 6px 14px; /* パディングを全体的に小さく */
+            padding: 6px 10px 6px 14px; 
             background-color: #fce4b2; 
             border: 2px solid #000; 
-            border-radius: 20px 0 0 20px; /* 高さに合わせて角丸を調整 */
+            border-radius: 20px 0 0 20px; 
             display: flex; justify-content: center; align-items: center; 
-            color: #000; font-size: 13px; font-weight: bold; font-family: sans-serif; /* 文字を少し小さく */
+            color: #000; font-size: 13px; font-weight: bold; font-family: sans-serif; 
             box-shadow: -2px 4px 10px rgba(0,0,0,0.2); 
             pointer-events: auto; cursor: pointer; z-index: 100;
         }
@@ -105,7 +104,15 @@ function initUI() {
         #bottomTabs { display: flex; pointer-events: auto; }
         .bottom-tab-btn { background-color: rgba(40, 40, 40, 0.9); border: 2px solid #555; border-bottom: none; color: #ccc; font-size: 12px; padding: 6px 15px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: bold; margin-right: -1px; -webkit-tap-highlight-color: transparent; outline: none; }
         .bottom-tab-btn.active { background-color: rgba(20, 20, 20, 0.85); color: #fff; border-color: #777; z-index: 2; }
-        #bottomContentArea { height: 140px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; display: flex; flex-direction: column; }
+        
+        /* トランジション(アニメーション)を追加し、中身がはみ出ないようにoverflowを指定 */
+        #bottomContentArea { 
+            height: 140px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; 
+            border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; 
+            display: flex; flex-direction: column; overflow: hidden;
+            transition: height 0.3s ease-in-out, border-width 0.3s ease-in-out;
+        }
+        
         .bottom-content { flex: 1; display: none; flex-direction: column; padding: 5px; overflow: hidden; }
         .bottom-content.active { display: flex; }
         #chatLogContent { flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.5; color: #ddd; display: flex; flex-direction: column; }
@@ -242,7 +249,6 @@ function initUI() {
     cameraSliderContainer.addEventListener('mousedown', e => e.stopPropagation());
     cameraSliderContainer.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
 
-
     const screenHeight = window.innerHeight;
     const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
@@ -259,11 +265,13 @@ function initUI() {
 
     const bottomUI = document.createElement('div');
     bottomUI.id = 'bottomUIContainer';
+    // ▼のトグルボタン。margin-left: auto で右端に寄せて確実に表示させます。
     bottomUI.innerHTML = `
         <div id="floatingLog"></div>
         <div id="bottomTabs">
             <button class="bottom-tab-btn active" data-target="chat">チャット</button>
             <button class="bottom-tab-btn" data-target="shortcut">ショートカット</button>
+            <button class="bottom-tab-btn" id="chatToggleBtn" style="padding: 6px 15px; margin-left: auto; background-color: #333; color: white;">▼</button>
         </div>
         <div id="bottomContentArea">
             <div id="content-chat" class="bottom-content active">
@@ -284,10 +292,45 @@ function initUI() {
     bottomUI.addEventListener('pointerdown', e => e.stopPropagation());
     bottomUI.addEventListener('mousedown', e => e.stopPropagation());
 
-    bottomUI.querySelectorAll('.bottom-tab-btn').forEach(btn => {
+    // チャットウィンドウ開閉のロジック
+    const chatToggleBtn = bottomUI.querySelector('#chatToggleBtn');
+    const bottomContentArea = bottomUI.querySelector('#bottomContentArea');
+    let isChatMinimized = false;
+
+    function openChat() {
+        if (isChatMinimized) {
+            isChatMinimized = false;
+            bottomContentArea.style.height = '140px';
+            bottomContentArea.style.borderWidth = '2px';
+            chatToggleBtn.innerText = '▼';
+        }
+    }
+
+    function toggleChat() {
+        isChatMinimized = !isChatMinimized;
+        if (isChatMinimized) {
+            bottomContentArea.style.height = '0px';
+            bottomContentArea.style.borderWidth = '0px'; 
+            chatToggleBtn.innerText = '▲';
+        } else {
+            bottomContentArea.style.height = '140px';
+            bottomContentArea.style.borderWidth = '2px';
+            chatToggleBtn.innerText = '▼';
+        }
+    }
+
+    chatToggleBtn.addEventListener('click', () => {
+        toggleChat();
+    });
+
+    // タブクリック時に必ずチャットを開く
+    bottomUI.querySelectorAll('.bottom-tab-btn[data-target]').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            bottomUI.querySelectorAll('.bottom-tab-btn').forEach(b => b.classList.remove('active'));
+            openChat(); 
+            
+            bottomUI.querySelectorAll('.bottom-tab-btn[data-target]').forEach(b => b.classList.remove('active'));
             bottomUI.querySelectorAll('.bottom-content').forEach(c => c.classList.remove('active'));
+            
             btn.classList.add('active');
             const target = btn.getAttribute('data-target');
             document.getElementById('content-' + target).classList.add('active');
