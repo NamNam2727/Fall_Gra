@@ -14,9 +14,9 @@ window.ItemSystem = {
     activeBombs: [],
     activeNets: [],
     explosions: [],
-    knockback: null, // ボムのノックバックアニメーション用
+    knockback: null, 
     isOnNet: false,
-    defaultMoveSpeed: null, // ネットの遅延効果のための元速度保持
+    lastPlayerPos: null, // ★追加: 確実な鈍足効果のために過去位置を保持
     
     lastTime: performance.now(),
 
@@ -25,6 +25,10 @@ window.ItemSystem = {
         if (this.slotUI) {
             this.slotUI.addEventListener('mousedown', (e) => this.useItem());
             this.slotUI.addEventListener('touchstart', (e) => { e.preventDefault(); this.useItem(); }, {passive: false});
+        }
+        
+        if (typeof THREE !== 'undefined') {
+            this.lastPlayerPos = new THREE.Vector3();
         }
         
         const loop = () => {
@@ -245,21 +249,21 @@ window.ItemSystem = {
             const dist = player.position.distanceTo(bomb.mesh.position);
             
             if (dist <= maxRadius) {
-                // ★修正: フワッと大きく吹き飛ぶノックバック
-                window.verticalVelocity = 35; // 高くジャンプさせる
+                // ★修正: 思い切って10倍のノックバックに変更
+                window.verticalVelocity = 60; // より高く跳ね上げる
                 window.isJumping = true;
-                player.position.y += 2.0; // 地面貫通を防ぐため強制的に浮かす
+                player.position.y += 2.0; 
                 
                 const dir = player.position.clone().sub(bomb.mesh.position);
-                dir.y = 0; // 下への力は無効化（水平方向のみに）
+                dir.y = 0; 
                 if (dir.lengthSq() === 0) dir.set(1, 0, 0);
                 dir.normalize();
                 
-                // ノックバックアニメーション用に状態をセット（数フレームかけて滑らかに飛ぶ）
+                // ノックバックの初速を 10倍 (bs * 50.0) に強化
                 this.knockback = {
                     dir: dir,
-                    speed: bs * 5.0, // 初速
-                    timer: 0.8       // 0.8秒かけて減速
+                    speed: bs * 50.0, 
+                    timer: 0.8
                 };
                 
                 if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
@@ -282,6 +286,8 @@ window.ItemSystem = {
         const tex = new THREE.CanvasTexture(canvas);
         
         const geo = new THREE.PlaneGeometry(bs * 1.5, bs * 1.5);
+        geo.rotateX(-Math.PI / 2);
+        
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
         
@@ -294,24 +300,19 @@ window.ItemSystem = {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
                 mesh.position.y += 0.2; 
-                
-                // ★修正: ワールド空間の法線ベクトルを求めて、Z軸向きの平面を法線に向ける（ペタッと張り付く）
                 let normal = hit.face.normal.clone();
                 let normalMatrix = new THREE.Matrix3().getNormalMatrix(terrainMesh.matrixWorld);
                 normal.applyMatrix3(normalMatrix).normalize();
                 mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
             } else {
                 mesh.position.set(pos.x, pos.y + 0.2, pos.z);
-                mesh.rotation.x = -Math.PI / 2;
             }
         } else {
             mesh.position.set(pos.x, pos.y + 0.2, pos.z);
-            mesh.rotation.x = -Math.PI / 2;
         }
         
         scene.add(mesh);
         
-        // ★修正: 寿命と状態の管理プロパティを追加
         this.activeNets.push({ 
             mesh: mesh, 
             timer: 5.0, 
@@ -340,13 +341,13 @@ window.ItemSystem = {
         
         if (typeof scene === 'undefined' || !scene) return;
 
-        // --- ボムのノックバックアニメーション ---
+        // ノックバックの更新
         if (this.knockback && typeof player !== 'undefined' && player) {
             this.knockback.timer -= delta;
             if (this.knockback.timer > 0) {
                 player.position.x += this.knockback.dir.x * this.knockback.speed * delta;
                 player.position.z += this.knockback.dir.z * this.knockback.speed * delta;
-                this.knockback.speed *= 0.9; // 空気抵抗のようにフワッと減速
+                this.knockback.speed *= 0.9; 
             } else {
                 this.knockback = null;
             }
@@ -382,11 +383,11 @@ window.ItemSystem = {
             exp.timer -= delta;
             let progress = 1.0 - (exp.timer / 0.5); 
             
-            let ballScale = 1.0 + progress * 2.3; 
+            let ballScale = 1.0 + progress * 10.0; 
             exp.mesh.scale.set(ballScale, ballScale, ballScale);
             exp.mesh.material.opacity = (1.0 - progress) * 0.8;
             
-            let ringScale = 1.0 + progress * 3.0;
+            let ringScale = 1.0 + progress * 15.0;
             exp.ring.scale.set(ringScale, ringScale, ringScale);
             exp.ring.material.opacity = (1.0 - progress);
             
@@ -404,22 +405,24 @@ window.ItemSystem = {
             let n = this.activeNets[i];
             n.timeSincePlaced += delta;
             
-            // 設置者自身への影響は1秒後から有効になる
+            // 設置から1秒経過するまでは、設置者(自分)には影響を与えない（カウントダウンも開始させない）
             let canAffectMe = !n.isMine || (n.isMine && n.timeSincePlaced >= 1.0);
             
             if (typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
                 
+                // 踏んでいる判定
                 if (dist < (bs * 0.8) && yDist < (bs * 1.5)) {
-                    n.isTriggered = true; // 誰かが踏んだのでカウントダウン開始
+                    // ★修正: 自分が乗っていても、1秒経過していないならトリガーを引かない
                     if (canAffectMe) {
+                        n.isTriggered = true;
                         this.isOnNet = true;
                     }
                 }
             }
             
-            // 他のプレイヤーが踏んだ場合もトリガーをONにする
+            // 他のプレイヤーが踏んだ場合は無条件でトリガーを引く
             if (window.MultiplayerManager) {
                 const others = window.MultiplayerManager.otherPlayers;
                 for (let id in others) {
@@ -434,11 +437,9 @@ window.ItemSystem = {
                 }
             }
             
-            // カウントダウン開始
+            // 誰かが踏んでトリガーがONになったらカウントダウン開始
             if (n.isTriggered) {
                 n.timer -= delta;
-                
-                // 消滅が近くなると点滅する
                 if (n.timer < 2.0) {
                     n.mesh.material.opacity = (Math.sin(n.timer * 15) * 0.5 + 0.5);
                 }
@@ -450,20 +451,21 @@ window.ItemSystem = {
             }
         }
         
-        // ★修正: ネットによる遅延効果（元の速度変数を直接書き換えることで確実に遅くする）
-        try {
-            if (typeof moveSpeed !== 'undefined') {
-                if (this.defaultMoveSpeed === null) {
-                    this.defaultMoveSpeed = moveSpeed; // 元の速度を記憶
-                }
-                if (this.isOnNet) {
-                    moveSpeed = this.defaultMoveSpeed * 0.15; // 0.15倍の鈍足
-                } else {
-                    moveSpeed = this.defaultMoveSpeed; // ネット外なら元に戻す
+        // ★修正: 確実な鈍足処理 (移動した分を物理的に巻き戻す)
+        if (typeof player !== 'undefined' && player && this.lastPlayerPos) {
+            if (this.isOnNet) {
+                // 前回から進んだベクトルを計算
+                const deltaPos = player.position.clone().sub(this.lastPlayerPos);
+                deltaPos.y = 0; // 落下などは阻害しない
+                
+                if (deltaPos.lengthSq() > 0) {
+                    // 移動量の85%を相殺する (速度が実質 0.15倍 になる)
+                    const rollback = deltaPos.multiplyScalar(0.85);
+                    player.position.x -= rollback.x;
+                    player.position.z -= rollback.z;
                 }
             }
-        } catch (e) {
-            // 変数がconstなどで上書きできない環境の保険
+            this.lastPlayerPos.copy(player.position);
         }
     }
 };
