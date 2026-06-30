@@ -1,5 +1,6 @@
 // =========================================================
 // multiplayer.js
+// 新規入室者へのアイテム位置の同期機能搭載
 // =========================================================
 
 window.MultiplayerManager = {
@@ -101,7 +102,15 @@ window.MultiplayerManager = {
                 if (msgData.type === 'move') {
                     this.updatePlayerPos(data.user_id, msgData);
                 } else if (msgData.type === 'pos_req') {
+                    // 新規入室者から位置情報要求が来たら、自分と「アイテム」の位置を即座に送ってあげる
                     this.forceSendPos();
+                    if (window.ItemSystem && window.ItemSystem.currentItemPosInfo) {
+                        this.sendData({
+                            type: 'item_spawn',
+                            pos: window.ItemSystem.currentItemPosInfo.pos,
+                            timestamp: window.ItemSystem.currentItemPosInfo.timestamp
+                        });
+                    }
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');
@@ -110,7 +119,6 @@ window.MultiplayerManager = {
                     if (p && p.mesh && typeof window.showChatBubble === 'function') {
                         window.showChatBubble(p.mesh, msgData.text);
                     }
-                // ★追加: アイテム関連の通信を受信した際のルーティング
                 } else if (msgData.type.startsWith('item_')) {
                     if (window.ItemSystem) {
                         window.ItemSystem.handleNetworkMessage(msgData);

@@ -1,6 +1,7 @@
 // =====================================
 // item_system.js
 // ミニゲーム用アイテムの出現、取得、効果、および同期を管理
+// ★地形の10倍スケール(blockSize)に完全対応し、タイル中央への配置と爆発サイズを修正
 // =====================================
 
 window.ItemSystem = {
@@ -36,7 +37,7 @@ window.ItemSystem = {
         };
         loop();
 
-        // ゲーム開始3秒後に正規のロジックで最初のアイテムをスポーン
+        // 3秒待機。他プレイヤーからアイテム位置が送られてこなければ自分で生成
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
                 this.spawnNewItem(true);
@@ -47,49 +48,69 @@ window.ItemSystem = {
     spawnNewItem: function(isOriginator) {
         if (!window.MapGenerator || typeof scene === 'undefined') return;
         
-        // ★修正: 最も安定していて確実な「配列からの計算」ロジックに戻しました
         const mapInfo = window.MapGenerator.parseMap();
+        const parsedMap = mapInfo.parsedMap;
         const mapW = mapInfo.mapW;
         const mapD = mapInfo.mapD;
-        const parsedMap = mapInfo.parsedMap;
+        const rawMap = window.MapGenerator.rawMapData;
+
+        // ★修正: 地形の巨大化スケールを取得（デフォルト10）
+        const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
 
         const validSpawns = [];
         
-        // 外周の壁を避けるため、1 から mapW - 2 までを探索
+        // 外周の壁を避ける
         for (let x = 1; x < mapW - 1; x++) {
             for (let z = 1; z < mapD - 1; z++) {
-                let layers = parsedMap[x][z];
-                if (layers.length > 0) {
-                    let topLayer = layers[layers.length - 1]; 
-                    if (topLayer.val > 0) {
-                        // タイルの中心座標を算出
-                        let px = x - mapW / 2 + 0.5;
-                        let pz = z - mapD / 2 + 0.5;
-                        let py = topLayer.top;
+                let str = rawMap[x][z] || "0";
+                let currentY = 0;
+                let isSolid = true;
+                
+                for (let i = str.length - 1; i >= 0; i--) {
+                    let val = parseInt(str[i], 10);
+                    let height = val * 0.5;
+                    
+                    if (isSolid && val > 0) {
+                        let py = currentY + height;
+                        let isOdd = (val % 2 !== 0);
                         
-                        // 坂道タイルの場合は中央の高さを算出
-                        if (topLayer.isOdd) {
-                            let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, topLayer.top);
-                            py = corners.center;
-                        }
+                        let spaceVal = (i - 1 >= 0) ? parseInt(str[i - 1], 10) : -1;
                         
-                        // 高さ3.0（外壁）以上の高台には置かないようにフィルタリング
-                        if (py < 3.0) {
-                            validSpawns.push({x: px, y: py, z: pz});
+                        // トンネル内部、または平地/屋根の上を許可
+                        if (spaceVal > 0 || spaceVal === -1) {
+                            if (isOdd) {
+                                let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, py);
+                                py = corners.center;
+                            }
+                            
+                            // 高すぎる壁（ローカルで高さ3.0以上）には置かない
+                            if (py < 3.0) {
+                                let px = x - mapW / 2 + 0.5;
+                                let pz = z - mapD / 2 + 0.5;
+                                
+                                // ★最大の修正: 座標を blockSize 倍して巨大なワールド座標に合わせる
+                                validSpawns.push({
+                                    x: px * bs, 
+                                    y: py * bs, 
+                                    z: pz * bs
+                                });
+                            }
                         }
                     }
+                    currentY += height;
+                    isSolid = !isSolid;
                 }
             }
         }
         
-        // 万が一候補が見つからなかった場合の安全策
-        if (validSpawns.length === 0) validSpawns.push({ x: 0, y: 2.0, z: 0 });
+        // 安全策
+        if (validSpawns.length === 0) validSpawns.push({ x: 0, y: 2.0 * bs, z: 0 });
         
-        // ランダムな候補地を選択
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
         
-        // ★アイテム本体が大きくなったので、地面にめり込まないように y + 1.2 に浮かせる
-        const pos = { x: spawn.x, y: spawn.y + 1.2, z: spawn.z };
+        // ワールド座標に合わせた適切な高さ(約1.5)に浮かせて地面埋まりを解消
+        const itemYOffset = 1.5; 
+        const pos = { x: spawn.x, y: spawn.y + itemYOffset, z: spawn.z };
         const timestamp = Date.now();
         
         this.placeFieldItem(pos, timestamp);
@@ -104,7 +125,7 @@ window.ItemSystem = {
     placeFieldItem: function(pos, timestamp) {
         if (typeof scene === 'undefined' || !scene) return;
 
-        if (this.currentItemPosInfo && this.currentItemPosInfo.timestamp > timestamp) return;
+        if (this.currentItemPosInfo && this.currentItemPosInfo.timestamp >= timestamp) return;
         this.currentItemPosInfo = { pos: pos, timestamp: timestamp };
         
         if (this.currentFieldItem) {
@@ -114,8 +135,8 @@ window.ItemSystem = {
         
         const group = new THREE.Group();
         
-        // 1.5倍にサイズアップした半透明の球体
-        const sphereGeo = new THREE.SphereGeometry(0.9, 16, 16);
+        // アイテム本体（見やすいサイズ）
+        const sphereGeo = new THREE.SphereGeometry(1.2, 16, 16);
         const glassMat = new THREE.MeshStandardMaterial({
             color: 0xffffff, 
             transparent: true, 
@@ -123,12 +144,11 @@ window.ItemSystem = {
             roughness: 0.1,
             metalness: 0.2,
             emissive: 0x333333,
-            depthWrite: false // 中のマークを隠さない設定
+            depthWrite: false 
         });
         const sphere = new THREE.Mesh(sphereGeo, glassMat);
         group.add(sphere);
 
-        // 1.5倍に大きく見えやすくなったハテナマーク
         const canvas = document.createElement('canvas');
         canvas.width = 128; canvas.height = 128;
         const ctx = canvas.getContext('2d');
@@ -151,7 +171,7 @@ window.ItemSystem = {
             transparent: true 
         }); 
         const sprite = new THREE.Sprite(spriteMat);
-        sprite.scale.set(1.4, 1.4, 1); 
+        sprite.scale.set(1.8, 1.8, 1); 
         group.add(sprite);
         
         group.position.set(pos.x, pos.y, pos.z);
@@ -173,7 +193,6 @@ window.ItemSystem = {
         this.mySlotItem = items[Math.floor(Math.random() * items.length)];
         this.updateSlotUI();
         
-        // 獲得後、再度ランダムな位置に出現させる
         this.spawnNewItem(true);
     },
     
@@ -231,11 +250,11 @@ window.ItemSystem = {
     placeBomb: function(pos, isOriginator) {
         if (typeof scene === 'undefined' || !scene) return;
         const bombGroup = new THREE.Group();
-        const geo = new THREE.SphereGeometry(0.5, 16, 16);
+        const geo = new THREE.SphereGeometry(0.8, 16, 16);
         const mat = new THREE.MeshStandardMaterial({color: 0x111111, roughness: 0.8});
         const mesh = new THREE.Mesh(geo, mat);
         bombGroup.add(mesh);
-        bombGroup.position.set(pos.x, pos.y + 0.5, pos.z);
+        bombGroup.position.set(pos.x, pos.y + 0.8, pos.z);
         scene.add(bombGroup);
         
         this.activeBombs.push({ mesh: bombGroup, timer: 3.0 });
@@ -250,14 +269,19 @@ window.ItemSystem = {
     explodeBomb: function(bomb) {
         if (typeof scene === 'undefined' || !scene) return;
         
+        // ★修正: blockSizeを掛け合わせて、直径3マス分の巨大な爆発にする
+        const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
+        const maxRadius = 1.5 * bs; // 半径1.5マス分
+        
         const expGroup = new THREE.Group();
         
-        const expGeo = new THREE.SphereGeometry(1.5, 16, 16); 
+        // 初期状態は小さく作って一気に拡大させる
+        const expGeo = new THREE.SphereGeometry(maxRadius * 0.3, 16, 16); 
         const expMat = new THREE.MeshBasicMaterial({color: 0xff4400, transparent: true, opacity: 0.8});
         const expMesh = new THREE.Mesh(expGeo, expMat);
         expGroup.add(expMesh);
         
-        const ringGeo = new THREE.RingGeometry(1.5, 2.0, 32);
+        const ringGeo = new THREE.RingGeometry(maxRadius * 0.3, maxRadius * 0.4, 32);
         const ringMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 1.0, side: THREE.DoubleSide});
         const ringMesh = new THREE.Mesh(ringGeo, ringMat);
         ringMesh.rotation.x = -Math.PI / 2;
@@ -266,15 +290,16 @@ window.ItemSystem = {
         expGroup.position.copy(bomb.mesh.position);
         scene.add(expGroup);
         
-        this.explosions.push({ mesh: expMesh, ring: ringMesh, group: expGroup, timer: 0.5 });
+        this.explosions.push({ mesh: expMesh, ring: ringMesh, group: expGroup, timer: 0.5, maxRadius: maxRadius });
         
         if (typeof player !== 'undefined' && player) {
             const dist = player.position.distanceTo(bomb.mesh.position);
-            if (dist <= 4.0) {
-                if(typeof verticalVelocity !== 'undefined') verticalVelocity = 15; 
+            // 吹き飛ぶ判定も巨大なスケールに合わせる
+            if (dist <= maxRadius) {
+                if(typeof verticalVelocity !== 'undefined') verticalVelocity = 20; // 吹き飛ぶ高さも強化
                 if(typeof isJumping !== 'undefined') isJumping = true;
                 const dir = player.position.clone().sub(bomb.mesh.position).normalize();
-                player.position.add(dir.multiplyScalar(0.5)); 
+                player.position.add(dir.multiplyScalar(bs * 0.4)); // 外側へ強く押し出す
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#ff3300;">💣 爆発に吹き飛ばされた！</span>', 'sys');
             }
         }
@@ -282,18 +307,21 @@ window.ItemSystem = {
     
     placeNet: function(pos, isOriginator) {
         if (typeof scene === 'undefined' || !scene) return;
+        const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
+        
         const canvas = document.createElement('canvas');
-        canvas.width = 128; canvas.height = 128;
+        canvas.width = 256; canvas.height = 256;
         const ctx = canvas.getContext('2d');
-        ctx.font = '100px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('🕸️', 64, 64);
+        ctx.font = '200px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🕸️', 128, 128);
         const tex = new THREE.CanvasTexture(canvas);
         
-        const geo = new THREE.PlaneGeometry(2, 2);
+        // ★修正: ネットの大きさも 1マス分 (blockSize) に合わせる
+        const geo = new THREE.PlaneGeometry(bs, bs);
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
         
-        const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + 1, pos.z), new THREE.Vector3(0, -1, 0));
+        const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
         let terrainMesh = scene.children.find(c => c.userData && c.userData.isTerrain);
         if (terrainMesh) {
             const intersects = raycaster.intersectObject(terrainMesh);
@@ -303,11 +331,11 @@ window.ItemSystem = {
                 mesh.position.y += 0.05; 
                 mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), hit.face.normal);
             } else {
-                mesh.position.set(pos.x, Math.floor(pos.y * 2) / 2 + 0.05, pos.z);
+                mesh.position.set(pos.x, pos.y + 0.05, pos.z);
                 mesh.rotation.x = -Math.PI / 2;
             }
         } else {
-            mesh.position.set(pos.x, 1.05, pos.z);
+            mesh.position.set(pos.x, pos.y + 0.05, pos.z);
             mesh.rotation.x = -Math.PI / 2;
         }
         
@@ -347,7 +375,9 @@ window.ItemSystem = {
             
             if (typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown) {
                 const dist = player.position.distanceTo(this.currentFieldItem.position);
-                if (dist < 1.8) { 
+                // アイテムの取得距離を適切に設定
+                const pickupRadius = typeof playerRadius !== 'undefined' ? playerRadius * 3.0 : 3.0;
+                if (dist < pickupRadius) { 
                     this.pickupItem();
                 }
             }
@@ -366,16 +396,19 @@ window.ItemSystem = {
             }
         }
         
+        // 爆発アニメーションの更新
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             let exp = this.explosions[i];
             exp.timer -= delta;
             
             let progress = 1.0 - (exp.timer / 0.5); 
             
-            let ballScale = 1.0 + progress * 2.0; 
+            // 約3.3倍まで巨大化させる
+            let ballScale = 1.0 + progress * 2.3; 
             exp.mesh.scale.set(ballScale, ballScale, ballScale);
             exp.mesh.material.opacity = (1.0 - progress) * 0.8;
             
+            // リングはさらに大きく広がる
             let ringScale = 1.0 + progress * 3.0;
             exp.ring.scale.set(ringScale, ringScale, ringScale);
             exp.ring.material.opacity = (1.0 - progress);
@@ -387,6 +420,7 @@ window.ItemSystem = {
         }
         
         this.isOnNet = false;
+        const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
         for (let i = this.activeNets.length - 1; i >= 0; i--) {
             let n = this.activeNets[i];
             n.timer -= delta;
@@ -399,7 +433,8 @@ window.ItemSystem = {
             if (!n.isMine && typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
-                if (dist < 1.2 && yDist < 1.0) {
+                // ネットを踏む判定もワールドスケールに合わせる
+                if (dist < (bs * 0.6) && yDist < (bs * 0.5)) {
                     this.isOnNet = true;
                 }
             }
