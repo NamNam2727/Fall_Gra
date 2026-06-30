@@ -1,7 +1,6 @@
 // =====================================
 // item_system.js
 // ミニゲーム用アイテムの出現、取得、効果、および同期を管理
-// ★地形の10倍スケール(blockSize)に完全対応し、タイル中央への配置と爆発サイズを修正
 // =====================================
 
 window.ItemSystem = {
@@ -15,8 +14,8 @@ window.ItemSystem = {
     activeBombs: [],
     activeNets: [],
     explosions: [],
-    lastPlayerPos: null,
     isOnNet: false,
+    defaultMoveSpeed: null, // ★追加: 遅延効果のために元の移動速度を保存
     
     lastTime: performance.now(),
 
@@ -27,17 +26,12 @@ window.ItemSystem = {
             this.slotUI.addEventListener('touchstart', (e) => { e.preventDefault(); this.useItem(); }, {passive: false});
         }
         
-        if (typeof THREE !== 'undefined') {
-            this.lastPlayerPos = new THREE.Vector3();
-        }
-        
         const loop = () => {
             this.update();
             requestAnimationFrame(loop);
         };
         loop();
 
-        // 3秒待機。他プレイヤーからアイテム位置が送られてこなければ自分で生成
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
                 this.spawnNewItem(true);
@@ -54,12 +48,10 @@ window.ItemSystem = {
         const mapD = mapInfo.mapD;
         const rawMap = window.MapGenerator.rawMapData;
 
-        // ★修正: 地形の巨大化スケールを取得（デフォルト10）
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
 
         const validSpawns = [];
         
-        // 外周の壁を避ける
         for (let x = 1; x < mapW - 1; x++) {
             for (let z = 1; z < mapD - 1; z++) {
                 let str = rawMap[x][z] || "0";
@@ -76,19 +68,16 @@ window.ItemSystem = {
                         
                         let spaceVal = (i - 1 >= 0) ? parseInt(str[i - 1], 10) : -1;
                         
-                        // トンネル内部、または平地/屋根の上を許可
                         if (spaceVal > 0 || spaceVal === -1) {
                             if (isOdd) {
                                 let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, py);
                                 py = corners.center;
                             }
                             
-                            // 高すぎる壁（ローカルで高さ3.0以上）には置かない
                             if (py < 3.0) {
                                 let px = x - mapW / 2 + 0.5;
                                 let pz = z - mapD / 2 + 0.5;
                                 
-                                // ★最大の修正: 座標を blockSize 倍して巨大なワールド座標に合わせる
                                 validSpawns.push({
                                     x: px * bs, 
                                     y: py * bs, 
@@ -103,12 +92,10 @@ window.ItemSystem = {
             }
         }
         
-        // 安全策
         if (validSpawns.length === 0) validSpawns.push({ x: 0, y: 2.0 * bs, z: 0 });
         
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
         
-        // ワールド座標に合わせた適切な高さ(約1.5)に浮かせて地面埋まりを解消
         const itemYOffset = 1.5; 
         const pos = { x: spawn.x, y: spawn.y + itemYOffset, z: spawn.z };
         const timestamp = Date.now();
@@ -135,7 +122,6 @@ window.ItemSystem = {
         
         const group = new THREE.Group();
         
-        // アイテム本体（見やすいサイズ）
         const sphereGeo = new THREE.SphereGeometry(1.2, 16, 16);
         const glassMat = new THREE.MeshStandardMaterial({
             color: 0xffffff, 
@@ -239,6 +225,10 @@ window.ItemSystem = {
                 clearInterval(interval);
                 this.isFlyMode = false;
                 this.isCoolingDown = false;
+                
+                // ★修正: フライ終了後にロック(pointer-events: none)を解除する
+                this.slotUI.classList.remove('cooling');
+                
                 this.updateSlotUI(); 
             } else {
                 const timerEl = this.slotUI.querySelector('.item-timer');
@@ -269,19 +259,18 @@ window.ItemSystem = {
     explodeBomb: function(bomb) {
         if (typeof scene === 'undefined' || !scene) return;
         
-        // ★修正: blockSizeを掛け合わせて、直径3マス分の巨大な爆発にする
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
-        const maxRadius = 1.5 * bs; // 半径1.5マス分
+        // ★修正: 直径9マス（半径4.5マス）分の巨大な爆発に広げる
+        const maxRadius = 4.5 * bs; 
         
         const expGroup = new THREE.Group();
         
-        // 初期状態は小さく作って一気に拡大させる
-        const expGeo = new THREE.SphereGeometry(maxRadius * 0.3, 16, 16); 
+        const expGeo = new THREE.SphereGeometry(maxRadius * 0.1, 16, 16); 
         const expMat = new THREE.MeshBasicMaterial({color: 0xff4400, transparent: true, opacity: 0.8});
         const expMesh = new THREE.Mesh(expGeo, expMat);
         expGroup.add(expMesh);
         
-        const ringGeo = new THREE.RingGeometry(maxRadius * 0.3, maxRadius * 0.4, 32);
+        const ringGeo = new THREE.RingGeometry(maxRadius * 0.1, maxRadius * 0.15, 32);
         const ringMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 1.0, side: THREE.DoubleSide});
         const ringMesh = new THREE.Mesh(ringGeo, ringMat);
         ringMesh.rotation.x = -Math.PI / 2;
@@ -294,13 +283,26 @@ window.ItemSystem = {
         
         if (typeof player !== 'undefined' && player) {
             const dist = player.position.distanceTo(bomb.mesh.position);
-            // 吹き飛ぶ判定も巨大なスケールに合わせる
+            
             if (dist <= maxRadius) {
-                if(typeof verticalVelocity !== 'undefined') verticalVelocity = 20; // 吹き飛ぶ高さも強化
-                if(typeof isJumping !== 'undefined') isJumping = true;
-                const dir = player.position.clone().sub(bomb.mesh.position).normalize();
-                player.position.add(dir.multiplyScalar(bs * 0.4)); // 外側へ強く押し出す
-                if (typeof window.addLog === 'function') window.addLog('<span style="color:#ff3300;">💣 爆発に吹き飛ばされた！</span>', 'sys');
+                // ★修正: 大きく高く、強力に弾き飛ばすノックバック処理
+                window.verticalVelocity = 40; 
+                window.isJumping = true;
+                
+                const dir = player.position.clone().sub(bomb.mesh.position);
+                dir.y = 0; // 水平方向への吹き飛ばし
+                if (dir.lengthSq() === 0) dir.set(1, 0, 0);
+                dir.normalize();
+                
+                // 3マス分一気に外側へ弾く
+                player.position.add(dir.multiplyScalar(bs * 3.0)); 
+                
+                // 強制的に位置情報を送信して他プレイヤーにも吹き飛んだことを見せる
+                if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+                    window.MultiplayerManager.forceSendPos();
+                }
+                
+                if (typeof window.addLog === 'function') window.addLog('<span style="color:#ff3300;">💣 大爆発に吹き飛ばされた！</span>', 'sys');
             }
         }
     },
@@ -316,27 +318,30 @@ window.ItemSystem = {
         ctx.fillText('🕸️', 128, 128);
         const tex = new THREE.CanvasTexture(canvas);
         
-        // ★修正: ネットの大きさも 1マス分 (blockSize) に合わせる
-        const geo = new THREE.PlaneGeometry(bs, bs);
+        // ★修正: PlaneGeometryを「あらかじめ横向き(X-Z平面)に寝かせて生成する」
+        const geo = new THREE.PlaneGeometry(bs * 1.5, bs * 1.5);
+        geo.rotateX(-Math.PI / 2); // これで確実に床と平行になる
+        
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
         
         const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
         let terrainMesh = scene.children.find(c => c.userData && c.userData.isTerrain);
+        
         if (terrainMesh) {
             const intersects = raycaster.intersectObject(terrainMesh);
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
-                mesh.position.y += 0.05; 
+                mesh.position.y += 0.2; // めり込まないように少し浮かせる
+                
+                // X-Z平面に生成してあるので、法線ベクトルをそのまま適用するだけで床に張り付く
                 mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), hit.face.normal);
             } else {
-                mesh.position.set(pos.x, pos.y + 0.05, pos.z);
-                mesh.rotation.x = -Math.PI / 2;
+                mesh.position.set(pos.x, pos.y + 0.2, pos.z);
             }
         } else {
-            mesh.position.set(pos.x, pos.y + 0.05, pos.z);
-            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.set(pos.x, pos.y + 0.2, pos.z);
         }
         
         scene.add(mesh);
@@ -375,9 +380,7 @@ window.ItemSystem = {
             
             if (typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown) {
                 const dist = player.position.distanceTo(this.currentFieldItem.position);
-                // アイテムの取得距離を適切に設定
-                const pickupRadius = typeof playerRadius !== 'undefined' ? playerRadius * 3.0 : 3.0;
-                if (dist < pickupRadius) { 
+                if (dist < 1.8) { 
                     this.pickupItem();
                 }
             }
@@ -396,20 +399,18 @@ window.ItemSystem = {
             }
         }
         
-        // 爆発アニメーションの更新
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             let exp = this.explosions[i];
             exp.timer -= delta;
             
             let progress = 1.0 - (exp.timer / 0.5); 
             
-            // 約3.3倍まで巨大化させる
-            let ballScale = 1.0 + progress * 2.3; 
+            // ★爆発アニメーションも大きく広げる
+            let ballScale = 1.0 + progress * 10.0; 
             exp.mesh.scale.set(ballScale, ballScale, ballScale);
             exp.mesh.material.opacity = (1.0 - progress) * 0.8;
             
-            // リングはさらに大きく広がる
-            let ringScale = 1.0 + progress * 3.0;
+            let ringScale = 1.0 + progress * 15.0;
             exp.ring.scale.set(ringScale, ringScale, ringScale);
             exp.ring.material.opacity = (1.0 - progress);
             
@@ -421,6 +422,7 @@ window.ItemSystem = {
         
         this.isOnNet = false;
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
+        
         for (let i = this.activeNets.length - 1; i >= 0; i--) {
             let n = this.activeNets[i];
             n.timer -= delta;
@@ -433,24 +435,24 @@ window.ItemSystem = {
             if (!n.isMine && typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
-                // ネットを踏む判定もワールドスケールに合わせる
-                if (dist < (bs * 0.6) && yDist < (bs * 0.5)) {
+                if (dist < (bs * 0.8) && yDist < (bs * 1.0)) {
                     this.isOnNet = true;
                 }
             }
         }
         
-        if (typeof player !== 'undefined' && player && this.lastPlayerPos) {
-            if (this.isOnNet) {
-                const deltaPos = player.position.clone().sub(this.lastPlayerPos);
-                deltaPos.y = 0; 
-                if (deltaPos.lengthSq() > 0) {
-                    const rollback = deltaPos.multiplyScalar(0.9);
-                    player.position.x -= rollback.x;
-                    player.position.z -= rollback.z;
-                }
+        // ★修正: ネットによる遅延効果の適用方法を、「速度を直接書き換える」形に変更し、確実に遅くさせる
+        if (typeof window.moveSpeed !== 'undefined') {
+            // 初回のみデフォルトの速度を保存しておく
+            if (this.defaultMoveSpeed === null) {
+                this.defaultMoveSpeed = window.moveSpeed;
             }
-            this.lastPlayerPos.copy(player.position);
+            
+            if (this.isOnNet) {
+                window.moveSpeed = this.defaultMoveSpeed * 0.1; // 速度を10分の1に強制減速
+            } else {
+                window.moveSpeed = this.defaultMoveSpeed; // ネットから出たら元に戻す
+            }
         }
     }
 };
