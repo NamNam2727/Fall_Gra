@@ -4,7 +4,6 @@
 // =========================================================
 
 window.addLog = function(htmlText, type = 'sys') {
-    // 'chat' または 'sys' の場合は、チャットログ画面に追加する
     if (type === 'chat' || type === 'sys') {
         const chatLogContent = document.getElementById('chatLogContent');
         if (chatLogContent) {
@@ -19,8 +18,12 @@ window.addLog = function(htmlText, type = 'sys') {
     const chatTabBtn = document.querySelector('.bottom-tab-btn[data-target="chat"]');
     const isChatActive = chatTabBtn && chatTabBtn.classList.contains('active');
     
-    // チャットタブが開いている時は、上に被るフローティングログは表示しない
-    if (isChatActive) {
+    // ★追加: チャットウィンドウが最小化(高さ0)されているか確認
+    const bottomContentArea = document.getElementById('bottomContentArea');
+    const isMinimized = bottomContentArea && bottomContentArea.style.height === '0px';
+    
+    // ★修正: チャットタブが選択されていて、かつ「ウィンドウが隠れていない」時だけフローティングログをオフにする
+    if (isChatActive && !isMinimized) {
         return; 
     }
 
@@ -74,7 +77,6 @@ window.sendChatMessage = function(text) {
     }
 };
 
-// ★追加: カスタム入力ウィンドウ（標準のpromptがブロックされる環境用）
 function customPrompt(message, defaultValue, callback) {
     const existing = document.getElementById('custom-prompt-modal');
     if (existing) existing.remove();
@@ -140,13 +142,11 @@ window.initChatSystem = function() {
 
     let shortcuts = JSON.parse(localStorage.getItem('fallGraShortcuts'));
     
-    // ★修正: 初回時、または過去データがない場合は初期化
     if (!shortcuts || shortcuts.length === 0) {
         shortcuts = [
             "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！"
         ];
     } else {
-        // ★過去データに「上に乗せて！」が含まれていた場合、自動で「たすけて！」に置換する
         let modified = false;
         for (let i = 0; i < shortcuts.length; i++) {
             if (shortcuts[i] === "上に乗せて！") {
@@ -178,7 +178,6 @@ window.initChatSystem = function() {
             
             btn.addEventListener('click', () => {
                 if (isEditMode) {
-                    // ★修正: prompt の代わりにカスタム入力ウィンドウを呼び出す
                     customPrompt('ショートカット文を入力してください:', text, (newText) => {
                         if (newText !== null) {
                             shortcuts[i] = newText.trim();
@@ -208,3 +207,4 @@ window.initChatSystem = function() {
 
     renderShortcuts();
 };
+
