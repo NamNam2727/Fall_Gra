@@ -265,13 +265,26 @@ window.updatePlayer = function(delta) {
 
 window.updateCamera = function(instant) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
-    let cDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
-    let cHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
+    
+    // globals.js などで定義されている基本のカメラ位置
+    let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
+    let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
 
-    // スライダーの値がある場合は、カメラの距離と高さを上書きする
+    let cDist = baseDist;
+    let cHeight = baseHeight;
+
+    // スライダーの値がある場合は、カメラの距離と高さを差分で計算する
     if (typeof window.cameraSliderValue !== 'undefined') {
-        cHeight = 2.5 + (window.cameraSliderValue * 12.0);
-        cDist = 5.0 + ((1.0 - window.cameraSliderValue) * 3.0);
+        // スライダーの値を -0.5 〜 0.5 の範囲に変換（中央=0）
+        let diff = window.cameraSliderValue - 0.5; 
+        
+        // マイナス（下）なら数値を減らして接近し、プラス（上）なら数値を増やして離れる
+        cHeight = baseHeight + (diff * 20.0); 
+        cDist = baseDist + (diff * 10.0);     
+        
+        // 近すぎ・低すぎを防ぐための下限ブロック
+        cHeight = Math.max(cHeight, 2.0);
+        cDist = Math.max(cDist, 1.0);
     }
 
     const targetCamPos = new THREE.Vector3(
@@ -283,6 +296,7 @@ window.updateCamera = function(instant) {
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
     
+    // キャラクターの少し上を注視する
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);
