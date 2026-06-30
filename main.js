@@ -275,15 +275,14 @@ window.updateCamera = function(instant) {
 
     // スライダーの値がある場合は、カメラの距離と高さを差分で計算する
     if (typeof window.cameraSliderValue !== 'undefined') {
-        // スライダーの値を -0.5 〜 0.5 の範囲に変換（中央=0）
         let diff = window.cameraSliderValue - 0.5; 
         
-        // マイナス（下）なら数値を減らして接近し、プラス（上）なら数値を増やして離れる
-        cHeight = baseHeight + (diff * 20.0); 
-        cDist = baseDist + (diff * 10.0);     
+        // ★変更点: スライダーの可動幅を大きく広げました
+        cHeight = baseHeight + (diff * 35.0); // 以前は20
+        cDist = baseDist + (diff * 15.0);     // 以前は10
         
-        // 近すぎ・低すぎを防ぐための下限ブロック
-        cHeight = Math.max(cHeight, 2.0);
+        // 下限ブロックも緩和し、キャラの背後すぐ近くまで寄れるように
+        cHeight = Math.max(cHeight, 1.0);
         cDist = Math.max(cDist, 1.0);
     }
 
@@ -296,7 +295,6 @@ window.updateCamera = function(instant) {
     if (instant) camera.position.copy(targetCamPos);
     else camera.position.lerp(targetCamPos, 0.1);
     
-    // キャラクターの少し上を注視する
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);

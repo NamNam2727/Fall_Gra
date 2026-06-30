@@ -36,7 +36,7 @@ window.ItemSystem = {
         };
         loop();
 
-        // テスト用アイテムの出現（固定座標で安全にスポーン）
+        // テスト用アイテムの出現
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
                 let spawnPos = { x: 0, y: 3, z: 0 };
@@ -108,23 +108,37 @@ window.ItemSystem = {
         }
         
         const group = new THREE.Group();
+        
+        // ★変更点1: 球体を白っぽくし、透明度や反射を調整
         const sphereGeo = new THREE.SphereGeometry(0.6, 16, 16);
         const glassMat = new THREE.MeshPhysicalMaterial({
-            color: 0xffffaa, transmission: 0.8, opacity: 1, transparent: true, roughness: 0.1, ior: 1.5, emissive: 0x332200
+            color: 0xffffff, transmission: 0.9, opacity: 1, transparent: true, roughness: 0.05, ior: 1.5, emissive: 0x111111
         });
         const sphere = new THREE.Mesh(sphereGeo, glassMat);
+        // ★変更点2: 描画順序を指定（透明な球体は最後に描画させる）
+        sphere.renderOrder = 2;
         group.add(sphere);
 
+        // ハテナマークのキャンバス作成（影をつけて見やすく）
         const canvas = document.createElement('canvas');
         canvas.width = 128; canvas.height = 128;
         const ctx = canvas.getContext('2d');
-        ctx.font = 'bold 80px sans-serif';
+        ctx.font = 'bold 90px sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#ffaa00'; ctx.fillText('❓', 64, 64);
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+        ctx.fillStyle = '#ffcc00'; 
+        ctx.fillText('❓', 64, 64);
         const tex = new THREE.CanvasTexture(canvas);
-        const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false }); 
+        
+        // ★変更点3: depthTestをtrueにして壁やプレイヤーを貫通しないように修正
+        const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: true, transparent: true }); 
         const sprite = new THREE.Sprite(spriteMat);
-        sprite.scale.set(1.0, 1.0, 1); 
+        sprite.scale.set(0.9, 0.9, 1); 
+        // ★変更点4: 描画順序（球体より先に中のスプライトを描画）
+        sprite.renderOrder = 1;
         group.add(sprite);
         
         group.position.set(pos.x, pos.y, pos.z);
@@ -371,7 +385,6 @@ window.ItemSystem = {
     }
 };
 
-// スクリプト読み込みから数秒後に自動で初期化
 setTimeout(() => {
     if (window.ItemSystem) window.ItemSystem.init();
 }, 2000);
