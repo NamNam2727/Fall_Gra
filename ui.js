@@ -18,7 +18,6 @@ function initUI() {
             border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 4px 8px rgba(0,0,0,0.4);
         }
         
-        /* ジャンプボタンを一番下(bottom: 10px)に下げてチャットと揃える */
         #jump-btn {
             position: absolute; bottom: 10px; right: 15px; width: 80px; height: 80px;
             background: rgba(255, 255, 255, 0.5); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
@@ -28,7 +27,6 @@ function initUI() {
         }
         #jump-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
 
-        /* アイテムスロットをジャンプボタンの上に追従させる(bottom: 100px) */
         #item-slot {
             position: absolute; bottom: 100px; right: 25px; width: 60px; height: 60px;
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
@@ -41,9 +39,18 @@ function initUI() {
         #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
         .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
-        /* カメラスライダーUI: アイテムとの間に空間を空け、4px上に移動(bottom: 204px) */
+        /* ★変更: メンバーボタン (bottom: 210px) */
+        #member-btn {
+            position: absolute; bottom: 210px; right: 25px; width: 40px; height: 35px;
+            background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 8px;
+            display: flex; justify-content: center; align-items: center; color: white; font-size: 16px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; cursor: pointer; z-index: 100;
+        }
+        #member-btn:active { transform: scale(0.95); }
+
+        /* ★変更: カメラスライダー (bottom: 250px) */
         #camera-slider-container {
-            position: absolute; bottom: 204px; right: 25px; width: 40px; height: 130px;
+            position: absolute; bottom: 250px; right: 25px; width: 40px; height: 130px;
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; z-index: 100;
@@ -56,6 +63,37 @@ function initUI() {
             width: 8px; height: 80px; outline: none; margin-top: 5px; cursor: pointer;
         }
         #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
+
+        /* ★追加: メンバーリストウィンドウ */
+        #member-window {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 85%; max-width: 350px; height: 60%; max-height: 400px;
+            background: rgba(20, 20, 30, 0.95); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7); display: none; flex-direction: column;
+            z-index: 1000; pointer-events: auto;
+        }
+        .member-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 15px; border-bottom: 2px solid rgba(255,255,255,0.2);
+            font-size: 16px; font-weight: bold; color: white; font-family: sans-serif;
+        }
+        .member-close-btn {
+            background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 5px;
+        }
+        .member-list {
+            flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px;
+        }
+        .member-item {
+            display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;
+        }
+        .member-icon {
+            width: 40px; height: 40px; border-radius: 50%; background: #ccc; margin-right: 15px;
+            background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5);
+            display: flex; justify-content: center; align-items: center; font-size: 20px;
+        }
+        .member-name {
+            color: white; font-size: 14px; font-weight: bold; font-family: sans-serif;
+        }
 
         #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 250px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; pointer-events: none; }
         #floatingLog { width: 100%; height: 120px; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; margin-bottom: 5px; }
@@ -108,6 +146,86 @@ function initUI() {
     itemSlot.id = 'item-slot';
     uiLayer.appendChild(itemSlot);
 
+    // ★追加: メンバーボタン
+    const memberBtn = document.createElement('div');
+    memberBtn.id = 'member-btn';
+    memberBtn.innerText = '👥';
+    uiLayer.appendChild(memberBtn);
+
+    // ★追加: メンバーリストウィンドウの生成
+    const memberWindow = document.createElement('div');
+    memberWindow.id = 'member-window';
+    memberWindow.innerHTML = `
+        <div class="member-header">
+            <span>ルームメンバー</span>
+            <button class="member-close-btn" id="member-close-btn">❌</button>
+        </div>
+        <div class="member-list" id="member-list-content"></div>
+    `;
+    uiLayer.appendChild(memberWindow);
+
+    // メンバーリストの更新・表示ロジック
+    window.updateMemberList = function() {
+        const listEl = document.getElementById('member-list-content');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        let allUsers = [];
+        if (window.GameState && window.GameState.roomUsers) {
+            allUsers = [...window.GameState.roomUsers];
+        }
+        
+        // 自分がリストにいない場合は追加
+        if (window.GameState && window.GameState.userInfo) {
+            const myId = window.GameState.userInfo.user_id;
+            const hasMe = allUsers.some(u => u.user_id === myId);
+            if (!hasMe) {
+                allUsers.unshift(window.GameState.userInfo);
+            }
+        } else {
+            if (allUsers.length === 0) {
+                allUsers.push({ name: "テストプレイヤー (あなた)", portrait: "" });
+            }
+        }
+
+        allUsers.forEach(user => {
+            const item = document.createElement('div');
+            item.className = 'member-item';
+            
+            const icon = document.createElement('div');
+            icon.className = 'member-icon';
+            const avatarUrl = user.portrait || user.portait;
+            if (avatarUrl) {
+                icon.style.backgroundImage = `url(${avatarUrl})`;
+            } else {
+                icon.style.backgroundColor = '#ffaa00';
+                icon.innerText = '👤';
+            }
+            
+            const name = document.createElement('div');
+            name.className = 'member-name';
+            name.innerText = user.user_name || user.name || "Player";
+            
+            item.appendChild(icon);
+            item.appendChild(name);
+            listEl.appendChild(item);
+        });
+    };
+
+    memberBtn.addEventListener('click', () => {
+        window.updateMemberList();
+        memberWindow.style.display = 'flex';
+    });
+
+    // 閉じるボタンのイベント
+    memberWindow.querySelector('#member-close-btn').addEventListener('click', () => {
+        memberWindow.style.display = 'none';
+    });
+    // ウィンドウ自体をタップしても裏の移動操作に反応しないようにブロック
+    memberWindow.addEventListener('mousedown', e => e.stopPropagation());
+    memberWindow.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+
+    // カメラスライダーの要素を作成
     const cameraSliderContainer = document.createElement('div');
     cameraSliderContainer.id = 'camera-slider-container';
     cameraSliderContainer.innerHTML = `
