@@ -16,7 +16,7 @@ window.ItemSystem = {
     explosions: [],
     knockback: null, 
     isOnNet: false,
-    lastPlayerPos: null, // ★追加: 確実な鈍足効果のために過去位置を保持
+    lastPlayerPos: null, 
     
     lastTime: performance.now(),
 
@@ -249,8 +249,7 @@ window.ItemSystem = {
             const dist = player.position.distanceTo(bomb.mesh.position);
             
             if (dist <= maxRadius) {
-                // ★修正: 思い切って10倍のノックバックに変更
-                window.verticalVelocity = 60; // より高く跳ね上げる
+                window.verticalVelocity = 60; 
                 window.isJumping = true;
                 player.position.y += 2.0; 
                 
@@ -259,7 +258,6 @@ window.ItemSystem = {
                 if (dir.lengthSq() === 0) dir.set(1, 0, 0);
                 dir.normalize();
                 
-                // ノックバックの初速を 10倍 (bs * 50.0) に強化
                 this.knockback = {
                     dir: dir,
                     speed: bs * 50.0, 
@@ -285,30 +283,37 @@ window.ItemSystem = {
         ctx.fillText('🕸️', 128, 128);
         const tex = new THREE.CanvasTexture(canvas);
         
-        const geo = new THREE.PlaneGeometry(bs * 1.5, bs * 1.5);
-        geo.rotateX(-Math.PI / 2);
+        // ★修正: メッシュを少し小さくし、X-Z平面に確実に寝かせる
+        const geo = new THREE.PlaneGeometry(bs * 1.2, bs * 1.2);
+        geo.rotateX(-Math.PI / 2); // 頂点を倒して床と平行にする
         
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
+        mesh.renderOrder = 1; // 透過バグを防ぐため、他の床よりも手前に描画
         
         const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
-        let terrainMesh = scene.children.find(c => c.userData && c.userData.isTerrain);
+        let terrainMesh = typeof mapMesh !== 'undefined' ? mapMesh : (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
         
         if (terrainMesh) {
-            const intersects = raycaster.intersectObject(terrainMesh);
+            const intersects = raycaster.intersectObject(terrainMesh, false);
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
-                mesh.position.y += 0.2; 
+                
                 let normal = hit.face.normal.clone();
                 let normalMatrix = new THREE.Matrix3().getNormalMatrix(terrainMesh.matrixWorld);
                 normal.applyMatrix3(normalMatrix).normalize();
-                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+                
+                // ★修正: 寝かせたPlane(元の上向きY軸)を、地形の法線に合わせる
+                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                
+                // ★修正: 法線方向へ少し浮かせることで地中へのめり込みを完全に防止
+                mesh.position.add(normal.multiplyScalar(bs * 0.05)); 
             } else {
-                mesh.position.set(pos.x, pos.y + 0.2, pos.z);
+                mesh.position.set(pos.x, pos.y + 0.5, pos.z);
             }
         } else {
-            mesh.position.set(pos.x, pos.y + 0.2, pos.z);
+            mesh.position.set(pos.x, pos.y + 0.5, pos.z);
         }
         
         scene.add(mesh);
@@ -341,13 +346,33 @@ window.ItemSystem = {
         
         if (typeof scene === 'undefined' || !scene) return;
 
-        // ノックバックの更新
+        // ★修正: ボムのノックバック時の壁貫通防止
         if (this.knockback && typeof player !== 'undefined' && player) {
             this.knockback.timer -= delta;
             if (this.knockback.timer > 0) {
-                player.position.x += this.knockback.dir.x * this.knockback.speed * delta;
-                player.position.z += this.knockback.dir.z * this.knockback.speed * delta;
-                this.knockback.speed *= 0.9; 
+                let moveDist = this.knockback.speed * delta;
+                
+                // 進行方向に光線を飛ばして壁があるかチェック
+                let rayOrigin = new THREE.Vector3(player.position.x, player.position.y + 1.5, player.position.z);
+                let ray = new THREE.Raycaster(rayOrigin, this.knockback.dir);
+                let terrainMap = typeof mapMesh !== 'undefined' ? mapMesh : null;
+                
+                let canMove = true;
+                if (terrainMap) {
+                    let hits = ray.intersectObject(terrainMap, false);
+                    // 壁までの距離が移動量＋余裕分より近い場合はぶつかると判定
+                    let checkDist = moveDist + (typeof playerRadius !== 'undefined' ? playerRadius : 1.0);
+                    if (hits.length > 0 && hits[0].distance < checkDist) {
+                        canMove = false;
+                        this.knockback.speed *= 0.2; // 壁にぶつかったらノックバックを急停止
+                    }
+                }
+
+                if (canMove) {
+                    player.position.x += this.knockback.dir.x * moveDist;
+                    player.position.z += this.knockback.dir.z * moveDist;
+                }
+                this.knockback.speed *= 0.9; // 空気抵抗での減速
             } else {
                 this.knockback = null;
             }
@@ -405,16 +430,14 @@ window.ItemSystem = {
             let n = this.activeNets[i];
             n.timeSincePlaced += delta;
             
-            // 設置から1秒経過するまでは、設置者(自分)には影響を与えない（カウントダウンも開始させない）
             let canAffectMe = !n.isMine || (n.isMine && n.timeSincePlaced >= 1.0);
             
             if (typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
                 
-                // 踏んでいる判定
-                if (dist < (bs * 0.8) && yDist < (bs * 1.5)) {
-                    // ★修正: 自分が乗っていても、1秒経過していないならトリガーを引かない
+                // ★修正: 高さの許容範囲を極小 (bs * 0.15 = 1.5) に絞り、空中にいる間や別フロアで発動させない
+                if (dist < (bs * 0.8) && yDist < (bs * 0.15)) {
                     if (canAffectMe) {
                         n.isTriggered = true;
                         this.isOnNet = true;
@@ -422,7 +445,6 @@ window.ItemSystem = {
                 }
             }
             
-            // 他のプレイヤーが踏んだ場合は無条件でトリガーを引く
             if (window.MultiplayerManager) {
                 const others = window.MultiplayerManager.otherPlayers;
                 for (let id in others) {
@@ -430,14 +452,14 @@ window.ItemSystem = {
                     if (p.mesh) {
                         const dist = Math.hypot(p.mesh.position.x - n.mesh.position.x, p.mesh.position.z - n.mesh.position.z);
                         const yDist = Math.abs(p.mesh.position.y - n.mesh.position.y);
-                        if (dist < (bs * 0.8) && yDist < (bs * 1.5)) {
+                        // ★修正: 他プレイヤーへの判定も同様に厳格化
+                        if (dist < (bs * 0.8) && yDist < (bs * 0.15)) {
                             n.isTriggered = true;
                         }
                     }
                 }
             }
             
-            // 誰かが踏んでトリガーがONになったらカウントダウン開始
             if (n.isTriggered) {
                 n.timer -= delta;
                 if (n.timer < 2.0) {
@@ -451,15 +473,11 @@ window.ItemSystem = {
             }
         }
         
-        // ★修正: 確実な鈍足処理 (移動した分を物理的に巻き戻す)
         if (typeof player !== 'undefined' && player && this.lastPlayerPos) {
             if (this.isOnNet) {
-                // 前回から進んだベクトルを計算
                 const deltaPos = player.position.clone().sub(this.lastPlayerPos);
-                deltaPos.y = 0; // 落下などは阻害しない
-                
+                deltaPos.y = 0; 
                 if (deltaPos.lengthSq() > 0) {
-                    // 移動量の85%を相殺する (速度が実質 0.15倍 になる)
                     const rollback = deltaPos.multiplyScalar(0.85);
                     player.position.x -= rollback.x;
                     player.position.z -= rollback.z;

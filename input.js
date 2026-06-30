@@ -1,6 +1,7 @@
 // =====================================
 // input.js
 // タッチ・マウス操作の入力制御
+// ★ネット(🕸️)に乗っている間のジャンプ禁止を実装
 // =====================================
 
 function setupInputs() {
@@ -24,12 +25,20 @@ function setupInputs() {
 }
 
 function doJump() { 
-    // ★追加: フライモード中は接地していなくてもジャンプ可能にする
+    // ★追加: ネットに乗って遅延効果を受けている間はジャンプさせない
+    if (window.ItemSystem && window.ItemSystem.isOnNet) return;
+
     const canFly = window.ItemSystem && window.ItemSystem.isFlyMode;
     
     if (!isJumping || canFly) { 
         isJumping = true; 
-        verticalVelocity = typeof jumpPower !== 'undefined' ? jumpPower : 0.3; 
+        
+        // フライ中は少しジャンプ力を高めて連続で飛びやすくする
+        if (canFly) {
+            verticalVelocity = typeof jumpPower !== 'undefined' ? jumpPower * 1.2 : 0.4;
+        } else {
+            verticalVelocity = typeof jumpPower !== 'undefined' ? jumpPower : 0.3; 
+        }
         
         if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
             window.MultiplayerManager.forceSendPos();
@@ -40,7 +49,6 @@ function doJump() {
 let isMouseDown = false;
 
 function onPointerDownPC(e) {
-    // アイテムスロットのクリックを阻害しないように判定を追加
     if (e.target.id === 'jump-btn' || e.target.id === 'item-slot') return;
     if (e.target.tagName.toLowerCase() === 'canvas' || e.target.id === 'ui-layer') {
         isMouseDown = true; startX = e.clientX; startY = e.clientY; showJoystick(startX, startY);

@@ -1,6 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
+// ★フライ(連続ジャンプ)中の天井衝突判定を追加
 // =====================================
 
 let mapMesh;
@@ -205,6 +206,19 @@ window.updatePlayer = function(delta) {
 
     if (isJumping) {
         verticalVelocity += gravity * delta;
+        
+        // ★追加: 上昇中の天井（屋根）への衝突判定（フライでの貫通防止）
+        if (verticalVelocity > 0 && mapMesh) {
+            let upRayOrigin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 1.5, player.position.z);
+            let upRay = new THREE.Raycaster(upRayOrigin, new THREE.Vector3(0, 1, 0));
+            let upHits = upRay.intersectObject(mapMesh, false);
+            
+            // 頭上すぐに天井を検知した場合、上昇速度をキャンセルして落下に転じさせる
+            if (upHits.length > 0 && upHits[0].distance < pRadius * 1.0) {
+                verticalVelocity = 0; 
+            }
+        }
+
         player.position.y += verticalVelocity * delta;
         
         if (verticalVelocity < 0 && player.position.y <= currentGroundY) {
@@ -265,23 +279,16 @@ window.updatePlayer = function(delta) {
 
 window.updateCamera = function(instant) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
-    
-    // globals.js などで定義されている基本のカメラ位置
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
 
     let cDist = baseDist;
     let cHeight = baseHeight;
 
-    // スライダーの値がある場合は、カメラの距離と高さを差分で計算する
     if (typeof window.cameraSliderValue !== 'undefined') {
         let diff = window.cameraSliderValue - 0.5; 
-        
-        // ★変更点: スライダーの可動幅を大きく広げました
-        cHeight = baseHeight + (diff * 35.0); // 以前は20
-        cDist = baseDist + (diff * 15.0);     // 以前は10
-        
-        // 下限ブロックも緩和し、キャラの背後すぐ近くまで寄れるように
+        cHeight = baseHeight + (diff * 35.0); 
+        cDist = baseDist + (diff * 15.0);     
         cHeight = Math.max(cHeight, 1.0);
         cDist = Math.max(cDist, 1.0);
     }
