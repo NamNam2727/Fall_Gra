@@ -186,7 +186,6 @@ window.ItemSystem = {
     startFly: function() {
         this.isFlyMode = true;
         this.isCoolingDown = true;
-        // ★修正: フライの効果時間を5秒に変更
         this.slotUI.innerHTML = '<span style="filter: grayscale(100%); opacity: 0.5;">🪽</span><div class="item-timer">5</div>';
         this.slotUI.classList.add('cooling');
         
@@ -289,8 +288,6 @@ window.ItemSystem = {
         
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
-        
-        // ★修正: renderOrder を削除し、名前枠との透過干渉バグを解消
         
         const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
         let terrainMesh = typeof mapMesh !== 'undefined' ? mapMesh : (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
@@ -417,7 +414,9 @@ window.ItemSystem = {
             }
         }
         
+        // --- ネットのロジック更新（完全拘束化） ---
         this.isOnNet = false;
+        let captureTargetPos = null; // ★追加: 捕まったネットの中心座標を記憶
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
         
         for (let i = this.activeNets.length - 1; i >= 0; i--) {
@@ -434,6 +433,7 @@ window.ItemSystem = {
                     if (canAffectMe) {
                         n.isTriggered = true;
                         this.isOnNet = true;
+                        captureTargetPos = n.mesh.position.clone(); // 中心座標を記録
                     }
                 }
             }
@@ -465,17 +465,25 @@ window.ItemSystem = {
             }
         }
         
+        // ★修正: 完全拘束・中心への引き寄せ処理
         if (typeof player !== 'undefined' && player && this.lastPlayerPos) {
-            if (this.isOnNet) {
+            if (this.isOnNet && captureTargetPos) {
+                
+                // 1. まず、プレイヤー自身の入力による移動量を「完全に無効化（巻き戻し）」する
                 const deltaPos = player.position.clone().sub(this.lastPlayerPos);
                 deltaPos.y = 0; 
-                
                 if (deltaPos.lengthSq() > 0) {
-                    // ★修正: 移動量の100%（1.0）を打ち消すことで、完全な移動不可（拘束）を実現
-                    const rollback = deltaPos.multiplyScalar(1.0);
-                    player.position.x -= rollback.x;
-                    player.position.z -= rollback.z;
+                    player.position.x -= deltaPos.x;
+                    player.position.z -= deltaPos.z;
                 }
+                
+                // 2. その上で、ネットの中心座標に向かって強力に引っ張り込む
+                const dx = captureTargetPos.x - player.position.x;
+                const dz = captureTargetPos.z - player.position.z;
+                
+                player.position.x += dx * 10.0 * delta; // 高速で中心に引き寄せる
+                player.position.z += dz * 10.0 * delta;
+                
             }
             this.lastPlayerPos.copy(player.position);
         }
