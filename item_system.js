@@ -186,10 +186,11 @@ window.ItemSystem = {
     startFly: function() {
         this.isFlyMode = true;
         this.isCoolingDown = true;
-        this.slotUI.innerHTML = '<span style="filter: grayscale(100%); opacity: 0.5;">🪽</span><div class="item-timer">10</div>';
+        // ★修正: フライの効果時間を5秒に変更
+        this.slotUI.innerHTML = '<span style="filter: grayscale(100%); opacity: 0.5;">🪽</span><div class="item-timer">5</div>';
         this.slotUI.classList.add('cooling');
         
-        let time = 10;
+        let time = 5;
         const interval = setInterval(() => {
             time--;
             if (time <= 0) {
@@ -283,13 +284,13 @@ window.ItemSystem = {
         ctx.fillText('🕸️', 128, 128);
         const tex = new THREE.CanvasTexture(canvas);
         
-        // ★修正: メッシュを少し小さくし、X-Z平面に確実に寝かせる
         const geo = new THREE.PlaneGeometry(bs * 1.2, bs * 1.2);
-        geo.rotateX(-Math.PI / 2); // 頂点を倒して床と平行にする
+        geo.rotateX(-Math.PI / 2); 
         
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.renderOrder = 1; // 透過バグを防ぐため、他の床よりも手前に描画
+        
+        // ★修正: renderOrder を削除し、名前枠との透過干渉バグを解消
         
         const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
         let terrainMesh = typeof mapMesh !== 'undefined' ? mapMesh : (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
@@ -304,10 +305,7 @@ window.ItemSystem = {
                 let normalMatrix = new THREE.Matrix3().getNormalMatrix(terrainMesh.matrixWorld);
                 normal.applyMatrix3(normalMatrix).normalize();
                 
-                // ★修正: 寝かせたPlane(元の上向きY軸)を、地形の法線に合わせる
                 mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-                
-                // ★修正: 法線方向へ少し浮かせることで地中へのめり込みを完全に防止
                 mesh.position.add(normal.multiplyScalar(bs * 0.05)); 
             } else {
                 mesh.position.set(pos.x, pos.y + 0.5, pos.z);
@@ -346,13 +344,11 @@ window.ItemSystem = {
         
         if (typeof scene === 'undefined' || !scene) return;
 
-        // ★修正: ボムのノックバック時の壁貫通防止
         if (this.knockback && typeof player !== 'undefined' && player) {
             this.knockback.timer -= delta;
             if (this.knockback.timer > 0) {
                 let moveDist = this.knockback.speed * delta;
                 
-                // 進行方向に光線を飛ばして壁があるかチェック
                 let rayOrigin = new THREE.Vector3(player.position.x, player.position.y + 1.5, player.position.z);
                 let ray = new THREE.Raycaster(rayOrigin, this.knockback.dir);
                 let terrainMap = typeof mapMesh !== 'undefined' ? mapMesh : null;
@@ -360,11 +356,10 @@ window.ItemSystem = {
                 let canMove = true;
                 if (terrainMap) {
                     let hits = ray.intersectObject(terrainMap, false);
-                    // 壁までの距離が移動量＋余裕分より近い場合はぶつかると判定
                     let checkDist = moveDist + (typeof playerRadius !== 'undefined' ? playerRadius : 1.0);
                     if (hits.length > 0 && hits[0].distance < checkDist) {
                         canMove = false;
-                        this.knockback.speed *= 0.2; // 壁にぶつかったらノックバックを急停止
+                        this.knockback.speed *= 0.2; 
                     }
                 }
 
@@ -372,7 +367,7 @@ window.ItemSystem = {
                     player.position.x += this.knockback.dir.x * moveDist;
                     player.position.z += this.knockback.dir.z * moveDist;
                 }
-                this.knockback.speed *= 0.9; // 空気抵抗での減速
+                this.knockback.speed *= 0.9; 
             } else {
                 this.knockback = null;
             }
@@ -422,7 +417,6 @@ window.ItemSystem = {
             }
         }
         
-        // --- ネットのロジック更新 ---
         this.isOnNet = false;
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
         
@@ -436,7 +430,6 @@ window.ItemSystem = {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
                 
-                // ★修正: 高さの許容範囲を極小 (bs * 0.15 = 1.5) に絞り、空中にいる間や別フロアで発動させない
                 if (dist < (bs * 0.8) && yDist < (bs * 0.15)) {
                     if (canAffectMe) {
                         n.isTriggered = true;
@@ -452,7 +445,6 @@ window.ItemSystem = {
                     if (p.mesh) {
                         const dist = Math.hypot(p.mesh.position.x - n.mesh.position.x, p.mesh.position.z - n.mesh.position.z);
                         const yDist = Math.abs(p.mesh.position.y - n.mesh.position.y);
-                        // ★修正: 他プレイヤーへの判定も同様に厳格化
                         if (dist < (bs * 0.8) && yDist < (bs * 0.15)) {
                             n.isTriggered = true;
                         }
@@ -477,8 +469,10 @@ window.ItemSystem = {
             if (this.isOnNet) {
                 const deltaPos = player.position.clone().sub(this.lastPlayerPos);
                 deltaPos.y = 0; 
+                
                 if (deltaPos.lengthSq() > 0) {
-                    const rollback = deltaPos.multiplyScalar(0.85);
+                    // ★修正: 移動量の100%（1.0）を打ち消すことで、完全な移動不可（拘束）を実現
+                    const rollback = deltaPos.multiplyScalar(1.0);
                     player.position.x -= rollback.x;
                     player.position.z -= rollback.z;
                 }
