@@ -2,11 +2,15 @@
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
 // ★フライ(連続ジャンプ)中の天井衝突判定を追加
+// ★坂道での停止時にキャラクターが勝手に回転するバグを修正
 // =====================================
 
 let mapMesh;
 let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
+
+// ★追加: キャラクターの水平方向の向きを記録する変数
+let currentFacingAngle = 0; 
 
 window.initThreeJS = function() {
     scene = new THREE.Scene();
@@ -181,7 +185,12 @@ window.updatePlayer = function(delta) {
         }
         if (canMoveZ) player.position.z = nextZ;
 
+        // キャラクターの回転と姿勢制御
         const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
+        
+        // ★修正: 移動中は常に「現在向いている方角」を上書き保存する
+        currentFacingAngle = targetRotationY;
+        
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
         const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
@@ -197,8 +206,8 @@ window.updatePlayer = function(delta) {
             cameraAngle += diff * 3.0 * delta;
         }
     } else {
-        const currentRotY = new THREE.Euler().setFromQuaternion(player.quaternion, 'YXZ').y;
-        const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentRotY);
+        // ★修正: 停止中は、傾いたモデルから方角を逆算せず、保存しておいた向きを使用する
+        const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
         const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
@@ -207,13 +216,11 @@ window.updatePlayer = function(delta) {
     if (isJumping) {
         verticalVelocity += gravity * delta;
         
-        // ★追加: 上昇中の天井（屋根）への衝突判定（フライでの貫通防止）
         if (verticalVelocity > 0 && mapMesh) {
             let upRayOrigin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 1.5, player.position.z);
             let upRay = new THREE.Raycaster(upRayOrigin, new THREE.Vector3(0, 1, 0));
             let upHits = upRay.intersectObject(mapMesh, false);
             
-            // 頭上すぐに天井を検知した場合、上昇速度をキャンセルして落下に転じさせる
             if (upHits.length > 0 && upHits[0].distance < pRadius * 1.0) {
                 verticalVelocity = 0; 
             }
