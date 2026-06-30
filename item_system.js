@@ -36,68 +36,69 @@ window.ItemSystem = {
         };
         loop();
 
-        // ★テスト用アイテムの出現（ゲーム開始3秒後にプレイヤーの目の前に配置）
+        // ゲーム開始3秒後に正規のロジックで最初のアイテムをスポーン
         setTimeout(() => {
             if (this.enabled && !this.currentItemPosInfo) {
-                let spawnPos = { x: 0, y: 3, z: 0 };
-                
-                if (typeof player !== 'undefined' && player) {
-                    // カメラの向きを考慮してプレイヤーの3マス前に出現させる
-                    let cAngle = typeof cameraAngle !== 'undefined' && !isNaN(cameraAngle) ? cameraAngle : 0;
-                    const forwardX = -Math.sin(cAngle + Math.PI);
-                    const forwardZ = -Math.cos(cAngle + Math.PI);
-                    spawnPos = {
-                        x: player.position.x + forwardX * 3,
-                        y: player.position.y + 0.5,
-                        z: player.position.z + forwardZ * 3
-                    };
-                }
-
-                const timestamp = Date.now();
-                this.placeFieldItem(spawnPos, timestamp);
-                
-                if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
-                    window.MultiplayerManager.sendData({
-                        type: 'item_spawn', pos: spawnPos, timestamp: timestamp
-                    });
-                }
+                this.spawnNewItem(true);
             }
         }, 3000); 
     },
     
     spawnNewItem: function(isOriginator) {
-        if (!window.MapGenerator || typeof scene === 'undefined') return;
-        const mapInfo = window.MapGenerator.parseMap();
-        const mapW = mapInfo.mapW;
-        const mapD = mapInfo.mapD;
-        const parsedMap = mapInfo.parsedMap;
+        if (typeof scene === 'undefined' || !scene) return;
+
+        // ★修正: 地形メッシュ(mapMesh)を直接参照し、上空からレイキャスターを落として正確な高さを測る
+        let terrainMesh = null;
+        if (typeof mapMesh !== 'undefined' && mapMesh) {
+            terrainMesh = mapMesh;
+        }
 
         const validSpawns = [];
         
-        for (let x = 0; x < mapW; x++) {
-            for (let z = 0; z < mapD; z++) {
-                let layers = parsedMap[x][z];
-                if (layers.length > 0) {
-                    let topLayer = layers[layers.length - 1]; 
-                    if (topLayer.val > 0) {
-                        let px = x - mapW / 2 + 0.5;
-                        let pz = z - mapD / 2 + 0.5;
-                        let py = topLayer.top;
+        if (terrainMesh) {
+            const mapW = 21; // マップの幅
+            const mapD = 21; // マップの奥行き
+            const raycaster = new THREE.Raycaster();
+            const downDir = new THREE.Vector3(0, -1, 0);
+
+            // 外周の壁(x=0,20 z=0,20)を避けて探索
+            for (let x = 1; x < mapW - 1; x++) {
+                for (let z = 1; z < mapD - 1; z++) {
+                    // タイルの中央の座標を計算
+                    let px = x - mapW / 2 + 0.5;
+                    let pz = z - mapD / 2 + 0.5;
+
+                    // はるか上空(y=50)から下に向けて光線を飛ばす
+                    raycaster.set(new THREE.Vector3(px, 50, pz), downDir);
+                    let intersects = raycaster.intersectObject(terrainMesh, false);
+
+                    if (intersects.length > 0) {
+                        let hit = intersects[0];
                         
-                        if (topLayer.isOdd) {
-                            let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, topLayer.top);
-                            py = corners.center;
+                        // 地面の傾き（法線ベクトル）を取得
+                        let normal = hit.face.normal.clone();
+                        let normalMatrix = new THREE.Matrix3().getNormalMatrix(terrainMesh.matrixWorld);
+                        normal.applyMatrix3(normalMatrix).normalize();
+                        
+                        // 真上を向いている（平地や緩やかな坂）かつ、外壁の上(y=3.0)ではない場所を探す
+                        if (normal.y > 0.5 && hit.point.y < 3.0) {
+                            validSpawns.push({x: px, y: hit.point.y, z: pz});
                         }
-                        validSpawns.push({x: px, y: py, z: pz});
                     }
                 }
             }
         }
         
-        if (validSpawns.length === 0) return;
+        // 万が一見つからなかった場合の安全策
+        if (validSpawns.length === 0) {
+            validSpawns.push({ x: 0, y: 1.0, z: 0 }); 
+        }
         
+        // ランダムな候補地を選択
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
-        const pos = { x: spawn.x, y: spawn.y + 0.5, z: spawn.z };
+        
+        // アイテム本体が大きくなったので、地面にめり込まないように少し高め(y + 1.2)に浮かせる
+        const pos = { x: spawn.x, y: spawn.y + 1.2, z: spawn.z };
         const timestamp = Date.now();
         
         this.placeFieldItem(pos, timestamp);
@@ -122,8 +123,8 @@ window.ItemSystem = {
         
         const group = new THREE.Group();
         
-        // ★修正点1: 確実に表示されるよう、スタンダードな半透明マテリアルに変更し、Zバッファ書き込みを無効化
-        const sphereGeo = new THREE.SphereGeometry(0.6, 16, 16);
+        // ★修正: アイテムの球体を1.5倍(0.6 -> 0.9)にサイズアップ
+        const sphereGeo = new THREE.SphereGeometry(0.9, 16, 16);
         const glassMat = new THREE.MeshStandardMaterial({
             color: 0xffffff, 
             transparent: true, 
@@ -131,12 +132,11 @@ window.ItemSystem = {
             roughness: 0.1,
             metalness: 0.2,
             emissive: 0x333333,
-            depthWrite: false // これが重要。中身を隠してしまう現象を完全に防止
+            depthWrite: false
         });
         const sphere = new THREE.Mesh(sphereGeo, glassMat);
         group.add(sphere);
 
-        // ★修正点2: ハテナマークを再作成。見やすいように黒い影を付与
         const canvas = document.createElement('canvas');
         canvas.width = 128; canvas.height = 128;
         const ctx = canvas.getContext('2d');
@@ -152,7 +152,6 @@ window.ItemSystem = {
         const tex = new THREE.CanvasTexture(canvas);
         tex.needsUpdate = true;
         
-        // ★修正点3: プレイヤーの手前に見えないよう(depthTest:true)にしつつ、球体と干渉しないよう(depthWrite:false)にする
         const spriteMat = new THREE.SpriteMaterial({ 
             map: tex, 
             depthTest: true, 
@@ -160,7 +159,8 @@ window.ItemSystem = {
             transparent: true 
         }); 
         const sprite = new THREE.Sprite(spriteMat);
-        sprite.scale.set(0.9, 0.9, 1); 
+        // ★修正: 中のマークも1.5倍以上に大きく
+        sprite.scale.set(1.4, 1.4, 1); 
         group.add(sprite);
         
         group.position.set(pos.x, pos.y, pos.z);
@@ -257,17 +257,33 @@ window.ItemSystem = {
     
     explodeBomb: function(bomb) {
         if (typeof scene === 'undefined' || !scene) return;
-        const expGeo = new THREE.SphereGeometry(3.0, 16, 16); 
-        const expMat = new THREE.MeshBasicMaterial({color: 0xff3300, transparent: true, opacity: 0.6});
-        const expMesh = new THREE.Mesh(expGeo, expMat);
-        expMesh.position.copy(bomb.mesh.position);
-        scene.add(expMesh);
         
-        this.explosions.push({ mesh: expMesh, timer: 0.3 });
+        // ★修正: 爆発エフェクトを大幅に強化・巨大化
+        const expGroup = new THREE.Group();
+        
+        // 中心から広がる火の球体（初期半径1.5 = 直径3タイル）
+        const expGeo = new THREE.SphereGeometry(1.5, 16, 16); 
+        const expMat = new THREE.MeshBasicMaterial({color: 0xff4400, transparent: true, opacity: 0.8});
+        const expMesh = new THREE.Mesh(expGeo, expMat);
+        expGroup.add(expMesh);
+        
+        // 外側に広がる衝撃波リング
+        const ringGeo = new THREE.RingGeometry(1.5, 2.0, 32);
+        const ringMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 1.0, side: THREE.DoubleSide});
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.rotation.x = -Math.PI / 2;
+        expGroup.add(ringMesh);
+
+        expGroup.position.copy(bomb.mesh.position);
+        scene.add(expGroup);
+        
+        // 爆発の持続時間を少し長く(0.5秒)して大きく見せる
+        this.explosions.push({ mesh: expMesh, ring: ringMesh, group: expGroup, timer: 0.5 });
         
         if (typeof player !== 'undefined' && player) {
+            // 吹き飛ぶ距離も3タイル分以上に拡大
             const dist = player.position.distanceTo(bomb.mesh.position);
-            if (dist <= 3.5) {
+            if (dist <= 4.0) {
                 if(typeof verticalVelocity !== 'undefined') verticalVelocity = 15; 
                 if(typeof isJumping !== 'undefined') isJumping = true;
                 const dir = player.position.clone().sub(bomb.mesh.position).normalize();
@@ -338,13 +354,16 @@ window.ItemSystem = {
 
         if (this.currentFieldItem) {
             const ud = this.currentFieldItem.userData;
-            ud.time += delta * 3;
-            this.currentFieldItem.position.y = ud.baseY + Math.sin(ud.time) * 0.3;
+            ud.time += delta * 2.5;
+            
+            // アイテムの上下に浮くフワフワ感も少し大きく
+            this.currentFieldItem.position.y = ud.baseY + Math.sin(ud.time) * 0.4;
             this.currentFieldItem.rotation.y += delta;
             
             if (typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown) {
                 const dist = player.position.distanceTo(this.currentFieldItem.position);
-                if (dist < 1.2) { 
+                // アイテムが大きくなったので、取得判定の距離も拡大(1.2 -> 1.8)
+                if (dist < 1.8) { 
                     this.pickupItem();
                 }
             }
@@ -363,12 +382,25 @@ window.ItemSystem = {
             }
         }
         
+        // ★修正: 爆発アニメーション（スケールで一気に膨張させる）
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             let exp = this.explosions[i];
             exp.timer -= delta;
-            exp.mesh.material.opacity = exp.timer / 0.3 * 0.6;
+            
+            let progress = 1.0 - (exp.timer / 0.5); // 0.0 から 1.0 へ
+            
+            // 火球は3倍まで巨大化
+            let ballScale = 1.0 + progress * 2.0; 
+            exp.mesh.scale.set(ballScale, ballScale, ballScale);
+            exp.mesh.material.opacity = (1.0 - progress) * 0.8;
+            
+            // 衝撃波リングは4倍まで広がる
+            let ringScale = 1.0 + progress * 3.0;
+            exp.ring.scale.set(ringScale, ringScale, ringScale);
+            exp.ring.material.opacity = (1.0 - progress);
+            
             if (exp.timer <= 0) {
-                scene.remove(exp.mesh);
+                scene.remove(exp.group);
                 this.explosions.splice(i, 1);
             }
         }
