@@ -1,210 +1,343 @@
-// =========================================================
-// chat_system.js
-// チャット機能、ログ表示、定型文（ショートカット）管理
-// =========================================================
+// =====================================
+// ui.js
+// HTMLのUI要素やCSSを動的に生成して画面に追加する
+// =====================================
 
-window.addLog = function(htmlText, type = 'sys') {
-    if (type === 'chat' || type === 'sys') {
-        const chatLogContent = document.getElementById('chatLogContent');
-        if (chatLogContent) {
-            const chatLine = document.createElement('div');
-            chatLine.className = `full-log-line log-type-${type}`;
-            chatLine.innerHTML = htmlText;
-            chatLogContent.appendChild(chatLine);
-            chatLogContent.scrollTop = chatLogContent.scrollHeight;
-        }
-    }
-
-    const chatTabBtn = document.querySelector('.bottom-tab-btn[data-target="chat"]');
-    const isChatActive = chatTabBtn && chatTabBtn.classList.contains('active');
-    
-    // ★追加: チャットウィンドウが最小化(高さ0)されているか確認
-    const bottomContentArea = document.getElementById('bottomContentArea');
-    const isMinimized = bottomContentArea && bottomContentArea.style.height === '0px';
-    
-    // ★修正: チャットタブが選択されていて、かつ「ウィンドウが隠れていない」時だけフローティングログをオフにする
-    if (isChatActive && !isMinimized) {
-        return; 
-    }
-
-    const floatingLog = document.getElementById('floatingLog');
-    if (!floatingLog) return;
-    
-    const floatLine = document.createElement('div');
-    floatLine.className = `log-line log-type-${type}`;
-    floatLine.innerHTML = htmlText;
-    floatingLog.appendChild(floatLine);
-
-    const removeFloatLine = () => {
-        if(!floatLine.classList.contains('fade-out')) {
-            floatLine.classList.add('fade-out');
-            setTimeout(() => { if (floatLine.parentNode) floatLine.remove(); }, 500); 
-        }
-    };
-    floatLine.timerId = setTimeout(removeFloatLine, 5000);
-
-    const activeLines = Array.from(floatingLog.children).filter(child => !child.classList.contains('fade-out'));
-    if (activeLines.length > 5) {
-        const oldest = activeLines[0];
-        clearTimeout(oldest.timerId); 
-        if(!oldest.classList.contains('fade-out')) {
-            oldest.classList.add('fade-out');
-            setTimeout(() => { if (oldest.parentNode) oldest.remove(); }, 500);
-        }
-    }
-};
-
-window.sendChatMessage = function(text) {
-    if (!text) return;
-    
-    let myName = 'Player';
-    if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.name) {
-        myName = window.GameState.userInfo.name;
-    }
-
-    window.addLog(`<span style="color: #00ffff;">${myName}:</span> ${text}`, 'chat');
-    
-    if (typeof player !== 'undefined' && player && typeof window.showChatBubble === 'function') {
-        window.showChatBubble(player, text);
-    }
-    
-    if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
-        window.MultiplayerManager.sendData({
-            type: 'chat',
-            senderName: myName,
-            text: text
-        });
-    }
-};
-
-function customPrompt(message, defaultValue, callback) {
-    const existing = document.getElementById('custom-prompt-modal');
-    if (existing) existing.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'custom-prompt-modal';
-    overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; justify-content: center; align-items: center; pointer-events: auto;';
-
-    const box = document.createElement('div');
-    box.style.cssText = 'background: rgba(30,30,40,0.95); border: 2px solid #ffaa00; padding: 20px; border-radius: 12px; text-align: center; width: 85%; max-width: 300px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);';
-
-    const msg = document.createElement('div');
-    msg.innerText = message;
-    msg.style.cssText = 'color: white; margin-bottom: 15px; font-weight: bold; font-family: sans-serif; font-size: 15px;';
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = defaultValue;
-    input.style.cssText = 'width: 100%; box-sizing: border-box; padding: 10px; margin-bottom: 20px; border-radius: 6px; border: 1px solid #555; background: #111; color: white; font-size: 16px; outline: none;';
-
-    const btnContainer = document.createElement('div');
-    btnContainer.style.cssText = 'display: flex; justify-content: space-between; gap: 10px;';
-
-    const btnCancel = document.createElement('button');
-    btnCancel.innerText = 'キャンセル';
-    btnCancel.style.cssText = 'flex: 1; padding: 10px; border: none; border-radius: 6px; background: #555; color: white; font-weight: bold; cursor: pointer; font-size: 14px;';
-    btnCancel.onclick = () => { overlay.remove(); callback(null); };
-
-    const btnOk = document.createElement('button');
-    btnOk.innerText = '決定';
-    btnOk.style.cssText = 'flex: 1; padding: 10px; border: none; border-radius: 6px; background: #ffaa00; color: #000; font-weight: bold; cursor: pointer; font-size: 14px;';
-    btnOk.onclick = () => { overlay.remove(); callback(input.value); };
-
-    btnContainer.appendChild(btnCancel);
-    btnContainer.appendChild(btnOk);
-    
-    box.appendChild(msg);
-    box.appendChild(input);
-    box.appendChild(btnContainer);
-    overlay.appendChild(box);
-
-    document.body.appendChild(overlay);
-    input.focus();
-}
-
-window.initChatSystem = function() {
-    const chatSendBtn = document.getElementById('chatSendBtn');
-    const chatInput = document.getElementById('chatInput');
-
-    if (chatSendBtn && chatInput) {
-        chatInput.addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
-                window.sendChatMessage(chatInput.value.trim());
-                chatInput.value = '';
-            }
-        });
-
-        chatSendBtn.addEventListener('click', () => {
-            window.sendChatMessage(chatInput.value.trim());
-            chatInput.value = '';
-        });
-    }
-
-    let shortcuts = JSON.parse(localStorage.getItem('fallGraShortcuts'));
-    
-    if (!shortcuts || shortcuts.length === 0) {
-        shortcuts = [
-            "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！"
-        ];
-    } else {
-        let modified = false;
-        for (let i = 0; i < shortcuts.length; i++) {
-            if (shortcuts[i] === "上に乗せて！") {
-                shortcuts[i] = "たすけて！";
-                modified = true;
-            }
-        }
-        if (modified) {
-            localStorage.setItem('fallGraShortcuts', JSON.stringify(shortcuts));
-        }
-    }
-
-    let isEditMode = false;
-
-    function renderShortcuts() {
-        const grid = document.getElementById('shortcutGrid');
-        if (!grid) return;
-        grid.innerHTML = '';
+function initUI() {
+    const style = document.createElement('style');
+    style.innerHTML = `
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         
-        shortcuts.forEach((text, i) => {
-            const btn = document.createElement('button');
-            btn.className = 'shortcut-btn';
-            btn.innerText = text || '(空)';
+        #joystick-base {
+            position: absolute; width: 120px; height: 120px; border: 3px solid rgba(255, 255, 255, 0.6);
+            border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.3) 100%);
+            transform: translate(-50%, -50%); display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: none;
+        }
+        #joystick-stick {
+            position: absolute; width: 60px; height: 60px; background: rgba(255, 255, 255, 0.9);
+            border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+        }
+        
+        #jump-btn {
+            position: absolute; bottom: 10px; right: 15px; width: 80px; height: 80px;
+            background: rgba(255, 255, 255, 0.5); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
+            display: flex; justify-content: center; align-items: center; color: #333; font-weight: bold;
+            font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            pointer-events: auto; cursor: pointer;
+        }
+        #jump-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
+
+        #item-slot {
+            position: absolute; bottom: 100px; right: 25px; width: 60px; height: 60px;
+            background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
+            display: flex; justify-content: center; align-items: center; font-size: 30px;
+            pointer-events: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+        }
+        #item-slot.active { pointer-events: auto; cursor: pointer; background: rgba(255, 255, 255, 0.9); }
+        #item-slot.active:active { transform: scale(0.9); }
+        #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
+        .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
+
+        #member-btn {
+            position: absolute; bottom: 210px; right: -2px;
+            padding: 6px 10px 6px 14px; 
+            background-color: #fce4b2; 
+            border: 2px solid #000; 
+            border-radius: 20px 0 0 20px; 
+            display: flex; justify-content: center; align-items: center; 
+            color: #000; font-size: 13px; font-weight: bold; font-family: sans-serif; 
+            box-shadow: -2px 4px 10px rgba(0,0,0,0.2); 
+            pointer-events: auto; cursor: pointer; z-index: 100;
+        }
+        #member-btn:active { transform: scale(0.95); transform-origin: right center; }
+
+        #camera-slider-container {
+            position: absolute; bottom: 250px; right: 25px; width: 40px; height: 130px;
+            background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; z-index: 100;
+            padding: 10px 0; box-sizing: border-box;
+        }
+        #camera-slider {
+            -webkit-appearance: slider-vertical;
+            writing-mode: bt-lr; 
+            appearance: slider-vertical;
+            width: 8px; height: 80px; outline: none; margin-top: 5px; cursor: pointer;
+        }
+        #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
+
+        #member-window {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 85%; max-width: 350px; height: 60%; max-height: 400px;
+            background: rgba(20, 20, 30, 0.95); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7); display: none; flex-direction: column;
+            z-index: 1000; pointer-events: auto;
+        }
+        .member-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 15px; border-bottom: 2px solid rgba(255,255,255,0.2);
+            font-size: 16px; font-weight: bold; color: white; font-family: sans-serif;
+        }
+        .member-close-btn {
+            background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 5px;
+        }
+        .member-list {
+            flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px;
+        }
+        .member-item {
+            display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;
+        }
+        .member-icon {
+            width: 40px; height: 40px; border-radius: 50%; background: #ccc; margin-right: 15px;
+            background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5);
+            display: flex; justify-content: center; align-items: center; font-size: 20px;
+        }
+        .member-name {
+            color: white; font-size: 14px; font-weight: bold; font-family: sans-serif;
+        }
+
+        #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 250px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; pointer-events: none; }
+        #floatingLog { width: 100%; height: 120px; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; margin-bottom: 5px; }
+        .log-line { font-size: 13px; line-height: 1.4; color: white; text-shadow: 1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; margin-top: 3px; word-wrap: break-word; }
+        .log-line.fade-out { opacity: 0; }
+        #bottomTabs { display: flex; pointer-events: auto; }
+        .bottom-tab-btn { background-color: rgba(40, 40, 40, 0.9); border: 2px solid #555; border-bottom: none; color: #ccc; font-size: 12px; padding: 6px 15px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: bold; margin-right: -1px; -webkit-tap-highlight-color: transparent; outline: none; }
+        .bottom-tab-btn.active { background-color: rgba(20, 20, 20, 0.85); color: #fff; border-color: #777; z-index: 2; }
+        
+        /* トランジション(アニメーション)を追加し、中身がはみ出ないようにoverflowを指定 */
+        #bottomContentArea { 
+            height: 140px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; 
+            border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; 
+            display: flex; flex-direction: column; overflow: hidden;
+            transition: height 0.3s ease-in-out, border-width 0.3s ease-in-out;
+        }
+        
+        .bottom-content { flex: 1; display: none; flex-direction: column; padding: 5px; overflow: hidden; }
+        .bottom-content.active { display: flex; }
+        #chatLogContent { flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.5; color: #ddd; display: flex; flex-direction: column; }
+        .full-log-line { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 2px; word-wrap: break-word; }
+        #chatInputArea { display: flex; margin-top: 5px; }
+        #chatInputArea input { flex: 1; background: rgba(0,0,0,0.5); border: 1px solid #555; color: white; padding: 8px; font-size: 14px; box-sizing: border-box; border-radius: 4px 0 0 4px; outline: none; pointer-events: auto; }
+        #chatInputArea button { background: #4CAF50; border: none; color: white; padding: 8px 15px; cursor: pointer; font-size: 14px; font-weight: bold; border-radius: 0 4px 4px 0; pointer-events: auto; }
+        #shortcutGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; overflow-y: auto; flex: 1; padding-bottom: 5px; }
+        .shortcut-btn { background: rgba(0,0,0,0.6); border: 1px solid #666; color: white; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold; }
+        .shortcut-btn:active { background: rgba(80,80,80,0.8); }
+        #editShortcutBtn { width: 100%; background: #444; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
+
+        #minigame-btn {
+            position: absolute; right: 10px; padding: 8px 16px;
+            background: rgba(255, 150, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.9);
+            border-radius: 8px; color: #fff; font-weight: bold; font-family: sans-serif;
+            font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); pointer-events: auto;
+            cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); z-index: 100;
+            display: flex; justify-content: center; align-items: center;
+        }
+        #minigame-btn:active { background: rgba(255, 150, 0, 1.0); transform: scale(0.95); }
+    `;
+    document.head.appendChild(style);
+
+    const uiLayer = document.createElement('div');
+    uiLayer.id = 'ui-layer';
+
+    const joystickBase = document.createElement('div');
+    joystickBase.id = 'joystick-base';
+    const joystickStick = document.createElement('div');
+    joystickStick.id = 'joystick-stick';
+    joystickBase.appendChild(joystickStick);
+    uiLayer.appendChild(joystickBase);
+
+    const jumpBtn = document.createElement('div');
+    jumpBtn.id = 'jump-btn';
+    jumpBtn.innerText = 'JUMP';
+    uiLayer.appendChild(jumpBtn);
+
+    const itemSlot = document.createElement('div');
+    itemSlot.id = 'item-slot';
+    uiLayer.appendChild(itemSlot);
+
+    const memberBtn = document.createElement('div');
+    memberBtn.id = 'member-btn';
+    memberBtn.innerText = 'メンバーリスト';
+    uiLayer.appendChild(memberBtn);
+
+    const memberWindow = document.createElement('div');
+    memberWindow.id = 'member-window';
+    memberWindow.innerHTML = `
+        <div class="member-header">
+            <span>ルームメンバー</span>
+            <button class="member-close-btn" id="member-close-btn">❌</button>
+        </div>
+        <div class="member-list" id="member-list-content"></div>
+    `;
+    uiLayer.appendChild(memberWindow);
+
+    window.updateMemberList = function() {
+        const listEl = document.getElementById('member-list-content');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        let allUsers = [];
+        if (window.GameState && window.GameState.roomUsers) {
+            allUsers = [...window.GameState.roomUsers];
+        }
+        
+        if (window.GameState && window.GameState.userInfo) {
+            const myId = window.GameState.userInfo.user_id;
+            const hasMe = allUsers.some(u => u.user_id === myId);
+            if (!hasMe) {
+                allUsers.unshift(window.GameState.userInfo);
+            }
+        } else {
+            if (allUsers.length === 0) {
+                allUsers.push({ name: "テストプレイヤー (あなた)", portrait: "" });
+            }
+        }
+
+        allUsers.forEach(user => {
+            const item = document.createElement('div');
+            item.className = 'member-item';
             
-            if (isEditMode) {
-                btn.style.borderColor = '#ffaa00';
-                btn.style.color = '#ffaa00';
+            const icon = document.createElement('div');
+            icon.className = 'member-icon';
+            const avatarUrl = user.portrait || user.portait;
+            if (avatarUrl) {
+                icon.style.backgroundImage = `url(${avatarUrl})`;
+            } else {
+                icon.style.backgroundColor = '#ffaa00';
+                icon.innerText = '👤';
             }
             
-            btn.addEventListener('click', () => {
-                if (isEditMode) {
-                    customPrompt('ショートカット文を入力してください:', text, (newText) => {
-                        if (newText !== null) {
-                            shortcuts[i] = newText.trim();
-                            localStorage.setItem('fallGraShortcuts', JSON.stringify(shortcuts));
-                            renderShortcuts();
-                        }
-                    });
-                } else {
-                    if (text) {
-                        window.sendChatMessage(text);
-                    }
-                }
-            });
-            grid.appendChild(btn);
+            const name = document.createElement('div');
+            name.className = 'member-name';
+            name.innerText = user.user_name || user.name || "Player";
+            
+            item.appendChild(icon);
+            item.appendChild(name);
+            listEl.appendChild(item);
+        });
+    };
+
+    memberBtn.addEventListener('click', () => {
+        window.updateMemberList();
+        memberWindow.style.display = 'flex';
+    });
+
+    memberWindow.querySelector('#member-close-btn').addEventListener('click', () => {
+        memberWindow.style.display = 'none';
+    });
+    memberWindow.addEventListener('mousedown', e => e.stopPropagation());
+    memberWindow.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+
+    const cameraSliderContainer = document.createElement('div');
+    cameraSliderContainer.id = 'camera-slider-container';
+    cameraSliderContainer.innerHTML = `
+        <div id="camera-slider-label">CAM</div>
+        <input type="range" id="camera-slider" min="0" max="100" value="50">
+    `;
+    uiLayer.appendChild(cameraSliderContainer);
+
+    window.cameraSliderValue = 0.5;
+    
+    const cameraSlider = cameraSliderContainer.querySelector('#camera-slider');
+    if (cameraSlider) {
+        cameraSlider.addEventListener('input', (e) => {
+            window.cameraSliderValue = e.target.value / 100;
         });
     }
+    
+    cameraSliderContainer.addEventListener('mousedown', e => e.stopPropagation());
+    cameraSliderContainer.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
 
-    const editBtn = document.getElementById('editShortcutBtn');
-    if (editBtn) {
-        editBtn.addEventListener('click', () => {
-            isEditMode = !isEditMode;
-            editBtn.innerText = isEditMode ? '編集モード: ON' : '編集モード: OFF';
-            editBtn.style.backgroundColor = isEditMode ? '#aa3333' : '#444';
-            renderShortcuts();
-        });
+    const screenHeight = window.innerHeight;
+    const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
+
+    const minigameBtn = document.createElement('div');
+    minigameBtn.id = 'minigame-btn';
+    minigameBtn.innerText = 'ミニゲーム';
+    minigameBtn.style.top = (topExclusionHeight + 15) + 'px';
+    minigameBtn.addEventListener('click', () => {
+        if (typeof window.addLog === 'function') {
+            window.addLog('<span style="color:#ffaa00;">ミニゲーム機能は準備中です！</span>', 'sys');
+        }
+    });
+    uiLayer.appendChild(minigameBtn);
+
+    const bottomUI = document.createElement('div');
+    bottomUI.id = 'bottomUIContainer';
+    // ★追加: ▼のトグルボタン。margin-left: auto で右端に寄せて確実に表示させます。
+    bottomUI.innerHTML = `
+        <div id="floatingLog"></div>
+        <div id="bottomTabs">
+            <button class="bottom-tab-btn active" data-target="chat">チャット</button>
+            <button class="bottom-tab-btn" data-target="shortcut">ショートカット</button>
+            <button class="bottom-tab-btn" id="chatToggleBtn" style="padding: 6px 15px; margin-left: auto; background-color: #333; color: white;">▼</button>
+        </div>
+        <div id="bottomContentArea">
+            <div id="content-chat" class="bottom-content active">
+                <div id="chatLogContent"></div>
+                <div id="chatInputArea">
+                    <input type="text" id="chatInput" placeholder="発言..." autocomplete="off">
+                    <button id="chatSendBtn">送信</button>
+                </div>
+            </div>
+            <div id="content-shortcut" class="bottom-content">
+                <div id="shortcutGrid"></div>
+                <button id="editShortcutBtn">編集モード: OFF</button>
+            </div>
+        </div>
+    `;
+    
+    bottomUI.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+    bottomUI.addEventListener('pointerdown', e => e.stopPropagation());
+    bottomUI.addEventListener('mousedown', e => e.stopPropagation());
+
+    // ★チャットウィンドウ開閉のロジック
+    const chatToggleBtn = bottomUI.querySelector('#chatToggleBtn');
+    const bottomContentArea = bottomUI.querySelector('#bottomContentArea');
+    let isChatMinimized = false;
+
+    function openChat() {
+        if (isChatMinimized) {
+            isChatMinimized = false;
+            bottomContentArea.style.height = '140px';
+            bottomContentArea.style.borderWidth = '2px';
+            chatToggleBtn.innerText = '▼';
+        }
     }
 
-    renderShortcuts();
-};
+    function toggleChat() {
+        isChatMinimized = !isChatMinimized;
+        if (isChatMinimized) {
+            bottomContentArea.style.height = '0px';
+            bottomContentArea.style.borderWidth = '0px'; 
+            chatToggleBtn.innerText = '▲';
+        } else {
+            bottomContentArea.style.height = '140px';
+            bottomContentArea.style.borderWidth = '2px';
+            chatToggleBtn.innerText = '▼';
+        }
+    }
+
+    chatToggleBtn.addEventListener('click', () => {
+        toggleChat();
+    });
+
+    // タブクリック時に必ずチャットを開く
+    bottomUI.querySelectorAll('.bottom-tab-btn[data-target]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            openChat(); 
+            
+            bottomUI.querySelectorAll('.bottom-tab-btn[data-target]').forEach(b => b.classList.remove('active'));
+            bottomUI.querySelectorAll('.bottom-content').forEach(c => c.classList.remove('active'));
+            
+            btn.classList.add('active');
+            const target = btn.getAttribute('data-target');
+            document.getElementById('content-' + target).classList.add('active');
+        });
+    });
+
+    uiLayer.appendChild(bottomUI);
+    document.body.appendChild(uiLayer);
+}
 
