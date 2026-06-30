@@ -18,8 +18,9 @@ function initUI() {
             border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 4px 8px rgba(0,0,0,0.4);
         }
         
+        /* ジャンプボタンを一番下(bottom: 10px)に下げてチャットと揃える */
         #jump-btn {
-            position: absolute; bottom: 40px; right: 15px; width: 80px; height: 80px;
+            position: absolute; bottom: 10px; right: 15px; width: 80px; height: 80px;
             background: rgba(255, 255, 255, 0.5); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
             display: flex; justify-content: center; align-items: center; color: #333; font-weight: bold;
             font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
@@ -27,8 +28,9 @@ function initUI() {
         }
         #jump-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
 
+        /* アイテムスロットをジャンプボタンの上に追従させる(bottom: 100px) */
         #item-slot {
-            position: absolute; bottom: 130px; right: 25px; width: 60px; height: 60px;
+            position: absolute; bottom: 100px; right: 25px; width: 60px; height: 60px;
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
             display: flex; justify-content: center; align-items: center; font-size: 30px;
             pointer-events: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
@@ -39,9 +41,9 @@ function initUI() {
         #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
         .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
-        /* カメラスライダーUI */
+        /* カメラスライダーUI: アイテムとの間に空間を空け、4px上に移動(bottom: 204px) */
         #camera-slider-container {
-            position: absolute; bottom: 200px; right: 25px; width: 40px; height: 130px;
+            position: absolute; bottom: 204px; right: 25px; width: 40px; height: 130px;
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; z-index: 100;
@@ -106,7 +108,6 @@ function initUI() {
     itemSlot.id = 'item-slot';
     uiLayer.appendChild(itemSlot);
 
-    // カメラスライダーの要素を作成
     const cameraSliderContainer = document.createElement('div');
     cameraSliderContainer.id = 'camera-slider-container';
     cameraSliderContainer.innerHTML = `
@@ -117,7 +118,6 @@ function initUI() {
 
     window.cameraSliderValue = 0.5;
     
-    // ★エラーの完全修正: 画面に追加される前の要素から querySelector で正しく取得する
     const cameraSlider = cameraSliderContainer.querySelector('#camera-slider');
     if (cameraSlider) {
         cameraSlider.addEventListener('input', (e) => {
@@ -181,6 +181,5 @@ function initUI() {
     });
 
     uiLayer.appendChild(bottomUI);
-    // ここで初めて画面(DOM)に要素が追加される
     document.body.appendChild(uiLayer);
 }
