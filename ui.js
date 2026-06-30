@@ -39,15 +39,15 @@ function initUI() {
         #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
         .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
-        /* ★変更: メンバーボタン (GRAVITYのUIデザインに寄せる) */
+        /* ★変更: メンバーボタンを「ルーム招待」に近いサイズ感へ縮小 */
         #member-btn {
-            position: absolute; bottom: 210px; right: -2px; /* 画面右端にくっつける */
-            padding: 10px 12px 10px 18px;
-            background-color: #fce4b2; /* 画像の肌色を抽出 */
+            position: absolute; bottom: 210px; right: -2px;
+            padding: 6px 10px 6px 14px; /* パディングを全体的に小さく */
+            background-color: #fce4b2; 
             border: 2px solid #000; 
-            border-radius: 25px 0 0 25px; /* 左側だけを半円にする */
+            border-radius: 20px 0 0 20px; /* 高さに合わせて角丸を調整 */
             display: flex; justify-content: center; align-items: center; 
-            color: #000; font-size: 15px; font-weight: bold; font-family: sans-serif;
+            color: #000; font-size: 13px; font-weight: bold; font-family: sans-serif; /* 文字を少し小さく */
             box-shadow: -2px 4px 10px rgba(0,0,0,0.2); 
             pointer-events: auto; cursor: pointer; z-index: 100;
         }
@@ -149,13 +149,11 @@ function initUI() {
     itemSlot.id = 'item-slot';
     uiLayer.appendChild(itemSlot);
 
-    // メンバーリストボタンの生成
     const memberBtn = document.createElement('div');
     memberBtn.id = 'member-btn';
     memberBtn.innerText = 'メンバーリスト';
     uiLayer.appendChild(memberBtn);
 
-    // メンバーリストウィンドウの生成
     const memberWindow = document.createElement('div');
     memberWindow.id = 'member-window';
     memberWindow.innerHTML = `
