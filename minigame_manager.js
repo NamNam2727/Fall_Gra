@@ -1,7 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、多数決、観戦モード移行などを管理するシステム
-// ★シングルプレイ・人数カウントのバグを修正
+// ★多数決の棄却ロジック、途中入室者の同期処理を追加
 // =====================================
 
 window.MinigameManager = {
@@ -132,9 +132,8 @@ window.MinigameManager = {
         };
 
         this.state = 'PROPOSING';
-        this.myVote = true; // 自分は最初から参加確定
+        this.myVote = true;
         
-        // ★修正: 実際の「他プレイヤーのアバターが存在する数」＋「自分(1)」で確実に人数を数える
         let totalUsers = 1;
         if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
             totalUsers = Object.keys(window.MultiplayerManager.otherPlayers).length + 1;
@@ -156,6 +155,8 @@ window.MinigameManager = {
 
             setTimeout(() => {
                 if (this.state === 'PROPOSING') {
+                    // タイムアウト時のキャンセルも通信で共有する
+                    if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_cancel', reason: 'タイムアウトによりゲームの申請が取り下げられました。' });
                     this.cancelProposal("タイムアウトによりゲームの申請が取り下げられました。");
                 }
             }, 100000); 
@@ -173,6 +174,11 @@ window.MinigameManager = {
             this.startCountdown();
         } else if (msg.type === 'mg_abort') {
             this.abortGame(true); 
+        } else if (msg.type === 'mg_cancel') {
+            this.cancelProposal(msg.reason);
+        } else if (msg.type === 'mg_sync_state') {
+            // ★追加: 途中入室時の状態同期
+            this.syncState(msg.state, msg.proposal);
         }
     },
 
@@ -194,6 +200,53 @@ window.MinigameManager = {
         this.currentProposal = proposal;
         this.myVote = null;
         this.showProposalPopup();
+    },
+
+    // ★追加: 途中入室者に対する状態の同期処理と観戦モードへの移行
+    syncState: function(remoteState, proposal) {
+        if (this.state !== 'IDLE' && this.state !== 'PROPOSING') return;
+
+        this.currentProposal = proposal;
+
+        if (remoteState === 'PROPOSING') {
+            const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
+            // 自分がまだ返事をしていない場合のみポップアップを出す
+            if (this.currentProposal.votes[myId] === undefined) {
+                this.state = 'PROPOSING';
+                this.myVote = null;
+                this.showProposalPopup();
+            }
+        } else if (remoteState === 'COUNTDOWN' || remoteState === 'PLAYING') {
+            // 待機中・ゲーム中に途中入室した場合は、強制的に不参加（観戦モード）として扱う
+            this.state = remoteState;
+            this.myVote = false; 
+            
+            document.getElementById('mg-proposal-popup').style.display = 'none';
+            document.getElementById('mg-countdown-overlay').style.display = 'none';
+
+            if (typeof window.addLog === 'function') {
+                if (remoteState === 'COUNTDOWN') {
+                    window.addLog('<span style="color:#aaaaaa;">ゲーム開始待機中のルームに入室しました。観戦モードになります。</span>', 'sys');
+                } else {
+                    window.addLog('<span style="color:#aaaaaa;">ゲームプレイ中のルームに入室しました。観戦モードになります。</span>', 'sys');
+                }
+            }
+            
+            window.isSpectatorMode = true;
+            if (typeof player !== 'undefined' && player) {
+                player.traverse((child) => {
+                    if (child.isMesh) child.material.opacity = 0;
+                });
+            }
+
+            if (remoteState === 'PLAYING') {
+                const mgBtn = document.getElementById('minigame-btn');
+                if (mgBtn) {
+                    mgBtn.classList.add('abort-mode');
+                    mgBtn.innerText = 'ゲーム終了';
+                }
+            }
+        }
     },
 
     showProposalPopup: function() {
@@ -264,7 +317,6 @@ window.MinigameManager = {
     checkVotes: function() {
         if (!this.currentProposal) return;
         
-        // ★修正: ここも実際の接続人数で正確に計算
         let totalUsers = 1;
         if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
             totalUsers = Object.keys(window.MultiplayerManager.otherPlayers).length + 1;
@@ -279,19 +331,28 @@ window.MinigameManager = {
             else if (votes[uid] === false) declineCount++;
         }
 
-        const majority = Math.floor(totalUsers / 2) + 1;
+        // ★修正: 参加は「過半数（> 50%）」、不参加は「半数以上（>= 50%）」で決着をつける
+        const requiredToJoin = Math.floor(totalUsers / 2) + 1; // 2人なら2、3人なら2、4人なら3
+        const requiredToDecline = Math.ceil(totalUsers / 2);   // 2人なら1、3人なら2、4人なら2
 
-        if (joinCount >= majority) {
+        if (joinCount >= requiredToJoin) {
             this.participantCount = joinCount;
             const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
             
+            // 提案者が代表して開始の合図を送る
             if (this.currentProposal.proposerId === myId && this.state === 'PROPOSING') {
                 if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_start_countdown' });
                 this.startCountdown();
             }
-        } else if (declineCount >= majority) {
+        } else if (declineCount >= requiredToDecline) {
+            // 不参加が半数以上を占めた場合、即座にキャンセルする
             if (this.state === 'PROPOSING') {
-                this.cancelProposal("参加人数が集まりませんでした。（過半数が不参加）");
+                const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
+                if (this.currentProposal.proposerId === myId) {
+                    // 自分が提案者の場合はキャンセル通信を全員に送る
+                    if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_cancel', reason: '参加人数が集まりませんでした。（半数以上が不参加）' });
+                }
+                this.cancelProposal("参加人数が集まりませんでした。（半数以上が不参加）");
             }
         }
     },
@@ -373,7 +434,6 @@ window.MinigameManager = {
                 clearInterval(startTimer);
                 centerMsg.remove();
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームが開始されました！</span>', 'sys');
-                // TODO: 外部プラグインスクリプト(survival.jsなど)の開始処理を呼び出す
             }
         }, 1000);
     },

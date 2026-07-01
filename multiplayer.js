@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // 新規入室者へのアイテム位置の同期機能搭載
-// ★ミニゲームシステムの通信同期(mg_系)を追加
+// ★ミニゲームシステムの通信同期、途中入室時の状態共有を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -23,7 +23,7 @@ window.MultiplayerManager = {
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
         
-        // ★観戦モード中（透明化中）は自身の位置情報を送信しない
+        // 観戦モード中（透明化中）は自身の位置情報を送信しない
         if (window.isSpectatorMode) return;
         
         const nowTime = Date.now();
@@ -50,7 +50,7 @@ window.MultiplayerManager = {
     update: function(delta) {
         if (typeof player === 'undefined' || !player) return;
 
-        // ★観戦モード中は送信チェックを行わない
+        // 観戦モード中は送信チェックを行わない
         if (!window.isSpectatorMode) {
             const now = performance.now();
             const dist = Math.hypot(player.position.x - this.lastSentPos.x, player.position.z - this.lastSentPos.z);
@@ -117,6 +117,19 @@ window.MultiplayerManager = {
                             timestamp: window.ItemSystem.currentItemPosInfo.timestamp
                         });
                     }
+                    
+                    // ★追加: 途中入室者に対して、ゲームの状態を返信する（自分が提案者の場合のみ）
+                    if (window.MinigameManager && window.MinigameManager.state !== 'IDLE' && window.MinigameManager.currentProposal) {
+                        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
+                        if (window.MinigameManager.currentProposal.proposerId === myId) {
+                            this.sendData({
+                                type: 'mg_sync_state',
+                                state: window.MinigameManager.state,
+                                proposal: window.MinigameManager.currentProposal
+                            });
+                        }
+                    }
+
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');
@@ -129,7 +142,6 @@ window.MultiplayerManager = {
                     if (window.ItemSystem) {
                         window.ItemSystem.handleNetworkMessage(msgData);
                     }
-                // ★追加: ミニゲーム関連の通信(mg_propose, mg_voteなど)をMinigameManagerに流す
                 } else if (msgData.type.startsWith('mg_')) {
                     if (window.MinigameManager) {
                         window.MinigameManager.handleNetworkMessage(msgData);
