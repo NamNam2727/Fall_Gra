@@ -56,6 +56,7 @@ window.ItemSystem = {
 
         const validSpawns = [];
         
+        // 外周の壁を避ける
         for (let x = 1; x < mapW - 1; x++) {
             for (let z = 1; z < mapD - 1; z++) {
                 let str = rawMap[x][z] || "0";
@@ -71,16 +72,16 @@ window.ItemSystem = {
                         let isOdd = (val % 2 !== 0);
                         let spaceVal = (i - 1 >= 0) ? parseInt(str[i - 1], 10) : -1;
                         
+                        // 空間がある（トンネル内）か、最上層（平地・屋根）の場合
                         if (spaceVal > 0 || spaceVal === -1) {
                             if (isOdd) {
                                 let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, py);
                                 py = corners.center;
                             }
-                            if (py < 3.0) {
-                                let px = x - mapW / 2 + 0.5;
-                                let pz = z - mapD / 2 + 0.5;
-                                validSpawns.push({ x: px * bs, y: py * bs, z: pz * bs });
-                            }
+                            // ★修正: 外壁(XとZの端)はループで除外済みのため、高さ制限(py < 3.0)を撤廃。屋根の上にも出現可能に！
+                            let px = x - mapW / 2 + 0.5;
+                            let pz = z - mapD / 2 + 0.5;
+                            validSpawns.push({ x: px * bs, y: py * bs, z: pz * bs });
                         }
                     }
                     currentY += height;
@@ -414,9 +415,8 @@ window.ItemSystem = {
             }
         }
         
-        // --- ネットのロジック更新（完全拘束化） ---
         this.isOnNet = false;
-        let captureTargetPos = null; // ★追加: 捕まったネットの中心座標を記憶
+        let captureTargetPos = null; 
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
         
         for (let i = this.activeNets.length - 1; i >= 0; i--) {
@@ -433,7 +433,7 @@ window.ItemSystem = {
                     if (canAffectMe) {
                         n.isTriggered = true;
                         this.isOnNet = true;
-                        captureTargetPos = n.mesh.position.clone(); // 中心座標を記録
+                        captureTargetPos = n.mesh.position.clone();
                     }
                 }
             }
@@ -465,11 +465,8 @@ window.ItemSystem = {
             }
         }
         
-        // ★修正: 完全拘束・中心への引き寄せ処理
         if (typeof player !== 'undefined' && player && this.lastPlayerPos) {
             if (this.isOnNet && captureTargetPos) {
-                
-                // 1. まず、プレイヤー自身の入力による移動量を「完全に無効化（巻き戻し）」する
                 const deltaPos = player.position.clone().sub(this.lastPlayerPos);
                 deltaPos.y = 0; 
                 if (deltaPos.lengthSq() > 0) {
@@ -477,11 +474,10 @@ window.ItemSystem = {
                     player.position.z -= deltaPos.z;
                 }
                 
-                // 2. その上で、ネットの中心座標に向かって強力に引っ張り込む
                 const dx = captureTargetPos.x - player.position.x;
                 const dz = captureTargetPos.z - player.position.z;
                 
-                player.position.x += dx * 10.0 * delta; // 高速で中心に引き寄せる
+                player.position.x += dx * 10.0 * delta;
                 player.position.z += dz * 10.0 * delta;
                 
             }
