@@ -77,17 +77,15 @@ function initUI() {
         }
         #minigame-btn:active { background: rgba(255, 150, 0, 1.0); transform: scale(0.95); }
 
-        /* ★追加: ゲーム強制終了・リタイアボタン */
         #mg-abort-btn {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%); padding: 8px 15px;
             background: rgba(220, 50, 50, 0.9); border: 2px solid white; border-radius: 8px;
             color: white; font-weight: bold; font-family: sans-serif; font-size: 14px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: auto; cursor: pointer;
-            z-index: 1000; display: none; /* ゲーム中のみ表示 */
+            z-index: 1000; display: none; 
         }
         #mg-abort-btn:active { transform: translateX(-50%) scale(0.95); }
 
-        /* --- 既存メンバーウィンドウ --- */
         #member-window {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 85%; max-width: 350px; height: 60%; max-height: 400px;
@@ -102,7 +100,6 @@ function initUI() {
         .member-icon { width: 40px; height: 40px; border-radius: 50%; background: #ccc; margin-right: 15px; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); display: flex; justify-content: center; align-items: center; font-size: 20px; }
         .member-name { color: white; font-size: 14px; font-weight: bold; font-family: sans-serif; }
 
-        /* --- チャット・ショートカットエリア --- */
         #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 250px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; pointer-events: none; }
         #floatingLog { width: 100%; height: 120px; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; margin-bottom: 5px; }
         .log-line { font-size: 13px; line-height: 1.4; color: white; text-shadow: 1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; margin-top: 3px; word-wrap: break-word; }
@@ -123,7 +120,7 @@ function initUI() {
         .shortcut-btn:active { background: rgba(80,80,80,0.8); }
         #editShortcutBtn { width: 100%; background: #444; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
 
-        /* --- ミニゲーム用UI群 --- */
+        /* ミニゲーム用UI群 */
         .mg-window-base {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 90%; max-width: 400px; height: 70%; max-height: 500px;
@@ -209,11 +206,18 @@ function initUI() {
         <div class="member-list" id="member-list-content"></div>
     `;
     uiLayer.appendChild(memberWindow);
-    window.updateMemberList = function() { /* 省略せず既存通り動作 */ };
+    window.updateMemberList = function() { /* 省略 */ };
+    
+    // タッチ抜け防止をすべてのボタンに適用
+    const preventTouch = (e) => e.stopPropagation();
+
     memberBtn.addEventListener('click', () => { window.updateMemberList(); memberWindow.style.display = 'flex'; });
+    memberBtn.addEventListener('mousedown', preventTouch);
+    memberBtn.addEventListener('touchstart', preventTouch, {passive: false});
+
     memberWindow.querySelector('#member-close-btn').addEventListener('click', () => { memberWindow.style.display = 'none'; });
-    memberWindow.addEventListener('mousedown', e => e.stopPropagation());
-    memberWindow.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+    memberWindow.addEventListener('mousedown', preventTouch);
+    memberWindow.addEventListener('touchstart', preventTouch, {passive: false});
 
     const cameraSliderContainer = document.createElement('div');
     cameraSliderContainer.id = 'camera-slider-container';
@@ -224,10 +228,9 @@ function initUI() {
     if (cameraSlider) {
         cameraSlider.addEventListener('input', (e) => { window.cameraSliderValue = e.target.value / 100; });
     }
-    cameraSliderContainer.addEventListener('mousedown', e => e.stopPropagation());
-    cameraSliderContainer.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+    cameraSliderContainer.addEventListener('mousedown', preventTouch);
+    cameraSliderContainer.addEventListener('touchstart', preventTouch, {passive: false});
 
-    // ★追加: ゲーム強制終了ボタン
     const abortBtn = document.createElement('div');
     abortBtn.id = 'mg-abort-btn';
     abortBtn.innerText = 'ゲームを終了する';
@@ -315,7 +318,6 @@ function initUI() {
     `;
     uiLayer.appendChild(mgCountdown);
 
-    const preventTouch = (e) => e.stopPropagation();
     [mgListWindow, mgDetailWindow, mgPopup, abortBtn].forEach(el => {
         el.addEventListener('mousedown', preventTouch);
         el.addEventListener('touchstart', preventTouch, {passive: false});
@@ -324,13 +326,25 @@ function initUI() {
     const screenHeight = window.innerHeight;
     const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
+    // ★修正: ミニゲームボタンの挙動（エラーログ追加＆タッチ抜け防止）
     const minigameBtn = document.createElement('div');
     minigameBtn.id = 'minigame-btn';
     minigameBtn.innerText = 'ミニゲーム';
     minigameBtn.style.top = (topExclusionHeight + 15) + 'px';
-    minigameBtn.addEventListener('click', () => {
-        if (window.MinigameManager) window.MinigameManager.openListView();
-    });
+    
+    const onMinigameClick = (e) => {
+        if (window.MinigameManager) {
+            window.MinigameManager.openListView();
+        } else {
+            if (typeof window.addLog === 'function') {
+                window.addLog('<span style="color:#ff3300;">【エラー】ファイル (minigame_manager.js または minigame_list.js) が読み込めていません。ファイルの作成や配置、ブラウザのキャッシュを確認してください。</span>', 'sys');
+            }
+        }
+    };
+    
+    minigameBtn.addEventListener('click', onMinigameClick);
+    minigameBtn.addEventListener('mousedown', preventTouch);
+    minigameBtn.addEventListener('touchstart', (e) => { preventTouch(e); onMinigameClick(e); }, {passive: false});
     uiLayer.appendChild(minigameBtn);
 
     const bottomUI = document.createElement('div');
