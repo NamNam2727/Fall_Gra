@@ -1,7 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、多数決、観戦モード移行などを管理するシステム
-// ★提案者（自身）へのポップアップ非表示、ボタンの統合対応
+// ★自分が申請した場合は絶対にポップアップが出ないよう修正
 // =====================================
 
 window.MinigameManager = {
@@ -144,7 +144,7 @@ window.MinigameManager = {
             this.participantCount = 1;
             this.startCountdown();
         } else {
-            // ★変更: マルチプレイでも、自分が提案者の場合はポップアップを出さずに他プレイヤーの返答を待つ
+            // ★自分が提案者の場合は、絶対にポップアップを出さない。
             if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームの開始を申請しました。参加者を待機しています...</span>', 'sys');
             
             setTimeout(() => {
@@ -157,7 +157,7 @@ window.MinigameManager = {
         }
     },
 
-    // 将来、他プレイヤーからの提案を受信したときに呼ばれるポップアップ表示用関数
+    // 他のプレイヤーから申請を受け取ったときに呼ばれる関数
     showProposalPopup: function() {
         if (!this.currentProposal) return;
         const p = this.currentProposal;
@@ -227,7 +227,7 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
-        // ★変更: プレイ中はミニゲームボタンを「ゲーム終了」ボタンに切り替える
+        // ミニゲームボタンを赤い「ゲーム終了」ボタンに変化させる
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
             mgBtn.classList.add('abort-mode');
@@ -276,7 +276,7 @@ window.MinigameManager = {
         this.isSpectator = false;
         this.currentProposal = null;
         
-        // ★変更: プレイ終了時にボタンのデザインとテキストを元に戻す
+        // ボタンのデザインとテキストを元に戻す
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
             mgBtn.classList.remove('abort-mode');
