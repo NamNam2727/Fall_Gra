@@ -67,24 +67,18 @@ function initUI() {
         }
         #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
 
+        /* ★変更: ミニゲームボタンの通常時とゲーム中(abort-mode)のデザイン */
         #minigame-btn {
             position: absolute; right: 10px; padding: 8px 16px;
             background: rgba(255, 150, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.9);
             border-radius: 8px; color: #fff; font-weight: bold; font-family: sans-serif;
             font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); pointer-events: auto;
             cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); z-index: 100;
-            display: flex; justify-content: center; align-items: center;
+            display: flex; justify-content: center; align-items: center; transition: all 0.2s;
         }
         #minigame-btn:active { background: rgba(255, 150, 0, 1.0); transform: scale(0.95); }
-
-        #mg-abort-btn {
-            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); padding: 8px 15px;
-            background: rgba(220, 50, 50, 0.9); border: 2px solid white; border-radius: 8px;
-            color: white; font-weight: bold; font-family: sans-serif; font-size: 14px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: auto; cursor: pointer;
-            z-index: 1000; display: none; 
-        }
-        #mg-abort-btn:active { transform: translateX(-50%) scale(0.95); }
+        #minigame-btn.abort-mode { background: rgba(220, 50, 50, 0.9); border-color: white; }
+        #minigame-btn.abort-mode:active { background: rgba(200, 40, 40, 1.0); }
 
         #member-window {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -129,10 +123,11 @@ function initUI() {
             z-index: 1000; pointer-events: auto; font-family: sans-serif; color: white;
         }
 
-        #mg-list-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 15px; overflow-y: auto; flex: 1; }
-        .mg-list-item { display: flex; flex-direction: column; align-items: center; cursor: pointer; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 2px solid transparent; }
+        /* ★変更: align-content: start を追加し、アイテムの高さ(height)を制限して縦延びを防止 */
+        #mg-list-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 15px; overflow-y: auto; flex: 1; align-content: start; }
+        .mg-list-item { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; cursor: pointer; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 2px solid transparent; height: max-content; }
         .mg-list-item:active { background: rgba(255,255,255,0.2); border-color: #ffaa00; }
-        .mg-list-icon { width: 60px; height: 60px; border-radius: 12px; background-size: cover; background-position: center; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+        .mg-list-icon { width: 60px; height: 60px; border-radius: 12px; background-size: cover; background-position: center; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); flex-shrink: 0; }
         .mg-list-title { font-size: 12px; font-weight: bold; text-align: center; line-height: 1.2; word-break: break-word; }
 
         .mg-detail-content { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
@@ -208,7 +203,6 @@ function initUI() {
     uiLayer.appendChild(memberWindow);
     window.updateMemberList = function() { /* 省略 */ };
     
-    // タッチ抜け防止をすべてのボタンに適用
     const preventTouch = (e) => e.stopPropagation();
 
     memberBtn.addEventListener('click', () => { window.updateMemberList(); memberWindow.style.display = 'flex'; });
@@ -230,14 +224,6 @@ function initUI() {
     }
     cameraSliderContainer.addEventListener('mousedown', preventTouch);
     cameraSliderContainer.addEventListener('touchstart', preventTouch, {passive: false});
-
-    const abortBtn = document.createElement('div');
-    abortBtn.id = 'mg-abort-btn';
-    abortBtn.innerText = 'ゲームを終了する';
-    abortBtn.addEventListener('click', () => {
-        if (window.MinigameManager) window.MinigameManager.abortGame();
-    });
-    uiLayer.appendChild(abortBtn);
 
     // ミニゲームウィンドウ群
     const mgListWindow = document.createElement('div');
@@ -318,7 +304,7 @@ function initUI() {
     `;
     uiLayer.appendChild(mgCountdown);
 
-    [mgListWindow, mgDetailWindow, mgPopup, abortBtn].forEach(el => {
+    [mgListWindow, mgDetailWindow, mgPopup].forEach(el => {
         el.addEventListener('mousedown', preventTouch);
         el.addEventListener('touchstart', preventTouch, {passive: false});
     });
@@ -326,7 +312,7 @@ function initUI() {
     const screenHeight = window.innerHeight;
     const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-    // ★修正: ミニゲームボタンの挙動（エラーログ追加＆タッチ抜け防止）
+    // ★変更: ミニゲームボタンを、ゲーム中は「終了ボタン」として機能するように統合
     const minigameBtn = document.createElement('div');
     minigameBtn.id = 'minigame-btn';
     minigameBtn.innerText = 'ミニゲーム';
@@ -334,10 +320,14 @@ function initUI() {
     
     const onMinigameClick = (e) => {
         if (window.MinigameManager) {
-            window.MinigameManager.openListView();
+            if (window.MinigameManager.state === 'PLAYING') {
+                window.MinigameManager.abortGame(); // ゲーム中は終了ボタンになる
+            } else {
+                window.MinigameManager.openListView(); // それ以外はリストを開く
+            }
         } else {
             if (typeof window.addLog === 'function') {
-                window.addLog('<span style="color:#ff3300;">【エラー】ファイル (minigame_manager.js または minigame_list.js) が読み込めていません。ファイルの作成や配置、ブラウザのキャッシュを確認してください。</span>', 'sys');
+                window.addLog('<span style="color:#ff3300;">【エラー】ファイルが読み込めていません。</span>', 'sys');
             }
         }
     };

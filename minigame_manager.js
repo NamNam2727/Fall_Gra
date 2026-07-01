@@ -1,7 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、多数決、観戦モード移行などを管理するシステム
-// ★シングルプレイ（1人での即時開始）対応
+// ★提案者（自身）へのポップアップ非表示、ボタンの統合対応
 // =====================================
 
 window.MinigameManager = {
@@ -9,7 +9,7 @@ window.MinigameManager = {
     currentProposal: null,
     myVote: null,
     isSpectator: false,
-    participantCount: 1, // 現在のゲームの参加人数
+    participantCount: 1, 
 
     init: function() {
         console.log("Minigame Manager Initialized.");
@@ -132,9 +132,8 @@ window.MinigameManager = {
         };
 
         this.state = 'PROPOSING';
-        this.myVote = true; // 自分は最初から参加
+        this.myVote = true; // 自分は最初から参加確定
         
-        // ★追加: シングルプレイ判定 (他プレイヤーがいない場合は即開始)
         let totalUsers = 1;
         if (window.GameState && window.GameState.roomUsers) {
             totalUsers = window.GameState.roomUsers.length + 1; // 自分を含める
@@ -145,18 +144,20 @@ window.MinigameManager = {
             this.participantCount = 1;
             this.startCountdown();
         } else {
+            // ★変更: マルチプレイでも、自分が提案者の場合はポップアップを出さずに他プレイヤーの返答を待つ
             if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームの開始を申請しました。参加者を待機しています...</span>', 'sys');
-            this.showProposalPopup();
             
-            // タイムアウト設定
             setTimeout(() => {
                 if (this.state === 'PROPOSING') {
                     this.cancelProposal("タイムアウトによりゲームの申請が取り下げられました。");
                 }
             }, 100000); 
+
+            this.checkVotes(); 
         }
     },
 
+    // 将来、他プレイヤーからの提案を受信したときに呼ばれるポップアップ表示用関数
     showProposalPopup: function() {
         if (!this.currentProposal) return;
         const p = this.currentProposal;
@@ -194,7 +195,6 @@ window.MinigameManager = {
 
     checkVotes: function() {
         // ※マルチプレイ実装時に通信での多数決判定を追加します
-        // 今回はUIテスト用として、即座にカウントダウンへ進みます。
         this.participantCount = 2; // ダミー人数
         setTimeout(() => {
             this.startCountdown();
@@ -209,7 +209,7 @@ window.MinigameManager = {
         const countText = document.getElementById('mg-countdown-text');
         overlay.style.display = 'flex';
         
-        let count = 10; // TODO: 本番は10秒
+        let count = 10;
         countText.innerText = count;
         
         const timer = setInterval(() => {
@@ -227,8 +227,12 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
-        // プレイ中のみゲーム終了ボタンを表示
-        document.getElementById('mg-abort-btn').style.display = 'block';
+        // ★変更: プレイ中はミニゲームボタンを「ゲーム終了」ボタンに切り替える
+        const mgBtn = document.getElementById('minigame-btn');
+        if (mgBtn) {
+            mgBtn.classList.add('abort-mode');
+            mgBtn.innerText = 'ゲーム終了';
+        }
 
         if (this.myVote === false) {
             this.isSpectator = true;
@@ -260,7 +264,6 @@ window.MinigameManager = {
         }, 1000);
     },
 
-    // ★追加: プレイ中の強制終了（リタイア）処理
     abortGame: function() {
         if (this.state === 'PLAYING') {
             if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">ゲームを終了しました。</span>', 'sys');
@@ -272,7 +275,13 @@ window.MinigameManager = {
         this.state = 'IDLE';
         this.isSpectator = false;
         this.currentProposal = null;
-        document.getElementById('mg-abort-btn').style.display = 'none';
+        
+        // ★変更: プレイ終了時にボタンのデザインとテキストを元に戻す
+        const mgBtn = document.getElementById('minigame-btn');
+        if (mgBtn) {
+            mgBtn.classList.remove('abort-mode');
+            mgBtn.innerText = 'ミニゲーム';
+        }
         
         // TODO: マップリフレッシュ、初期位置ワープなどのリセット処理を呼び出す
     }
