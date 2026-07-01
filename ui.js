@@ -67,7 +67,6 @@ function initUI() {
         }
         #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
 
-        /* ミニゲームボタン（ゲーム中は終了ボタンに変身） */
         #minigame-btn {
             position: absolute; right: 10px; padding: 8px 16px;
             background: rgba(255, 150, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.9);
@@ -123,7 +122,6 @@ function initUI() {
             z-index: 1000; pointer-events: auto; font-family: sans-serif; color: white;
         }
 
-        /* ★縦長になるバグを修正: grid-auto-rows と align-items: start で中身にフィットさせる */
         #mg-list-container { 
             display: grid; grid-template-columns: repeat(3, 1fr); 
             grid-auto-rows: min-content; align-items: start; 
@@ -233,8 +231,6 @@ function initUI() {
     cameraSliderContainer.addEventListener('mousedown', preventTouch);
     cameraSliderContainer.addEventListener('touchstart', preventTouch, {passive: false});
 
-    // ★修正: ここにあった古い mg-abort-btn (画面上部に出るやつ) の生成コードを【完全削除】しました。
-
     // ミニゲームウィンドウ群
     const mgListWindow = document.createElement('div');
     mgListWindow.id = 'mg-list-window';
@@ -328,7 +324,14 @@ function initUI() {
     minigameBtn.innerText = 'ミニゲーム';
     minigameBtn.style.top = (topExclusionHeight + 15) + 'px';
     
+    // ★追加: ゴーストクリック（二重発火）防止用のタイマー変数
+    let lastMgBtnClick = 0;
+
     const onMinigameClick = (e) => {
+        const now = Date.now();
+        if (now - lastMgBtnClick < 500) return; // 0.5秒以内の連続発火を無視
+        lastMgBtnClick = now;
+
         if (window.MinigameManager) {
             if (window.MinigameManager.state === 'PLAYING') {
                 window.MinigameManager.abortGame(); 
