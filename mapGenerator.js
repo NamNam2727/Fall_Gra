@@ -1,6 +1,7 @@
 // ==========================================
 // mapGenerator.js
 // 地形データの解析とBufferGeometryメッシュの生成
+// ★まっすぐな坂道が三角に削られるバグを修正
 // ==========================================
 
 window.MapGenerator = {
@@ -81,6 +82,7 @@ window.MapGenerator = {
         let pull_pZ = (h_pZ > myTop) ? 0.5 : ((h_pZ < myTop) ? -0.5 : 0);
         let pull_mZ = (h_mZ > myTop) ? 0.5 : ((h_mZ < myTop) ? -0.5 : 0);
 
+        // 階段の開始・終了をなめらかにする補完
         if (pull_pX > 0 && pull_mX === 0) pull_mX = -0.5;
         if (pull_mX > 0 && pull_pX === 0) pull_pX = -0.5;
         if (pull_pZ > 0 && pull_mZ === 0) pull_mZ = -0.5;
@@ -91,6 +93,20 @@ window.MapGenerator = {
         if (pull_pZ < 0 && pull_mZ === 0) pull_mZ = 0.5;
         if (pull_mZ < 0 && pull_pZ === 0) pull_pZ = 0.5;
 
+        // ★追加: まっすぐなスロープの判定と横からの干渉無効化
+        let isSlopeX = (pull_pX === 0.5 && pull_mX === -0.5) || (pull_pX === -0.5 && pull_mX === 0.5);
+        let isSlopeZ = (pull_pZ === 0.5 && pull_mZ === -0.5) || (pull_pZ === -0.5 && pull_mZ === 0.5);
+
+        if (isSlopeX && !isSlopeZ) {
+            // X方向のまっすぐな坂道なら、横（Z方向）の低さに引っ張られないようにする
+            pull_pZ = 0;
+            pull_mZ = 0;
+        } else if (isSlopeZ && !isSlopeX) {
+            // Z方向のまっすぐな坂道なら、横（X方向）の低さに引っ張られないようにする
+            pull_pX = 0;
+            pull_mX = 0;
+        }
+
         const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
         let c_pXpZ = myTop + clamp(pull_pX + pull_pZ, -0.5, 0.5);
@@ -98,6 +114,7 @@ window.MapGenerator = {
         let c_pXmZ = myTop + clamp(pull_pX + pull_mZ, -0.5, 0.5);
         let c_mXmZ = myTop + clamp(pull_mX + pull_mZ, -0.5, 0.5);
 
+        // まだ傾斜がついていない角のみ、斜め方向のマスを参照して角を落とす/上げる
         if (h_pXpZ > myTop && c_pXpZ === myTop) c_pXpZ = myTop + 0.5;
         if (h_pXpZ < myTop && c_pXpZ === myTop) c_pXpZ = myTop - 0.5;
         if (h_mXpZ > myTop && c_mXpZ === myTop) c_mXpZ = myTop + 0.5;
@@ -194,11 +211,11 @@ window.MapGenerator = {
                         return false;
                     };
 
-                    // ★修正: 側面の頂点順序を「外から見て反時計回り」に修正（裏面カリングの透過バグを解消）
-                    if (!checkHidden(x, z+1, c_mXpZ, c_pXpZ)) addQuad(b_pXpZ, v_pXpZ, v_mXpZ, b_mXpZ, col); // +Z面
-                    if (!checkHidden(x, z-1, c_mXmZ, c_pXmZ)) addQuad(b_mXmZ, v_mXmZ, v_pXmZ, b_pXmZ, col); // -Z面
-                    if (!checkHidden(x+1, z, c_pXmZ, c_pXpZ)) addQuad(b_pXmZ, v_pXmZ, v_pXpZ, b_pXpZ, col); // +X面
-                    if (!checkHidden(x-1, z, c_mXmZ, c_mXpZ)) addQuad(b_mXpZ, v_mXpZ, v_mXmZ, b_mXmZ, col); // -X面
+                    // 【側面】
+                    if (!checkHidden(x, z+1, c_mXpZ, c_pXpZ)) addQuad(b_pXpZ, v_pXpZ, v_mXpZ, b_mXpZ, col); 
+                    if (!checkHidden(x, z-1, c_mXmZ, c_pXmZ)) addQuad(b_mXmZ, v_mXmZ, v_pXmZ, b_pXmZ, col); 
+                    if (!checkHidden(x+1, z, c_pXmZ, c_pXpZ)) addQuad(b_pXmZ, v_pXmZ, v_pXpZ, b_pXpZ, col); 
+                    if (!checkHidden(x-1, z, c_mXmZ, c_mXpZ)) addQuad(b_mXpZ, v_mXpZ, v_mXmZ, b_mXmZ, col); 
                 }
             }
         }
