@@ -6,12 +6,14 @@
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
-    // ★js/ サブフォルダを廃止し、すべてルートディレクトリから読み込む
+    // ★追加: minigame_list.js と minigame_manager.js を読み込みリストに追加
     const coreScripts = [
         'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
         'globals.js',
         'ui.js',
         'chat_system.js',
+        'minigame_list.js',
+        'minigame_manager.js',
         'mapGenerator.js',
         'map.js',
         'player.js',
@@ -86,7 +88,5 @@
         }
     }
 
-    // 読み込み開始
     loadNext();
 })();
-
