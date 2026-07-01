@@ -1,6 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、多数決、観戦モード移行などを管理するシステム
+// ★シングルプレイ（1人での即時開始）対応
 // =====================================
 
 window.MinigameManager = {
@@ -8,6 +9,7 @@ window.MinigameManager = {
     currentProposal: null,
     myVote: null,
     isSpectator: false,
+    participantCount: 1, // 現在のゲームの参加人数
 
     init: function() {
         console.log("Minigame Manager Initialized.");
@@ -37,7 +39,6 @@ window.MinigameManager = {
             
             const icon = document.createElement('div');
             icon.className = 'mg-list-icon';
-            // アイコン読み込み失敗時のフォールバック処理
             const img = new Image();
             img.onload = () => { icon.style.backgroundImage = `url(${game.icon})`; };
             img.onerror = () => { 
@@ -80,7 +81,6 @@ window.MinigameManager = {
         };
         img.src = game.icon;
 
-        // 設定の初期化
         this.setupToggles('mg-toggle-time', 3);
         this.setupToggles('mg-toggle-item', 1);
         this.setupToggles('mg-toggle-pos', 'current');
@@ -121,7 +121,6 @@ window.MinigameManager = {
         const timestamp = Date.now();
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
 
-        // 自分が最初の提案者として処理（通信連携は次のステップで実装）
         this.currentProposal = {
             gameId: game.id,
             title: game.title,
@@ -129,20 +128,33 @@ window.MinigameManager = {
             settings: { time, items, pos },
             proposerId: myId,
             timestamp: timestamp,
-            votes: { [myId]: true } // 自分は最初から「参加」
+            votes: { [myId]: true }
         };
 
         this.state = 'PROPOSING';
-        if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームの開始を申請しました。参加者を待機しています...</span>', 'sys');
+        this.myVote = true; // 自分は最初から参加
         
-        this.showProposalPopup();
-        
-        // 仮のタイムアウト（本来はサーバー同期で処理）
-        setTimeout(() => {
-            if (this.state === 'PROPOSING') {
-                this.cancelProposal("タイムアウトによりゲームの申請が取り下げられました。");
-            }
-        }, 100000); // 100秒
+        // ★追加: シングルプレイ判定 (他プレイヤーがいない場合は即開始)
+        let totalUsers = 1;
+        if (window.GameState && window.GameState.roomUsers) {
+            totalUsers = window.GameState.roomUsers.length + 1; // 自分を含める
+        }
+
+        if (totalUsers === 1) {
+            if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">参加者が1人のため、シングルプレイで開始します！</span>', 'sys');
+            this.participantCount = 1;
+            this.startCountdown();
+        } else {
+            if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームの開始を申請しました。参加者を待機しています...</span>', 'sys');
+            this.showProposalPopup();
+            
+            // タイムアウト設定
+            setTimeout(() => {
+                if (this.state === 'PROPOSING') {
+                    this.cancelProposal("タイムアウトによりゲームの申請が取り下げられました。");
+                }
+            }, 100000); 
+        }
     },
 
     showProposalPopup: function() {
@@ -162,16 +174,14 @@ window.MinigameManager = {
             this.myVote = true;
             popup.style.display = 'none';
             if (typeof window.addLog === 'function') window.addLog('参加を表明しました！', 'sys');
-            // TODO: 通信で参加状態を送信
-            this.checkVotes(); // 仮処理
+            this.checkVotes(); 
         };
 
         document.getElementById('mg-btn-decline').onclick = () => {
             this.myVote = false;
             popup.style.display = 'none';
             if (typeof window.addLog === 'function') window.addLog('不参加（観戦モード）を選択しました。', 'sys');
-            // TODO: 通信で不参加状態を送信
-            this.checkVotes(); // 仮処理
+            this.checkVotes(); 
         };
     },
 
@@ -183,11 +193,12 @@ window.MinigameManager = {
     },
 
     checkVotes: function() {
-        // 次のステップで、通信による人数計算とカウントダウン移行を実装します
-        // 今回はUIの動作確認用のダミーです。
+        // ※マルチプレイ実装時に通信での多数決判定を追加します
+        // 今回はUIテスト用として、即座にカウントダウンへ進みます。
+        this.participantCount = 2; // ダミー人数
         setTimeout(() => {
             this.startCountdown();
-        }, 2000);
+        }, 1000);
     },
 
     startCountdown: function() {
@@ -198,7 +209,7 @@ window.MinigameManager = {
         const countText = document.getElementById('mg-countdown-text');
         overlay.style.display = 'flex';
         
-        let count = 10;
+        let count = 10; // TODO: 本番は10秒
         countText.innerText = count;
         
         const timer = setInterval(() => {
@@ -215,16 +226,17 @@ window.MinigameManager = {
 
     startGame: function() {
         this.state = 'PLAYING';
-        // 不参加なら観戦モードに移行
+        
+        // プレイ中のみゲーム終了ボタンを表示
+        document.getElementById('mg-abort-btn').style.display = 'block';
+
         if (this.myVote === false) {
             this.isSpectator = true;
-            if (typeof window.addLog === 'function') window.addLog('<span style="color:#aaaaaa;">観戦モードに移行しました。（他のプレイヤーからは見えません）</span>', 'sys');
-            // TODO: 自キャラの透明化、通信情報のカット処理
+            if (typeof window.addLog === 'function') window.addLog('<span style="color:#aaaaaa;">観戦モードに移行しました。</span>', 'sys');
         } else {
             this.isSpectator = false;
         }
 
-        // 3, 2, 1, スタート の演出
         const centerMsg = document.createElement('div');
         centerMsg.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); font-size:100px; color:white; font-weight:bold; text-shadow:0 0 20px #ffaa00; z-index:10000; pointer-events:none;';
         document.body.appendChild(centerMsg);
@@ -240,13 +252,29 @@ window.MinigameManager = {
                 centerMsg.innerText = "START!!";
                 centerMsg.style.color = "#ffaa00";
                 centerMsg.style.fontSize = "120px";
-                // TODO: マップリフレッシュ、アイテムクリア、初期位置ワープ処理
             } else {
                 clearInterval(startTimer);
                 centerMsg.remove();
-                // TODO: プラグインのゲーム開始スクリプト実行
+                if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームが開始されました！</span>', 'sys');
             }
         }, 1000);
+    },
+
+    // ★追加: プレイ中の強制終了（リタイア）処理
+    abortGame: function() {
+        if (this.state === 'PLAYING') {
+            if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">ゲームを終了しました。</span>', 'sys');
+            this.endGame();
+        }
+    },
+
+    endGame: function() {
+        this.state = 'IDLE';
+        this.isSpectator = false;
+        this.currentProposal = null;
+        document.getElementById('mg-abort-btn').style.display = 'none';
+        
+        // TODO: マップリフレッシュ、初期位置ワープなどのリセット処理を呼び出す
     }
 };
 

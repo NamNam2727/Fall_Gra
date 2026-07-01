@@ -77,6 +77,16 @@ function initUI() {
         }
         #minigame-btn:active { background: rgba(255, 150, 0, 1.0); transform: scale(0.95); }
 
+        /* ★追加: ゲーム強制終了・リタイアボタン */
+        #mg-abort-btn {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); padding: 8px 15px;
+            background: rgba(220, 50, 50, 0.9); border: 2px solid white; border-radius: 8px;
+            color: white; font-weight: bold; font-family: sans-serif; font-size: 14px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: auto; cursor: pointer;
+            z-index: 1000; display: none; /* ゲーム中のみ表示 */
+        }
+        #mg-abort-btn:active { transform: translateX(-50%) scale(0.95); }
+
         /* --- 既存メンバーウィンドウ --- */
         #member-window {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -113,10 +123,7 @@ function initUI() {
         .shortcut-btn:active { background: rgba(80,80,80,0.8); }
         #editShortcutBtn { width: 100%; background: #444; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
 
-        /* ========================================================= */
-        /* ★追加: ミニゲーム用UI群 (リスト、詳細、ポップアップ、カウントダウン) */
-        /* ========================================================= */
-        
+        /* --- ミニゲーム用UI群 --- */
         .mg-window-base {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 90%; max-width: 400px; height: 70%; max-height: 500px;
@@ -125,20 +132,12 @@ function initUI() {
             z-index: 1000; pointer-events: auto; font-family: sans-serif; color: white;
         }
 
-        /* リスト画面 */
-        #mg-list-container {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 15px;
-            overflow-y: auto; flex: 1;
-        }
-        .mg-list-item {
-            display: flex; flex-direction: column; align-items: center; cursor: pointer;
-            background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 2px solid transparent;
-        }
+        #mg-list-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 15px; overflow-y: auto; flex: 1; }
+        .mg-list-item { display: flex; flex-direction: column; align-items: center; cursor: pointer; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 2px solid transparent; }
         .mg-list-item:active { background: rgba(255,255,255,0.2); border-color: #ffaa00; }
         .mg-list-icon { width: 60px; height: 60px; border-radius: 12px; background-size: cover; background-position: center; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
         .mg-list-title { font-size: 12px; font-weight: bold; text-align: center; line-height: 1.2; word-break: break-word; }
 
-        /* 詳細画面 */
         .mg-detail-content { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
         #mg-detail-icon { width: 100px; height: 100px; margin: 0 auto; border-radius: 16px; background-size: cover; background-position: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; font-size: 50px; }
         #mg-detail-desc { font-size: 13px; line-height: 1.5; color: #ddd; background: rgba(0,0,0,0.4); padding: 10px; border-radius: 8px; }
@@ -152,7 +151,6 @@ function initUI() {
         #mg-detail-start-btn { width: 100%; padding: 15px; background: #4CAF50; color: white; font-size: 18px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; margin-top: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         #mg-detail-start-btn:active { transform: scale(0.98); background: #45a049; }
 
-        /* 多数決ポップアップ */
         #mg-proposal-popup {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 85%; max-width: 350px; background: rgba(30, 20, 20, 0.95); border: 4px solid #ff4444; border-radius: 12px;
@@ -170,7 +168,6 @@ function initUI() {
         #mg-btn-decline { background: #f44336; }
         .mg-popup-btn:active { transform: scale(0.95); }
 
-        /* カウントダウンオーバーレイ */
         #mg-countdown-overlay {
             position: absolute; top: 20%; left: 50%; transform: translate(-50%, 0);
             display: none; flex-direction: column; align-items: center; z-index: 1500;
@@ -184,7 +181,6 @@ function initUI() {
     const uiLayer = document.createElement('div');
     uiLayer.id = 'ui-layer';
 
-    // (既存UI要素群の生成 - ジョイスティック, ジャンプ, アイテム, メンバーリスト, カメラ等)
     const joystickBase = document.createElement('div');
     joystickBase.id = 'joystick-base';
     const joystickStick = document.createElement('div');
@@ -231,11 +227,16 @@ function initUI() {
     cameraSliderContainer.addEventListener('mousedown', e => e.stopPropagation());
     cameraSliderContainer.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
 
-    // =====================================
-    // ★追加: ミニゲームウィンドウ群のHTML生成
-    // =====================================
-    
-    // リスト画面
+    // ★追加: ゲーム強制終了ボタン
+    const abortBtn = document.createElement('div');
+    abortBtn.id = 'mg-abort-btn';
+    abortBtn.innerText = 'ゲームを終了する';
+    abortBtn.addEventListener('click', () => {
+        if (window.MinigameManager) window.MinigameManager.abortGame();
+    });
+    uiLayer.appendChild(abortBtn);
+
+    // ミニゲームウィンドウ群
     const mgListWindow = document.createElement('div');
     mgListWindow.id = 'mg-list-window';
     mgListWindow.className = 'mg-window-base';
@@ -245,7 +246,6 @@ function initUI() {
     `;
     uiLayer.appendChild(mgListWindow);
 
-    // 詳細画面
     const mgDetailWindow = document.createElement('div');
     mgDetailWindow.id = 'mg-detail-window';
     mgDetailWindow.className = 'mg-window-base';
@@ -293,7 +293,6 @@ function initUI() {
     `;
     uiLayer.appendChild(mgDetailWindow);
 
-    // 多数決ポップアップ
     const mgPopup = document.createElement('div');
     mgPopup.id = 'mg-proposal-popup';
     mgPopup.innerHTML = `
@@ -308,7 +307,6 @@ function initUI() {
     `;
     uiLayer.appendChild(mgPopup);
 
-    // カウントダウン表示
     const mgCountdown = document.createElement('div');
     mgCountdown.id = 'mg-countdown-overlay';
     mgCountdown.innerHTML = `
@@ -317,9 +315,8 @@ function initUI() {
     `;
     uiLayer.appendChild(mgCountdown);
 
-    // ウィンドウのタッチ操作ブロック
     const preventTouch = (e) => e.stopPropagation();
-    [mgListWindow, mgDetailWindow, mgPopup].forEach(el => {
+    [mgListWindow, mgDetailWindow, mgPopup, abortBtn].forEach(el => {
         el.addEventListener('mousedown', preventTouch);
         el.addEventListener('touchstart', preventTouch, {passive: false});
     });
@@ -327,7 +324,6 @@ function initUI() {
     const screenHeight = window.innerHeight;
     const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-    // ミニゲームボタンの挙動変更
     const minigameBtn = document.createElement('div');
     minigameBtn.id = 'minigame-btn';
     minigameBtn.innerText = 'ミニゲーム';
@@ -337,7 +333,6 @@ function initUI() {
     });
     uiLayer.appendChild(minigameBtn);
 
-    // チャット関連UI (既存)
     const bottomUI = document.createElement('div');
     bottomUI.id = 'bottomUIContainer';
     bottomUI.innerHTML = `
