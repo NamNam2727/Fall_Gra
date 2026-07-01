@@ -1,12 +1,13 @@
 // =====================================
 // item_system.js
 // ミニゲーム用アイテムの出現、取得、効果、および同期を管理
+// ★複数アイテムの出現とIDによる個別管理・同期に対応
 // =====================================
 
 window.ItemSystem = {
     enabled: true, 
-    currentFieldItem: null,
-    currentItemPosInfo: null, 
+    fieldItems: {}, // ★複数アイテムをIDキーで管理するオブジェクトに変更
+    maxItems: 1,    // ★フィールド上の最大アイテム数（ミニゲーム設定で変更可能）
     mySlotItem: null,
     isFlyMode: false,
     isCoolingDown: false,
@@ -36,12 +37,47 @@ window.ItemSystem = {
             requestAnimationFrame(loop);
         };
         loop();
-
-        setTimeout(() => {
-            if (this.enabled && !this.currentItemPosInfo) {
+    },
+    
+    // ★設定された最大数(maxItems)までアイテムを自動補充する
+    checkAndSpawnItems: function() {
+        if (!this.enabled || this.maxItems === 0) return;
+        
+        const currentCount = Object.keys(this.fieldItems).length;
+        if (currentCount < this.maxItems) {
+            // 一斉に湧くのを防ぐため、低い確率で徐々に湧かせる（ホスト処理の簡易版）
+            if (Math.random() < 0.02) {
                 this.spawnNewItem(true);
             }
-        }, 3000); 
+        }
+    },
+
+    // ★ゲーム開始時や終了時にすべてをリセットする
+    clearAllItems: function() {
+        // フィールドアイテムの消去
+        for (let id in this.fieldItems) {
+            if (typeof scene !== 'undefined') scene.remove(this.fieldItems[id]);
+        }
+        this.fieldItems = {};
+
+        // 爆弾の消去
+        for (let i = this.activeBombs.length - 1; i >= 0; i--) {
+            if (typeof scene !== 'undefined') scene.remove(this.activeBombs[i].mesh);
+        }
+        this.activeBombs = [];
+
+        // ネットの消去
+        for (let i = this.activeNets.length - 1; i >= 0; i--) {
+            if (typeof scene !== 'undefined') scene.remove(this.activeNets[i].mesh);
+        }
+        this.activeNets = [];
+        
+        // 自分のスロットのリセット
+        this.mySlotItem = null;
+        this.isCoolingDown = false;
+        this.isFlyMode = false;
+        if (this.slotUI) this.slotUI.classList.remove('cooling');
+        this.updateSlotUI();
     },
     
     spawnNewItem: function(isOriginator) {
@@ -56,7 +92,6 @@ window.ItemSystem = {
 
         const validSpawns = [];
         
-        // 外周の壁を避ける
         for (let x = 1; x < mapW - 1; x++) {
             for (let z = 1; z < mapD - 1; z++) {
                 let str = rawMap[x][z] || "0";
@@ -72,13 +107,11 @@ window.ItemSystem = {
                         let isOdd = (val % 2 !== 0);
                         let spaceVal = (i - 1 >= 0) ? parseInt(str[i - 1], 10) : -1;
                         
-                        // 空間がある（トンネル内）か、最上層（平地・屋根）の場合
                         if (spaceVal > 0 || spaceVal === -1) {
                             if (isOdd) {
                                 let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, py);
                                 py = corners.center;
                             }
-                            // ★修正: 外壁(XとZの端)はループで除外済みのため、高さ制限(py < 3.0)を撤廃。屋根の上にも出現可能に！
                             let px = x - mapW / 2 + 0.5;
                             let pz = z - mapD / 2 + 0.5;
                             validSpawns.push({ x: px * bs, y: py * bs, z: pz * bs });
@@ -95,26 +128,23 @@ window.ItemSystem = {
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
         const itemYOffset = 1.5; 
         const pos = { x: spawn.x, y: spawn.y + itemYOffset, z: spawn.z };
-        const timestamp = Date.now();
         
-        this.placeFieldItem(pos, timestamp);
+        // ★アイテム固有のIDを生成
+        const itemId = 'item_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        
+        this.placeFieldItem(itemId, pos);
         
         if (isOriginator && window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
-                type: 'item_spawn', pos: pos, timestamp: timestamp
+                type: 'item_spawn', id: itemId, pos: pos
             });
         }
     },
     
-    placeFieldItem: function(pos, timestamp) {
+    // ★引数にIDを追加
+    placeFieldItem: function(id, pos) {
         if (typeof scene === 'undefined' || !scene) return;
-        if (this.currentItemPosInfo && this.currentItemPosInfo.timestamp >= timestamp) return;
-        
-        this.currentItemPosInfo = { pos: pos, timestamp: timestamp };
-        if (this.currentFieldItem) {
-            scene.remove(this.currentFieldItem);
-            this.currentFieldItem = null;
-        }
+        if (this.fieldItems[id]) return; // 既に存在する場合は無視
         
         const group = new THREE.Group();
         const sphereGeo = new THREE.SphereGeometry(1.2, 16, 16);
@@ -144,19 +174,38 @@ window.ItemSystem = {
         group.position.set(pos.x, pos.y, pos.z);
         group.userData = { baseY: pos.y, time: 0 }; 
         scene.add(group);
-        this.currentFieldItem = group;
+        
+        // ★オブジェクトに登録
+        this.fieldItems[id] = group;
     },
     
-    pickupItem: function() {
+    // ★自分が取得した時の処理 (IDを指定して削除・送信)
+    pickupItem: function(id) {
         if (typeof scene === 'undefined' || !scene) return;
-        if (this.currentFieldItem) {
-            scene.remove(this.currentFieldItem);
-            this.currentFieldItem = null;
+        
+        if (this.fieldItems[id]) {
+            scene.remove(this.fieldItems[id]);
+            delete this.fieldItems[id];
         }
+
         const items = ['fly', 'bomb', 'net'];
         this.mySlotItem = items[Math.floor(Math.random() * items.length)];
         this.updateSlotUI();
-        this.spawnNewItem(true);
+        
+        // ★誰がどのアイテムを取得したか同期する
+        if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
+            window.MultiplayerManager.sendData({
+                type: 'item_pickup', id: id
+            });
+        }
+    },
+
+    // ★他人が取得したという通信を受け取った時の処理
+    remotePickupItem: function(id) {
+        if (this.fieldItems[id]) {
+            if (typeof scene !== 'undefined') scene.remove(this.fieldItems[id]);
+            delete this.fieldItems[id];
+        }
     },
     
     updateSlotUI: function() {
@@ -247,8 +296,10 @@ window.ItemSystem = {
         this.explosions.push({ mesh: expMesh, ring: ringMesh, group: expGroup, timer: 0.5, maxRadius: maxRadius });
         
         if (typeof player !== 'undefined' && player) {
+            // 観戦モード中は爆風の影響を受けない
+            if (window.isSpectatorMode) return;
+
             const dist = player.position.distanceTo(bomb.mesh.position);
-            
             if (dist <= maxRadius) {
                 window.verticalVelocity = 60; 
                 window.isJumping = true;
@@ -329,8 +380,10 @@ window.ItemSystem = {
         }
     },
     
+    // ★通信を受信したときの処理（IDベースに変更）
     handleNetworkMessage: function(msgData) {
-        if (msgData.type === 'item_spawn') this.placeFieldItem(msgData.pos, msgData.timestamp);
+        if (msgData.type === 'item_spawn') this.placeFieldItem(msgData.id, msgData.pos);
+        else if (msgData.type === 'item_pickup') this.remotePickupItem(msgData.id);
         else if (msgData.type === 'item_bomb') this.placeBomb(msgData.pos, false);
         else if (msgData.type === 'item_net') this.placeNet(msgData.pos, false);
     },
@@ -341,6 +394,9 @@ window.ItemSystem = {
         this.lastTime = now;
         
         if (typeof scene === 'undefined' || !scene) return;
+
+        // ★自動補充のチェック
+        this.checkAndSpawnItems();
 
         if (this.knockback && typeof player !== 'undefined' && player) {
             this.knockback.timer -= delta;
@@ -371,16 +427,22 @@ window.ItemSystem = {
             }
         }
 
-        if (this.currentFieldItem) {
-            const ud = this.currentFieldItem.userData;
+        // ★複数アイテムのアニメーションと当たり判定
+        for (let id in this.fieldItems) {
+            let itemMesh = this.fieldItems[id];
+            const ud = itemMesh.userData;
             ud.time += delta * 2.5;
-            this.currentFieldItem.position.y = ud.baseY + Math.sin(ud.time) * 0.4;
-            this.currentFieldItem.rotation.y += delta;
+            itemMesh.position.y = ud.baseY + Math.sin(ud.time) * 0.4;
+            itemMesh.rotation.y += delta;
             
-            if (typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown) {
-                const dist = player.position.distanceTo(this.currentFieldItem.position);
+            // 観戦モード中でなく、アイテムを持っていない場合のみ拾える
+            if (!window.isSpectatorMode && typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown) {
+                const dist = player.position.distanceTo(itemMesh.position);
                 const pickupRadius = typeof playerRadius !== 'undefined' ? playerRadius * 3.0 : 3.0;
-                if (dist < pickupRadius) this.pickupItem();
+                if (dist < pickupRadius) {
+                    this.pickupItem(id);
+                    break; // 同時に複数拾わないように抜ける
+                }
             }
         }
         
@@ -425,7 +487,8 @@ window.ItemSystem = {
             
             let canAffectMe = !n.isMine || (n.isMine && n.timeSincePlaced >= 1.0);
             
-            if (typeof player !== 'undefined' && player) {
+            // 観戦モード中はネットに引っかからない
+            if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
                 
@@ -440,8 +503,8 @@ window.ItemSystem = {
             
             if (window.MultiplayerManager) {
                 const others = window.MultiplayerManager.otherPlayers;
-                for (let id in others) {
-                    let p = others[id];
+                for (let uid in others) {
+                    let p = others[uid];
                     if (p.mesh) {
                         const dist = Math.hypot(p.mesh.position.x - n.mesh.position.x, p.mesh.position.z - n.mesh.position.z);
                         const yDist = Math.abs(p.mesh.position.y - n.mesh.position.y);
@@ -465,7 +528,8 @@ window.ItemSystem = {
             }
         }
         
-        if (typeof player !== 'undefined' && player && this.lastPlayerPos) {
+        // 観戦モード中・ネット捕獲時は位置補正を行わない
+        if (!window.isSpectatorMode && typeof player !== 'undefined' && player && this.lastPlayerPos) {
             if (this.isOnNet && captureTargetPos) {
                 const deltaPos = player.position.clone().sub(this.lastPlayerPos);
                 deltaPos.y = 0; 
