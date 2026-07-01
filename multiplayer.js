@@ -1,6 +1,7 @@
 // =========================================================
 // multiplayer.js
 // 新規入室者へのアイテム位置の同期機能搭載
+// ★ミニゲームシステムの通信同期(mg_系)を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -21,6 +22,9 @@ window.MultiplayerManager = {
     
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
+        
+        // ★観戦モード中（透明化中）は自身の位置情報を送信しない
+        if (window.isSpectatorMode) return;
         
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
@@ -46,13 +50,16 @@ window.MultiplayerManager = {
     update: function(delta) {
         if (typeof player === 'undefined' || !player) return;
 
-        const now = performance.now();
-        const dist = Math.hypot(player.position.x - this.lastSentPos.x, player.position.z - this.lastSentPos.z);
-        const yDiff = Math.abs(player.position.y - this.lastSentPos.y);
-        
-        if (dist > 0.05 || yDiff > 0.05) {
-            if (now - this.lastSendTime > this.sendInterval) {
-                this.forceSendPos();
+        // ★観戦モード中は送信チェックを行わない
+        if (!window.isSpectatorMode) {
+            const now = performance.now();
+            const dist = Math.hypot(player.position.x - this.lastSentPos.x, player.position.z - this.lastSentPos.z);
+            const yDiff = Math.abs(player.position.y - this.lastSentPos.y);
+            
+            if (dist > 0.05 || yDiff > 0.05) {
+                if (now - this.lastSendTime > this.sendInterval) {
+                    this.forceSendPos();
+                }
             }
         }
 
@@ -102,7 +109,6 @@ window.MultiplayerManager = {
                 if (msgData.type === 'move') {
                     this.updatePlayerPos(data.user_id, msgData);
                 } else if (msgData.type === 'pos_req') {
-                    // 新規入室者から位置情報要求が来たら、自分と「アイテム」の位置を即座に送ってあげる
                     this.forceSendPos();
                     if (window.ItemSystem && window.ItemSystem.currentItemPosInfo) {
                         this.sendData({
@@ -122,6 +128,11 @@ window.MultiplayerManager = {
                 } else if (msgData.type.startsWith('item_')) {
                     if (window.ItemSystem) {
                         window.ItemSystem.handleNetworkMessage(msgData);
+                    }
+                // ★追加: ミニゲーム関連の通信(mg_propose, mg_voteなど)をMinigameManagerに流す
+                } else if (msgData.type.startsWith('mg_')) {
+                    if (window.MinigameManager) {
+                        window.MinigameManager.handleNetworkMessage(msgData);
                     }
                 }
             } catch(e) {}
