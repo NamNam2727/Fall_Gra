@@ -1,7 +1,6 @@
 // =========================================================
 // multiplayer.js
-// 新規入室者へのアイテム位置の同期機能搭載
-// ★ミニゲームシステムの通信同期、途中入室時の状態共有を追加
+// ★メンバーリストUIの生成とマルチプレイ管理
 // =========================================================
 
 window.MultiplayerManager = {
@@ -9,6 +8,96 @@ window.MultiplayerManager = {
     lastSentPos: { x: 0, y: 0, z: 0 },
     lastSendTime: 0,
     sendInterval: 100, 
+
+    // ★追加: メンバーリスト関連のUIを生成する機能
+    initUI: function() {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #member-btn { position: absolute; bottom: 210px; right: -2px; padding: 6px 10px 6px 14px; background-color: #fce4b2; border: 2px solid #000; border-radius: 20px 0 0 20px; display: flex; justify-content: center; align-items: center; color: #000; font-size: 13px; font-weight: bold; font-family: sans-serif; box-shadow: -2px 4px 10px rgba(0,0,0,0.2); pointer-events: auto; cursor: pointer; z-index: 100; }
+            #member-btn:active { transform: scale(0.95); transform-origin: right center; }
+
+            #member-window { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 350px; height: 60%; max-height: 400px; background: rgba(20, 20, 30, 0.95); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); display: none; flex-direction: column; z-index: 1000; pointer-events: auto; }
+            .member-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 2px solid rgba(255,255,255,0.2); font-size: 16px; font-weight: bold; color: white; font-family: sans-serif; }
+            .member-close-btn { background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 5px; }
+            .member-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+            .member-item { display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; }
+            .member-icon { width: 40px; height: 40px; border-radius: 50%; background: #ccc; margin-right: 15px; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); display: flex; justify-content: center; align-items: center; font-size: 20px; }
+            .member-name { color: white; font-size: 14px; font-weight: bold; font-family: sans-serif; }
+        `;
+        document.head.appendChild(style);
+
+        const uiLayer = document.getElementById('ui-layer');
+        if (!uiLayer) return;
+
+        const preventTouch = (e) => e.stopPropagation();
+
+        const memberBtn = document.createElement('div');
+        memberBtn.id = 'member-btn';
+        memberBtn.innerText = 'メンバーリスト';
+        uiLayer.appendChild(memberBtn);
+
+        const memberWindow = document.createElement('div');
+        memberWindow.id = 'member-window';
+        memberWindow.innerHTML = `
+            <div class="member-header"><span>ルームメンバー</span><button class="member-close-btn" id="member-close-btn">❌</button></div>
+            <div class="member-list" id="member-list-content"></div>
+        `;
+        uiLayer.appendChild(memberWindow);
+
+        window.updateMemberList = function() {
+            const listEl = document.getElementById('member-list-content');
+            if (!listEl) return;
+            listEl.innerHTML = '';
+
+            let allUsers = [];
+            if (window.GameState && window.GameState.roomUsers) {
+                allUsers = [...window.GameState.roomUsers];
+            }
+            
+            if (window.GameState && window.GameState.userInfo) {
+                const myId = window.GameState.userInfo.user_id;
+                const hasMe = allUsers.some(u => u.user_id === myId);
+                if (!hasMe) {
+                    allUsers.unshift(window.GameState.userInfo);
+                }
+            } else {
+                if (allUsers.length === 0) {
+                    allUsers.push({ name: "テストプレイヤー (あなた)", portrait: "" });
+                }
+            }
+
+            allUsers.forEach(user => {
+                const item = document.createElement('div');
+                item.className = 'member-item';
+                
+                const icon = document.createElement('div');
+                icon.className = 'member-icon';
+                const avatarUrl = user.portrait || user.portait;
+                if (avatarUrl) {
+                    icon.style.backgroundImage = `url(${avatarUrl})`;
+                } else {
+                    icon.style.backgroundColor = '#ffaa00';
+                    icon.innerText = '👤';
+                }
+                
+                const name = document.createElement('div');
+                name.className = 'member-name';
+                name.innerText = user.user_name || user.name || "Player";
+                
+                item.appendChild(icon);
+                item.appendChild(name);
+                listEl.appendChild(item);
+            });
+        };
+
+        memberBtn.addEventListener('click', () => { window.updateMemberList(); memberWindow.style.display = 'flex'; });
+        memberBtn.addEventListener('mousedown', preventTouch);
+        memberBtn.addEventListener('touchstart', preventTouch, {passive: false});
+
+        memberWindow.querySelector('#member-close-btn').addEventListener('click', () => { memberWindow.style.display = 'none'; });
+        memberWindow.addEventListener('mousedown', preventTouch);
+        memberWindow.addEventListener('touchstart', preventTouch, {passive: false});
+    },
 
     sendData: function(data) {
         if (typeof window.sendMultiplayerMessage === 'function') {
@@ -23,7 +112,6 @@ window.MultiplayerManager = {
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
         
-        // 観戦モード中（透明化中）は自身の位置情報を送信しない
         if (window.isSpectatorMode) return;
         
         const nowTime = Date.now();
@@ -50,7 +138,6 @@ window.MultiplayerManager = {
     update: function(delta) {
         if (typeof player === 'undefined' || !player) return;
 
-        // 観戦モード中は送信チェックを行わない
         if (!window.isSpectatorMode) {
             const now = performance.now();
             const dist = Math.hypot(player.position.x - this.lastSentPos.x, player.position.z - this.lastSentPos.z);
@@ -117,8 +204,6 @@ window.MultiplayerManager = {
                             timestamp: window.ItemSystem.currentItemPosInfo.timestamp
                         });
                     }
-                    
-                    // ★追加: 途中入室者に対して、ゲームの状態を返信する（自分が提案者の場合のみ）
                     if (window.MinigameManager && window.MinigameManager.state !== 'IDLE' && window.MinigameManager.currentProposal) {
                         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
                         if (window.MinigameManager.currentProposal.proposerId === myId) {
@@ -129,7 +214,6 @@ window.MultiplayerManager = {
                             });
                         }
                     }
-
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');

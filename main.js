@@ -1,15 +1,13 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★フライ(連続ジャンプ)中の天井衝突判定を追加
-// ★坂道での停止時にキャラクターが勝手に回転するバグを修正
+// ★他プレイヤーからの押し出し(すり抜け)バグを修正
 // =====================================
 
 let mapMesh;
 let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
-// ★追加: キャラクターの水平方向の向きを記録する変数
 let currentFacingAngle = 0; 
 
 window.initThreeJS = function() {
@@ -117,6 +115,45 @@ window.updatePlayer = function(delta) {
         }
     }
 
+    // ★修正: 先に他プレイヤーからの「押し出し量」を計算する
+    let pushX = 0;
+    let pushZ = 0;
+
+    if (window.MultiplayerManager) {
+        const others = window.MultiplayerManager.otherPlayers;
+        for (let id in others) {
+            let other = others[id];
+            if (other.mesh) {
+                let dx = player.position.x - other.mesh.position.x;
+                let dz = player.position.z - other.mesh.position.z;
+                let dy = player.position.y - other.mesh.position.y;
+                let distXZ = Math.hypot(dx, dz);
+                let combinedRadius = pRadius * 1.8; 
+                
+                if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
+                    if (distXZ === 0) { 
+                        dx = (Math.random() - 0.5) * 0.1;
+                        dz = (Math.random() - 0.5) * 0.1;
+                        distXZ = Math.hypot(dx, dz);
+                    }
+                    let overlap = combinedRadius - distXZ;
+                    if (Math.abs(dy) < 0.4) {
+                        pushX += (dx / distXZ) * overlap * 0.5;
+                        pushZ += (dz / distXZ) * overlap * 0.5;
+                    } else if (dy >= 0.4) {
+                        let slideForce = overlap * 0.15; 
+                        pushX += (dx / distXZ) * slideForce;
+                        pushZ += (dz / distXZ) * slideForce;
+                    }
+                }
+            }
+        }
+    }
+
+    // ★修正: 自分の移動量と押し出し量を合算して、まとめて壁判定を行う
+    let mX = pushX;
+    let mZ = pushZ;
+
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
@@ -125,70 +162,10 @@ window.updatePlayer = function(delta) {
         const moveDirection = new THREE.Vector2(moveDirX, moveDirZ).normalize();
         const inputLength = Math.min(moveVector.length(), 1.0);
         
-        const mX = moveDirection.x * (inputLength * moveSpeed) * delta;
-        const mZ = moveDirection.y * (inputLength * moveSpeed) * delta;
-        const nextX = player.position.x + mX;
-        const nextZ = player.position.z + mZ;
+        mX += moveDirection.x * (inputLength * moveSpeed) * delta;
+        mZ += moveDirection.y * (inputLength * moveSpeed) * delta;
 
-        let margin = pRadius * 0.8; 
-        
-        let wallCheckY = player.position.y + myStepHeight * 0.8; 
-        let headCheckY = player.position.y + pRadius * 1.8; 
-
-        let canMoveX = true;
-        if (Math.abs(mX) > 0.001 && mapMesh) {
-            let dirX = new THREE.Vector3(Math.sign(mX), 0, 0);
-            let checkOrigins = [
-                new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
-                new THREE.Vector3(player.position.x, headCheckY, player.position.z)
-            ];
-
-            for (let origin of checkOrigins) {
-                raycaster.set(origin, dirX);
-                let interX = raycaster.intersectObject(mapMesh, false);
-                if (interX.length > 0 && interX[0].distance < margin + Math.abs(mX)) {
-                    let normal = interX[0].face.normal.clone();
-                    let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
-                    normal.applyMatrix3(normalMatrix).normalize();
-                    
-                    if (normal.y < 0.6) {
-                        canMoveX = false;
-                        break;
-                    }
-                }
-            }
-        }
-        if (canMoveX) player.position.x = nextX;
-
-        let canMoveZ = true;
-        if (Math.abs(mZ) > 0.001 && mapMesh) {
-            let dirZ = new THREE.Vector3(0, 0, Math.sign(mZ));
-            let checkOrigins = [
-                new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
-                new THREE.Vector3(player.position.x, headCheckY, player.position.z)
-            ];
-
-            for (let origin of checkOrigins) {
-                raycaster.set(origin, dirZ);
-                let interZ = raycaster.intersectObject(mapMesh, false);
-                if (interZ.length > 0 && interZ[0].distance < margin + Math.abs(mZ)) {
-                    let normal = interZ[0].face.normal.clone();
-                    let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
-                    normal.applyMatrix3(normalMatrix).normalize();
-                    
-                    if (normal.y < 0.6) {
-                        canMoveZ = false;
-                        break;
-                    }
-                }
-            }
-        }
-        if (canMoveZ) player.position.z = nextZ;
-
-        // キャラクターの回転と姿勢制御
         const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
-        
-        // ★修正: 移動中は常に「現在向いている方角」を上書き保存する
         currentFacingAngle = targetRotationY;
         
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
@@ -206,13 +183,70 @@ window.updatePlayer = function(delta) {
             cameraAngle += diff * 3.0 * delta;
         }
     } else {
-        // ★修正: 停止中は、傾いたモデルから方角を逆算せず、保存しておいた向きを使用する
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
         const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
+    // ★修正: 合算された mX, mZ を使って壁判定（壁の向こうへは行かせない）
+    const nextX = player.position.x + mX;
+    const nextZ = player.position.z + mZ;
+    let margin = pRadius * 0.8; 
+    let wallCheckY = player.position.y + myStepHeight * 0.8; 
+    let headCheckY = player.position.y + pRadius * 1.8; 
+
+    let canMoveX = true;
+    if (Math.abs(mX) > 0.001 && mapMesh) {
+        let dirX = new THREE.Vector3(Math.sign(mX), 0, 0);
+        let checkOrigins = [
+            new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
+            new THREE.Vector3(player.position.x, headCheckY, player.position.z)
+        ];
+
+        for (let origin of checkOrigins) {
+            raycaster.set(origin, dirX);
+            let interX = raycaster.intersectObject(mapMesh, false);
+            if (interX.length > 0 && interX[0].distance < margin + Math.abs(mX)) {
+                let normal = interX[0].face.normal.clone();
+                let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+                normal.applyMatrix3(normalMatrix).normalize();
+                
+                if (normal.y < 0.6) {
+                    canMoveX = false;
+                    break;
+                }
+            }
+        }
+    }
+    if (canMoveX) player.position.x = nextX;
+
+    let canMoveZ = true;
+    if (Math.abs(mZ) > 0.001 && mapMesh) {
+        let dirZ = new THREE.Vector3(0, 0, Math.sign(mZ));
+        let checkOrigins = [
+            new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
+            new THREE.Vector3(player.position.x, headCheckY, player.position.z)
+        ];
+
+        for (let origin of checkOrigins) {
+            raycaster.set(origin, dirZ);
+            let interZ = raycaster.intersectObject(mapMesh, false);
+            if (interZ.length > 0 && interZ[0].distance < margin + Math.abs(mZ)) {
+                let normal = interZ[0].face.normal.clone();
+                let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+                normal.applyMatrix3(normalMatrix).normalize();
+                
+                if (normal.y < 0.6) {
+                    canMoveZ = false;
+                    break;
+                }
+            }
+        }
+    }
+    if (canMoveZ) player.position.z = nextZ;
+
+    // ジャンプ処理
     if (isJumping) {
         verticalVelocity += gravity * delta;
         
@@ -246,41 +280,11 @@ window.updatePlayer = function(delta) {
         }
     }
     
+    // 奈落時のワープ
     if (player.position.y < -30) {
         player.position.set(0, 20, 0); 
         isJumping = true; 
         verticalVelocity = 0;
-    }
-
-    if (window.MultiplayerManager) {
-        const others = window.MultiplayerManager.otherPlayers;
-        for (let id in others) {
-            let other = others[id];
-            if (other.mesh) {
-                let dx = player.position.x - other.mesh.position.x;
-                let dz = player.position.z - other.mesh.position.z;
-                let dy = player.position.y - other.mesh.position.y;
-                let distXZ = Math.hypot(dx, dz);
-                let combinedRadius = pRadius * 1.8; 
-                
-                if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
-                    if (distXZ === 0) { 
-                        dx = (Math.random() - 0.5) * 0.1;
-                        dz = (Math.random() - 0.5) * 0.1;
-                        distXZ = Math.hypot(dx, dz);
-                    }
-                    let overlap = combinedRadius - distXZ;
-                    if (Math.abs(dy) < 0.4) {
-                        player.position.x += (dx / distXZ) * overlap * 0.5;
-                        player.position.z += (dz / distXZ) * overlap * 0.5;
-                    } else if (dy >= 0.4) {
-                        let slideForce = overlap * 0.15; 
-                        player.position.x += (dx / distXZ) * slideForce;
-                        player.position.z += (dz / distXZ) * slideForce;
-                    }
-                }
-            }
-        }
     }
 };
 

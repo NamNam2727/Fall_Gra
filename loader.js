@@ -6,7 +6,7 @@
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
-    // ★追加: minigame_list.js と minigame_manager.js を読み込みリストに追加
+    // ★minigame_ui.js を追加し、正しい順番で読み込むように更新
     const coreScripts = [
         'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
         'globals.js',
@@ -14,6 +14,7 @@
         'chat_system.js',
         'minigame_list.js',
         'minigame_manager.js',
+        'minigame_ui.js',
         'mapGenerator.js',
         'map.js',
         'player.js',
