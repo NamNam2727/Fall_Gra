@@ -2,6 +2,7 @@
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
 // ★他プレイヤーからの押し出し(すり抜け)バグを修正
+// ★観戦モード時の無限空中ジャンプ機能を実装
 // =====================================
 
 let mapMesh;
@@ -9,6 +10,7 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
+let spectatorJumpBound = false;
 
 window.initThreeJS = function() {
     scene = new THREE.Scene();
@@ -53,6 +55,14 @@ window.initThreeJS = function() {
         }, 1000);
     }
 
+    // ★キーボードのスペースキーでも観戦中に無限ジャンプできるようにする
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && window.isSpectatorMode) {
+            window.isJumping = true;
+            window.verticalVelocity = 20;
+        }
+    });
+
     updateCamera(true);
     window.addEventListener('resize', onWindowResize);
 };
@@ -82,6 +92,22 @@ window.updatePlayer = function(delta) {
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.0;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
     
+    // ★スマホのJUMPボタンに、観戦モード用の強制無限ジャンプ処理を1回だけ紐付ける
+    if (!spectatorJumpBound) {
+        const jBtn = document.getElementById('jump-btn');
+        if (jBtn) {
+            const doSpecJump = () => {
+                if (window.isSpectatorMode) {
+                    window.isJumping = true;
+                    window.verticalVelocity = 20;
+                }
+            };
+            jBtn.addEventListener('mousedown', doSpecJump);
+            jBtn.addEventListener('touchstart', (e) => { doSpecJump(); }, {passive: false});
+            spectatorJumpBound = true;
+        }
+    }
+
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -117,16 +143,14 @@ window.updatePlayer = function(delta) {
 
     let pushX = 0;
     let pushZ = 0;
-
-    // ★追加: 自分が上空から落下中（スポーン直後など）は、他プレイヤーからの押し出しを無効化する
     let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
 
     if (window.MultiplayerManager && !isFalling) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
             let other = others[id];
-            // ★追加: 相手がまだ最初の位置を受信しておらず、初期位置に留まっている場合は衝突を無視する
-            if (other.mesh && other.hasReceivedFirstPos !== false) {
+            // ★相手が観戦モード(isSpectator)の場合は、当たり判定(押し出し)を完全にスルーする
+            if (other.mesh && other.hasReceivedFirstPos !== false && !other.isSpectator) {
                 let dx = player.position.x - other.mesh.position.x;
                 let dz = player.position.z - other.mesh.position.z;
                 let dy = player.position.y - other.mesh.position.y;

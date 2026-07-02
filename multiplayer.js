@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
-// 新規入室者へのアイテム位置の同期機能搭載
-// ★入室直後の位置同期のラグによる押し出しバグを修正
+// ★メンバーリストUIの生成とマルチプレイ管理
+// ★観戦モード(透明化・当たり判定除外)の通信同期を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -112,7 +112,7 @@ window.MultiplayerManager = {
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
         
-        if (window.isSpectatorMode) return;
+        if (window.isSpectatorMode) return; // 観戦中は送らない
         
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
@@ -198,7 +198,6 @@ window.MultiplayerManager = {
                 } else if (msgData.type === 'pos_req') {
                     this.forceSendPos();
                     
-                    // ★修正: 新仕様(ID管理)の複数アイテムを同期してあげる処理
                     if (window.ItemSystem && window.ItemSystem.fieldItems) {
                         for (let id in window.ItemSystem.fieldItems) {
                             let itemMesh = window.ItemSystem.fieldItems[id];
@@ -210,15 +209,28 @@ window.MultiplayerManager = {
                         }
                     }
 
+                    // 自分が観戦モードなら新規入室者にも伝える
+                    if (window.isSpectatorMode) {
+                        this.sendData({ type: 'mg_spectator', isSpectator: true });
+                    }
+
                     if (window.MinigameManager && window.MinigameManager.state !== 'IDLE' && window.MinigameManager.currentProposal) {
                         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
                         if (window.MinigameManager.currentProposal.proposerId === myId) {
                             this.sendData({
                                 type: 'mg_sync_state',
                                 state: window.MinigameManager.state,
+                                targetStartTime: window.MinigameManager.targetStartTime, // 同時開始時刻も送信
                                 proposal: window.MinigameManager.currentProposal
                             });
                         }
+                    }
+                // ★追加: 観戦モードの同期を受信
+                } else if (msgData.type === 'mg_spectator') {
+                    const p = this.otherPlayers[data.user_id];
+                    if (p) {
+                        p.isSpectator = msgData.isSpectator;
+                        if (p.mesh) p.mesh.visible = !msgData.isSpectator; // 観戦者は画面から非表示にする
                     }
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
@@ -254,7 +266,8 @@ window.MultiplayerManager = {
             targetPos: new THREE.Vector3(0, 20, 0),
             targetQuat: new THREE.Quaternion(),
             lastMoveTime: 0,
-            hasReceivedFirstPos: false // ★追加: 初回の位置データを受信したかどうかのフラグ
+            hasReceivedFirstPos: false,
+            isSpectator: false // 観戦モードフラグ
         };
     },
 
@@ -275,7 +288,6 @@ window.MultiplayerManager = {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 
-                // ★追加: 最初の位置データを受信した時だけ、ゆっくり移動させずに即座にワープさせる！
                 if (!p.hasReceivedFirstPos) {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);

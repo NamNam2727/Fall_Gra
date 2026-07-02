@@ -1,7 +1,7 @@
 // =====================================
 // minigame_manager.js
-// ミニゲームの進行、多数決、観戦モード移行などを管理するシステム
-// ★UI生成を minigame_ui.js に完全に分離し軽量化
+// ★ミリ秒単位の同時スタート同期、正確なキャンセル管理
+// ★自分だけの半透明化・無限ジャンプ対応
 // =====================================
 
 window.MinigameManager = {
@@ -9,6 +9,7 @@ window.MinigameManager = {
     currentProposal: null,
     myVote: null,
     participantCount: 1, 
+    targetStartTime: 0, // ★同時スタート用の目標時刻
 
     init: function() {
         console.log("Minigame Manager Initialized.");
@@ -18,18 +19,23 @@ window.MinigameManager = {
     enterSpectatorMode: function() {
         if (!window.isSpectatorMode) {
             window.isSpectatorMode = true;
+            // 自キャラは完全に消さず、操作しやすいように半透明(opacity: 0.4)にする
             if (typeof player !== 'undefined' && player) {
                 player.traverse((child) => {
                     if (child.isMesh && child.material) {
                         if (Array.isArray(child.material)) {
-                            child.material.forEach(m => { m.transparent = true; m.opacity = 0; m.needsUpdate = true; });
+                            child.material.forEach(m => { m.transparent = true; m.opacity = 0.4; m.needsUpdate = true; });
                         } else {
                             child.material.transparent = true;
-                            child.material.opacity = 0;
+                            child.material.opacity = 0.4;
                             child.material.needsUpdate = true;
                         }
                     }
                 });
+            }
+            // 他の人の画面からは自分を完全に消してもらうよう通信を送る
+            if (window.MultiplayerManager) {
+                window.MultiplayerManager.sendData({ type: 'mg_spectator', isSpectator: true });
             }
         }
     },
@@ -37,6 +43,7 @@ window.MinigameManager = {
     exitSpectatorMode: function() {
         if (window.isSpectatorMode) {
             window.isSpectatorMode = false;
+            // 自キャラを元の不透明に戻す
             if (typeof player !== 'undefined' && player) {
                 player.traverse((child) => {
                     if (child.isMesh && child.material) {
@@ -50,7 +57,9 @@ window.MinigameManager = {
                     }
                 });
             }
-            if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+            // 他の人に「もう1回表示してね」と伝える
+            if (window.MultiplayerManager) {
+                window.MultiplayerManager.sendData({ type: 'mg_spectator', isSpectator: false });
                 window.MultiplayerManager.forceSendPos();
             }
         }
@@ -211,13 +220,13 @@ window.MinigameManager = {
         } else if (msg.type === 'mg_vote') {
             this.receiveVote(msg.proposerId, msg.userId, msg.vote);
         } else if (msg.type === 'mg_start_countdown') {
-            this.startCountdown();
+            this.startCountdown(msg.targetStartTime); // ★ミリ秒時刻を受け取る
         } else if (msg.type === 'mg_abort') {
             this.abortGame(true); 
         } else if (msg.type === 'mg_cancel') {
             this.cancelProposal(msg.reason);
         } else if (msg.type === 'mg_sync_state') {
-            this.syncState(msg.state, msg.proposal);
+            this.syncState(msg.state, msg.targetStartTime, msg.proposal);
         }
     },
 
@@ -241,7 +250,7 @@ window.MinigameManager = {
         this.showProposalPopup();
     },
 
-    syncState: function(remoteState, proposal) {
+    syncState: function(remoteState, targetStartTime, proposal) {
         if (this.state !== 'IDLE' && this.state !== 'PROPOSING') return;
 
         this.currentProposal = proposal;
@@ -254,6 +263,7 @@ window.MinigameManager = {
                 this.showProposalPopup();
             }
         } else if (remoteState === 'COUNTDOWN' || remoteState === 'PLAYING') {
+            // ★途中入室した人は、強制的に不参加（観戦モード）としてゲームに合流する
             this.state = remoteState;
             this.myVote = false; 
             
@@ -269,6 +279,10 @@ window.MinigameManager = {
             }
             
             this.enterSpectatorMode();
+
+            if (remoteState === 'COUNTDOWN' && targetStartTime) {
+                this.startCountdown(targetStartTime); // 進行中のカウントダウンに合流
+            }
 
             if (remoteState === 'PLAYING') {
                 const mgBtn = document.getElementById('minigame-btn');
@@ -339,7 +353,7 @@ window.MinigameManager = {
     },
 
     cancelProposal: function(reason) {
-        if (this.state === 'IDLE' || !this.currentProposal) return;
+        if (this.state === 'IDLE' || !this.currentProposal) return; // IDLEなら重複実行しない
         
         this.state = 'IDLE';
         this.currentProposal = null;
@@ -353,6 +367,12 @@ window.MinigameManager = {
     checkVotes: function() {
         if (!this.currentProposal) return;
         
+        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
+        
+        // ★修正: 人数の計算と結果の判断は「ホスト（提案者）のみ」が行う。
+        // これにより、ゲスト側で「参加人数が集まりませんでした」と勝手に判断して二重にログを出すことがなくなる。
+        if (this.currentProposal.proposerId !== myId) return;
+
         let totalUsers = 1;
         if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
             totalUsers = Object.keys(window.MultiplayerManager.otherPlayers).length + 1;
@@ -372,45 +392,48 @@ window.MinigameManager = {
 
         if (joinCount >= requiredToJoin) {
             this.participantCount = joinCount;
-            const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
             
-            if (this.currentProposal.proposerId === myId && this.state === 'PROPOSING') {
-                if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_start_countdown' });
-                this.startCountdown();
+            if (this.state === 'PROPOSING') {
+                // ★同期の極意: 10秒後の「正確な時刻」を計算して全員に送る
+                const startTime = Date.now() + 10000;
+                if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_start_countdown', targetStartTime: startTime });
+                this.startCountdown(startTime);
             }
         } else if (declineCount >= requiredToDecline) {
             if (this.state === 'PROPOSING') {
-                const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
-                if (this.currentProposal.proposerId === myId) {
-                    if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_cancel', reason: '参加人数が集まりませんでした。（半数以上が不参加）' });
-                }
+                if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_cancel', reason: '参加人数が集まりませんでした。（半数以上が不参加）' });
                 this.cancelProposal("参加人数が集まりませんでした。（半数以上が不参加）");
             }
         }
     },
 
-    startCountdown: function() {
-        if (this.state === 'COUNTDOWN') return; 
+    // ★修正: targetStartTime を使って、通信ラグに左右されない正確なカウントダウンを行う
+    startCountdown: function(targetStartTime) {
+        if (this.state === 'COUNTDOWN' && this.targetStartTime === targetStartTime) return; 
         this.state = 'COUNTDOWN';
+        this.targetStartTime = targetStartTime || (Date.now() + 10000); 
+        
         document.getElementById('mg-proposal-popup').style.display = 'none';
         
         const overlay = document.getElementById('mg-countdown-overlay');
         const countText = document.getElementById('mg-countdown-text');
         overlay.style.display = 'flex';
         
-        let count = 10;
-        countText.innerText = count;
-        
-        const timer = setInterval(() => {
-            count--;
-            if (count > 0) {
-                countText.innerText = count;
+        const updateTimer = () => {
+            if (this.state !== 'COUNTDOWN') return; // キャンセル等で状態が変わったら停止
+            
+            const remain = Math.ceil((this.targetStartTime - Date.now()) / 1000);
+            
+            if (remain > 0) {
+                countText.innerText = remain;
+                requestAnimationFrame(updateTimer); // 高精度ループ
             } else {
-                clearInterval(timer);
                 overlay.style.display = 'none';
                 this.startGame();
             }
-        }, 1000);
+        };
+        
+        updateTimer();
     },
 
     startGame: function() {
@@ -424,7 +447,7 @@ window.MinigameManager = {
 
         if (this.myVote === false) {
             this.enterSpectatorMode();
-            if (typeof window.addLog === 'function') window.addLog('<span style="color:#aaaaaa;">観戦モードに移行しました。他のプレイヤーからは見えません。</span>', 'sys');
+            if (typeof window.addLog === 'function') window.addLog('<span style="color:#aaaaaa;">観戦モードに移行しました。自由に飛び回れます！</span>', 'sys');
         } else {
             window.isSpectatorMode = false;
         }
@@ -466,7 +489,8 @@ window.MinigameManager = {
     },
 
     abortGame: function(isRemote = false) {
-        if (this.state === 'PLAYING') {
+        // ★修正: カウントダウン中やゲーム中ならいつでも強制終了(abort)を受け付ける
+        if (this.state === 'PLAYING' || this.state === 'COUNTDOWN') {
             if (!isRemote && window.MultiplayerManager) {
                 window.MultiplayerManager.sendData({ type: 'mg_abort' });
             }
