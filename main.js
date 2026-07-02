@@ -115,15 +115,18 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // ★修正: 先に他プレイヤーからの「押し出し量」を計算する
     let pushX = 0;
     let pushZ = 0;
 
-    if (window.MultiplayerManager) {
+    // ★追加: 自分が上空から落下中（スポーン直後など）は、他プレイヤーからの押し出しを無効化する
+    let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
+
+    if (window.MultiplayerManager && !isFalling) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
             let other = others[id];
-            if (other.mesh) {
+            // ★追加: 相手がまだ最初の位置を受信しておらず、初期位置に留まっている場合は衝突を無視する
+            if (other.mesh && other.hasReceivedFirstPos !== false) {
                 let dx = player.position.x - other.mesh.position.x;
                 let dz = player.position.z - other.mesh.position.z;
                 let dy = player.position.y - other.mesh.position.y;
@@ -150,7 +153,6 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // ★修正: 自分の移動量と押し出し量を合算して、まとめて壁判定を行う
     let mX = pushX;
     let mZ = pushZ;
 
@@ -189,7 +191,6 @@ window.updatePlayer = function(delta) {
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
-    // ★修正: 合算された mX, mZ を使って壁判定（壁の向こうへは行かせない）
     const nextX = player.position.x + mX;
     const nextZ = player.position.z + mZ;
     let margin = pRadius * 0.8; 
@@ -246,7 +247,6 @@ window.updatePlayer = function(delta) {
     }
     if (canMoveZ) player.position.z = nextZ;
 
-    // ジャンプ処理
     if (isJumping) {
         verticalVelocity += gravity * delta;
         
@@ -280,7 +280,6 @@ window.updatePlayer = function(delta) {
         }
     }
     
-    // 奈落時のワープ
     if (player.position.y < -30) {
         player.position.set(0, 20, 0); 
         isJumping = true; 
