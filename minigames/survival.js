@@ -2,7 +2,7 @@
 // minigames/survival.js
 // 崩壊サバイバル プラグイン
 // 独自の床メッシュを生成し、タイムスタンプベースで崩壊を同期する
-// ★タイマー機能とリザルト（生存）処理を追加
+// ★ジャンプ中・落下中の着地判定を除外し、足元のみ正確に判定するよう修正
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -73,7 +73,7 @@ window.MinigamePlugins['survival'] = {
                         const blockId = `${x}_${z}_${layerIndex}`; 
                         
                         blockMesh.userData = {
-                            isTerrain: true, // ★main.jsの当たり判定に認識させる
+                            isTerrain: true, 
                             isSurvivalBlock: true,
                             id: blockId,
                             topY: yT * bs 
@@ -108,17 +108,16 @@ window.MinigamePlugins['survival'] = {
     update: function(delta) {
         if (!this.isPlaying) return;
 
-        // ★1. タイマーの処理
+        // タイマーの処理
         this.remainTime -= delta;
         if (this.remainTime <= 0) {
             this.remainTime = 0;
             this.isPlaying = false;
             
-            // 時間切れ＝最後まで生き残ったので「生存」としてリザルトに記録
             if (window.MinigameManager && window.MinigameManager.resultData) {
                 window.MinigameManager.resultData.forEach(data => {
                     if (!data.isRetired) {
-                        data.rank = 1; // 1位扱い
+                        data.rank = 1; 
                         data.scoreText = "生存!";
                     }
                 });
@@ -127,7 +126,6 @@ window.MinigamePlugins['survival'] = {
             return;
         }
 
-        // タイマーUIの更新
         let m = Math.floor(this.remainTime / 60);
         let s = Math.floor(this.remainTime % 60);
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
@@ -135,29 +133,25 @@ window.MinigamePlugins['survival'] = {
 
         const now = Date.now();
 
-        // ★2. 自分がどのブロックの上にいるか判定する
+        // 自分がどのブロックの上にいるか判定する
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             this.checkPlayerStep(now);
         }
 
-        // ★3. ブロックの色と消失の更新
+        // ブロックの色と消失の更新
         for (let id in this.blocks) {
             let b = this.blocks[id];
             if (b.stepTime !== null && b.mesh.visible) {
                 let elapsed = (now - b.stepTime) / 1000; // 経過秒数
 
                 if (elapsed >= 3.0) {
-                    // 3秒経過：消失
                     b.mesh.visible = false;
-                    b.mesh.userData.isTerrain = false; // 当たり判定から除外
+                    b.mesh.userData.isTerrain = false; 
                 } else if (elapsed >= 2.0) {
-                    // 2秒経過：赤
                     b.mesh.material.color.lerpColors(this.colorYellow, this.colorRed, (elapsed - 2.0));
                 } else if (elapsed >= 1.0) {
-                    // 1秒経過：黄色
                     b.mesh.material.color.lerpColors(this.colorBlue, this.colorYellow, (elapsed - 1.0));
                 } else {
-                    // 0〜1秒：青
                     b.mesh.material.color.lerpColors(b.originalColor, this.colorBlue, elapsed);
                 }
             }
@@ -166,6 +160,9 @@ window.MinigamePlugins['survival'] = {
 
     // 足元のブロックを判定し、踏んでいれば同期を送信する
     checkPlayerStep: function(nowTime) {
+        // ★ジャンプ中や落下中などの空中にいる時は判定しない
+        if (typeof isJumping !== 'undefined' && isJumping) return;
+
         let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
 
         const raycaster = new THREE.Raycaster();
@@ -176,8 +173,8 @@ window.MinigamePlugins['survival'] = {
 
         if (intersects.length > 0) {
             let hit = intersects[0];
-            let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
-            if (hit.point.y <= player.position.y + myStepHeight + 0.5) {
+            // ★プレイヤーの足元(y)と床の高さがほぼ同じ（着地している）時のみ判定
+            if (Math.abs(hit.point.y - player.position.y) < 0.5) {
                 let blockId = hit.object.userData.id;
                 let b = this.blocks[blockId];
                 
