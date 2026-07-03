@@ -1,8 +1,7 @@
 // =====================================
 // minigames/survival.js
 // 崩壊サバイバル プラグイン
-// 独自の床メッシュを生成し、タイムスタンプベースで崩壊を同期する
-// ★ジャンプ中・落下中の着地判定を除外し、足元のみ正確に判定するよう修正
+// ★生存時間を記録し、ランキング表示用にソートする機能を追加
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -12,8 +11,9 @@ window.MinigamePlugins['survival'] = {
     survivalGroup: null,
     originalMapMesh: null,
     isPlaying: false,
-    timeLimit: 3,     // 制限時間（分）
-    remainTime: 0,    // 残り時間（秒）
+    timeLimit: 3,     
+    remainTime: 0,    
+    startTime: 0,     // ★追加: 開始時刻の記録用
 
     // カラー定義
     colorNormal: new THREE.Color(0xaaaaaa),
@@ -21,16 +21,12 @@ window.MinigamePlugins['survival'] = {
     colorYellow: new THREE.Color(0xffff44),
     colorRed: new THREE.Color(0xff4444),
 
-    // 10秒カウントダウン開始時に呼ばれる（マップ構築など重い処理を行う）
     init: function(settings) {
         console.log("[Survival] Initializing...");
         this.isPlaying = false;
         this.blocks = {};
-        
-        // マネージャーから設定された制限時間を取得
         this.timeLimit = settings && settings.time ? parseInt(settings.time, 10) : 3;
 
-        // 元の地形を非表示にする
         if (typeof scene !== 'undefined') {
             scene.children.forEach(child => {
                 if (child.userData && child.userData.isTerrain && !child.userData.isSurvivalBlock) {
@@ -42,7 +38,6 @@ window.MinigamePlugins['survival'] = {
 
         this.survivalGroup = new THREE.Group();
 
-        // MapGenerator のデータから個別ブロックを生成
         if (window.MapGenerator) {
             const { parsedMap, mapW, mapD } = window.MapGenerator.parseMap();
             const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
@@ -54,7 +49,6 @@ window.MinigamePlugins['survival'] = {
                     let pz = z - mapD / 2 + 0.5;
 
                     layers.forEach((l, layerIndex) => {
-                        // 高さ0の空間（奈落）は生成しない
                         if (l.val === 0) return;
 
                         let yB = l.bottom;
@@ -81,7 +75,7 @@ window.MinigamePlugins['survival'] = {
 
                         this.blocks[blockId] = {
                             mesh: blockMesh,
-                            stepTime: null, // 踏まれたタイムスタンプ
+                            stepTime: null,
                             isOdd: l.isOdd,
                             originalColor: blockMesh.material.color.clone()
                         };
@@ -97,28 +91,32 @@ window.MinigamePlugins['survival'] = {
         }
     },
 
-    // 「START!!」表示後に呼ばれる（タイマー作動やアクション開始）
     start: function() {
         console.log("[Survival] Game Started!");
         this.isPlaying = true;
-        this.remainTime = this.timeLimit * 60; // 分を秒に変換
+        this.remainTime = this.timeLimit * 60; 
+        this.startTime = Date.now(); // ★開始時刻を記録
     },
 
-    // 毎フレーム呼ばれる更新処理
     update: function(delta) {
         if (!this.isPlaying) return;
 
-        // タイマーの処理
         this.remainTime -= delta;
         if (this.remainTime <= 0) {
             this.remainTime = 0;
             this.isPlaying = false;
             
+            // ★時間切れ＝生存クリアのスコア登録
             if (window.MinigameManager && window.MinigameManager.resultData) {
+                const limitSec = this.timeLimit * 60;
+                let m = Math.floor(limitSec / 60);
+                let s = Math.floor(limitSec % 60);
+                let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+
                 window.MinigameManager.resultData.forEach(data => {
                     if (!data.isRetired) {
-                        data.rank = 1; 
-                        data.scoreText = "生存!";
+                        data.scoreValue = limitSec; 
+                        data.scoreText = `生存クリア! (${timeStr})`;
                     }
                 });
                 window.MinigameManager.endGame();
@@ -133,16 +131,14 @@ window.MinigamePlugins['survival'] = {
 
         const now = Date.now();
 
-        // 自分がどのブロックの上にいるか判定する
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             this.checkPlayerStep(now);
         }
 
-        // ブロックの色と消失の更新
         for (let id in this.blocks) {
             let b = this.blocks[id];
             if (b.stepTime !== null && b.mesh.visible) {
-                let elapsed = (now - b.stepTime) / 1000; // 経過秒数
+                let elapsed = (now - b.stepTime) / 1000;
 
                 if (elapsed >= 3.0) {
                     b.mesh.visible = false;
@@ -158,8 +154,9 @@ window.MinigamePlugins['survival'] = {
         }
     },
 
-    // 足元のブロックを判定し、踏んでいれば同期を送信する
     checkPlayerStep: function(nowTime) {
+        if (typeof isJumping !== 'undefined' && isJumping) return;
+
         let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
 
         const raycaster = new THREE.Raycaster();
@@ -171,7 +168,6 @@ window.MinigamePlugins['survival'] = {
         if (intersects.length > 0) {
             let hit = intersects[0];
             
-            // ★プレイヤーの足元(player.position.y)と床の上面の高さ(hit.point.y)の誤差が「0.1以内」の時のみ着地と判定する
             if (Math.abs(hit.point.y - player.position.y) < 0.1) {
                 let blockId = hit.object.userData.id;
                 let b = this.blocks[blockId];
@@ -201,14 +197,51 @@ window.MinigamePlugins['survival'] = {
         }
     },
 
+    // ★追加: 落下（リタイア）した瞬間に生存時間を記録する
     onRetire: function(userId) {
-        // リザルトデータ側は manager で処理されるため特に処理なし
+        if (window.MinigameManager && window.MinigameManager.resultData) {
+            const data = window.MinigameManager.resultData.find(d => d.id === userId);
+            if (data) {
+                let survivedSeconds = 0;
+                if (this.startTime) {
+                    survivedSeconds = Math.floor((Date.now() - this.startTime) / 1000);
+                }
+                
+                const limitSec = this.timeLimit * 60;
+                if (survivedSeconds > limitSec) survivedSeconds = limitSec;
+
+                let m = Math.floor(survivedSeconds / 60);
+                let s = Math.floor(survivedSeconds % 60);
+                let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+
+                data.isRetired = true;
+                data.scoreValue = survivedSeconds; // 生存秒数をスコア(ソート用)にする
+                data.scoreText = timeStr;
+            }
+        }
     },
 
+    // ★追加: 全員終了後にスコア（生存時間）をもとにランキングを計算してソートする
     end: function() {
-        console.log("[Survival] Game Ended. Restoring map...");
+        console.log("[Survival] Game Ended. Calculating ranks and restoring map...");
         this.isPlaying = false;
 
+        if (window.MinigameManager && window.MinigameManager.resultData) {
+            let rd = window.MinigameManager.resultData;
+            // scoreValue(生存秒数)が大きい順に降順ソート
+            rd.sort((a, b) => b.scoreValue - a.scoreValue);
+            
+            // 上から順番にランク付け（同点対応）
+            let currentRank = 1;
+            for (let i = 0; i < rd.length; i++) {
+                if (i > 0 && rd[i].scoreValue < rd[i-1].scoreValue) {
+                    currentRank = i + 1;
+                }
+                rd[i].rank = currentRank;
+            }
+        }
+
+        // マップの復元
         if (this.survivalGroup && typeof scene !== 'undefined') {
             scene.remove(this.survivalGroup);
             this.survivalGroup.children.forEach(child => {
