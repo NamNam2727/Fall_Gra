@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★途中入室時の初回ワープ（すり抜け防止）と観戦者フラグの同期
+// ★途中入室時の初回ワープと、lerp前の非表示処理によるすり抜け防止
 // =========================================================
 
 window.MultiplayerManager = {
@@ -151,7 +151,8 @@ window.MultiplayerManager = {
 
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
-            if (p.mesh && p.targetPos) {
+            // ★修正: hasReceivedFirstPos が true の場合（初回ワープ完了後）のみ lerp を行う
+            if (p.mesh && p.targetPos && p.hasReceivedFirstPos) {
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
                     p.mesh.quaternion.slerp(p.targetQuat, 12 * delta);
@@ -224,12 +225,18 @@ window.MultiplayerManager = {
                         }
                     }
                 } else if (msgData.type === 'mg_spectator') {
-                    // ★他プレイヤーが観戦モードに入った（または出た）情報の同期
+                    // 他プレイヤーが観戦モードに入った（または出た）情報の同期
                     const p = this.otherPlayers[data.user_id];
                     if (p) {
                         p.isSpectator = msgData.isSpectator;
                         if (p.mesh) p.mesh.visible = !msgData.isSpectator; // 画面から消す
                     }
+                    
+                    // ★追加: 誰かが観戦モードになったら生存者チェックを呼ぶ
+                    if (window.MinigameManager && typeof window.MinigameManager.checkAllSpectators === 'function') {
+                        window.MinigameManager.checkAllSpectators();
+                    }
+
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');
@@ -256,6 +263,7 @@ window.MultiplayerManager = {
         if (this.otherPlayers[user.user_id]) return; 
 
         const mesh = this.createPlayerMesh(user);
+        mesh.visible = false; // ★追加: 初回位置を受信するまでは非表示にする（ワープ中のちらつきと干渉防止）
         scene.add(mesh);
 
         this.otherPlayers[user.user_id] = {
@@ -291,6 +299,7 @@ window.MultiplayerManager = {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);
                     p.hasReceivedFirstPos = true;
+                    if (!p.isSpectator) p.mesh.visible = true; // ★追加: ワープ完了後に表示する
                 }
 
                 p.lastMoveTime = data.timestamp;

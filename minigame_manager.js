@@ -2,6 +2,7 @@
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
 // ★UI生成を minigame_ui.js に完全に分離し軽量化
+// ★全員が観戦モードになった場合の終了判定(checkAllSpectators)を追加
 // =====================================
 
 window.MinigameManager = {
@@ -66,6 +67,9 @@ window.MinigameManager = {
                 mgBtn.classList.add('spectator-mode');
             }
             if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(true);
+
+            // ★追加: 自分が観戦モードになった時点で、全員が観戦モードかチェック
+            this.checkAllSpectators();
         }
     },
 
@@ -96,6 +100,34 @@ window.MinigameManager = {
             if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(false);
             const mgBtn = document.getElementById('minigame-btn');
             if (mgBtn) mgBtn.classList.remove('spectator-mode');
+        }
+    },
+
+    // ★追加: 全員が観戦モードになったかチェックする機能
+    checkAllSpectators: function() {
+        if (this.state !== 'PLAYING') return;
+
+        let allSpectators = true;
+        
+        // 自分が観戦者でないならまだ続行
+        if (!window.isSpectatorMode) allSpectators = false;
+
+        // 他のプレイヤーの状態を確認
+        if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
+            for (let id in window.MultiplayerManager.otherPlayers) {
+                if (!window.MultiplayerManager.otherPlayers[id].isSpectator) {
+                    allSpectators = false;
+                    break;
+                }
+            }
+        }
+
+        // 全員が観戦モード（生存者ゼロ）ならゲームを終了する
+        if (allSpectators) {
+            if (typeof window.addLog === 'function') {
+                window.addLog('<span style="color:#ff3300;">生存者がいなくなりました。ゲームを終了します。</span>', 'sys');
+            }
+            this.endGame();
         }
     },
 
