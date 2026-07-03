@@ -1,13 +1,19 @@
 // =====================================
 // item_system.js
 // ミニゲーム用アイテムの出現、取得、管理、同期（コアロジック）
-// ★具体的なアイテムの効果は item_effects.js に分離
+// ★プラグインからの特別ルール（アイテム固定・スタック許可）を受け入れる変数を追加
 // =====================================
 
 window.ItemSystem = {
     enabled: true, 
     fieldItems: {}, 
     maxItems: 1,    
+    
+    // ★追加: ミニゲーム用特別ルール変数
+    forceItemType: null, // 例: 'bomb' (ランダムではなくこれを必ず引く)
+    isStackable: false,  // trueの場合、複数所持(個数表示)を許可
+    stackedCount: 0,     // スタック中の個数
+    
     mySlotItem: null,
     isFlyMode: false,
     isCoolingDown: false,
@@ -30,10 +36,8 @@ window.ItemSystem = {
         loop();
     },
     
-    // アイテムの自動補充
     checkAndSpawnItems: function() {
         if (!this.enabled || this.maxItems === 0) return;
-        
         const currentCount = Object.keys(this.fieldItems).length;
         if (currentCount < this.maxItems) {
             if (Math.random() < 0.02) {
@@ -42,19 +46,18 @@ window.ItemSystem = {
         }
     },
 
-    // すべてのアイテムとエフェクトをリセット
     clearAllItems: function() {
         for (let id in this.fieldItems) {
             if (typeof scene !== 'undefined') scene.remove(this.fieldItems[id]);
         }
         this.fieldItems = {};
 
-        // プラグイン側にクリアを指示
         if (window.ItemEffects) {
             window.ItemEffects.clearAll();
         }
         
         this.mySlotItem = null;
+        this.stackedCount = 0;
         this.isCoolingDown = false;
         this.isFlyMode = false;
         if (this.slotUI) this.slotUI.classList.remove('cooling');
@@ -105,11 +108,9 @@ window.ItemSystem = {
         }
         
         if (validSpawns.length === 0) validSpawns.push({ x: 0, y: 2.0 * bs, z: 0 });
-        
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
         const itemYOffset = 1.5; 
         const pos = { x: spawn.x, y: spawn.y + itemYOffset, z: spawn.z };
-        
         const itemId = 'item_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
         
         this.placeFieldItem(itemId, pos);
@@ -159,14 +160,26 @@ window.ItemSystem = {
     
     pickupItem: function(id) {
         if (typeof scene === 'undefined' || !scene) return;
-        
         if (this.fieldItems[id]) {
             scene.remove(this.fieldItems[id]);
             delete this.fieldItems[id];
         }
 
-        const items = ['fly', 'bomb', 'net'];
-        this.mySlotItem = items[Math.floor(Math.random() * items.length)];
+        // ★取得アイテムの決定（固定指定があればそれを使う）
+        let gottenItem = this.forceItemType;
+        if (!gottenItem) {
+            const items = ['fly', 'bomb', 'net'];
+            gottenItem = items[Math.floor(Math.random() * items.length)];
+        }
+
+        // ★スタック可能かどうかで処理を分岐
+        if (this.isStackable) {
+            this.mySlotItem = gottenItem;
+            this.stackedCount++;
+        } else {
+            this.mySlotItem = gottenItem;
+        }
+
         this.updateSlotUI();
         
         if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
@@ -187,20 +200,36 @@ window.ItemSystem = {
         if (!this.slotUI) return;
         if (this.mySlotItem && !this.isCoolingDown) {
             this.slotUI.classList.add('active');
-            if (this.mySlotItem === 'fly') this.slotUI.innerHTML = '🪽';
-            else if (this.mySlotItem === 'bomb') this.slotUI.innerHTML = '💣';
-            else if (this.mySlotItem === 'net') this.slotUI.innerHTML = '🕸️';
+            let iconText = '';
+            if (this.mySlotItem === 'fly') iconText = '🪽';
+            else if (this.mySlotItem === 'bomb') iconText = '💣';
+            else if (this.mySlotItem === 'net') iconText = '🕸️';
+            
+            // ★スタック数が2以上の場合は個数を表示
+            if (this.isStackable && this.stackedCount > 1) {
+                this.slotUI.innerHTML = `${iconText}<div class="item-timer" style="bottom:-5px; right:-5px; font-size:16px;">x${this.stackedCount}</div>`;
+            } else {
+                this.slotUI.innerHTML = iconText;
+            }
         } else if (!this.isCoolingDown) {
             this.slotUI.classList.remove('active');
             this.slotUI.innerHTML = '';
         }
     },
     
-    // アイテムの使用を item_effects.js に委譲
     useItem: function() {
         if (!this.mySlotItem || this.isCoolingDown) return;
+        
         const item = this.mySlotItem;
-        this.mySlotItem = null;
+        
+        // ★スタック処理の反映
+        if (this.isStackable && this.stackedCount > 1) {
+            this.stackedCount--;
+        } else {
+            this.mySlotItem = null;
+            this.stackedCount = 0;
+        }
+        
         this.updateSlotUI();
         if (typeof player === 'undefined' || !player) return;
         
@@ -209,7 +238,6 @@ window.ItemSystem = {
         }
     },
     
-    // 通信処理の振り分け
     handleNetworkMessage: function(msgData) {
         if (msgData.type === 'item_spawn') this.placeFieldItem(msgData.id, msgData.pos);
         else if (msgData.type === 'item_pickup') this.remotePickupItem(msgData.id);
@@ -229,12 +257,10 @@ window.ItemSystem = {
 
         this.checkAndSpawnItems();
 
-        // アイテムの効果の更新処理を呼び出す
         if (window.ItemEffects) {
             window.ItemEffects.update(delta);
         }
 
-        // フィールドに落ちているアイテムのプカプカアニメーションと取得判定
         for (let id in this.fieldItems) {
             let itemMesh = this.fieldItems[id];
             const ud = itemMesh.userData;
@@ -242,7 +268,10 @@ window.ItemSystem = {
             itemMesh.position.y = ud.baseY + Math.sin(ud.time) * 0.4;
             itemMesh.rotation.y += delta;
             
-            if (!window.isSpectatorMode && typeof player !== 'undefined' && player && !this.mySlotItem && !this.isCoolingDown && this.canPickup !== false) {
+            // ★取得条件の変更: スタック可能モードならすでに持っていても拾える
+            const canGet = !this.mySlotItem || (this.isStackable && this.mySlotItem === this.forceItemType);
+            
+            if (!window.isSpectatorMode && typeof player !== 'undefined' && player && canGet && !this.isCoolingDown && this.canPickup !== false) {
                 const dist = player.position.distanceTo(itemMesh.position);
                 const pickupRadius = typeof playerRadius !== 'undefined' ? playerRadius * 3.0 : 3.0;
                 if (dist < pickupRadius) {

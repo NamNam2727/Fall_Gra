@@ -1,6 +1,7 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
+// ★汎用タイマーと、10人対応のランキングリザルト画面を追加
 // =====================================
 
 window.MinigameUI = {
@@ -50,6 +51,31 @@ window.MinigameUI = {
             #mg-countdown-overlay { position: absolute; top: 20%; left: 50%; transform: translate(-50%, 0); display: none; flex-direction: column; align-items: center; z-index: 1500; pointer-events: none; font-family: sans-serif; }
             .mg-cd-label { font-size: 24px; color: white; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
             #mg-countdown-text { font-size: 60px; color: #ffaa00; font-weight: bold; text-shadow: 0 4px 10px rgba(0,0,0,0.9); }
+
+            /* ★追加: ゲーム中のタイマー表示 */
+            #mg-timer-ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 20px; padding: 5px 20px; color: white; font-size: 24px; font-weight: bold; font-family: monospace; display: none; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; }
+            
+            /* ★追加: リザルト画面 */
+            #mg-result-window { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; height: 80%; max-height: 600px; background: rgba(20, 20, 30, 0.95); border: 4px solid #ffcc00; border-radius: 16px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 2500; pointer-events: auto; font-family: sans-serif; }
+            .result-header { padding: 15px; text-align: center; border-bottom: 2px solid rgba(255,255,255,0.2); }
+            .result-title { color: #ffcc00; font-size: 24px; font-weight: bold; text-shadow: 0 2px 4px black; margin-bottom: 5px; }
+            .result-subtitle { color: #ccc; font-size: 14px; }
+            
+            #result-list-container { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 8px; }
+            .result-item { display: flex; align-items: center; background: rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; border-left: 4px solid transparent; }
+            .result-item.rank-1 { border-color: gold; background: rgba(255, 215, 0, 0.2); }
+            .result-item.rank-2 { border-color: silver; }
+            .result-item.rank-3 { border-color: #cd7f32; }
+            .result-item.retired { opacity: 0.6; background: rgba(255, 0, 0, 0.1); border-color: #ff4444; }
+            
+            .result-rank { width: 30px; font-size: 18px; font-weight: bold; text-align: center; color: white; margin-right: 10px; }
+            .result-icon { width: 40px; height: 40px; border-radius: 50%; background-color: #555; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); margin-right: 15px; flex-shrink: 0; }
+            .result-name { flex: 1; color: white; font-size: 16px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .result-score { font-size: 16px; font-weight: bold; color: #ffaa00; text-align: right; margin-left: 10px; white-space: nowrap; }
+            
+            .result-footer { padding: 15px; text-align: center; }
+            #btn-close-result { background: #4CAF50; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+            #btn-close-result:active { transform: scale(0.95); }
         `;
         document.head.appendChild(style);
 
@@ -59,6 +85,12 @@ window.MinigameUI = {
         const preventTouch = (e) => e.stopPropagation();
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
+
+        // タイマーUI
+        const timerUI = document.createElement('div');
+        timerUI.id = 'mg-timer-ui';
+        timerUI.innerText = '03:00';
+        uiLayer.appendChild(timerUI);
 
         // ミニゲームボタン（ゲーム中はリタイア/観戦ボタン）
         const minigameBtn = document.createElement('div');
@@ -74,7 +106,6 @@ window.MinigameUI = {
 
             if (window.MinigameManager) {
                 if (window.MinigameManager.state === 'PLAYING' || window.MinigameManager.state === 'COUNTDOWN') {
-                    // ★観戦モードなら無反応、プレイ中なら「リタイア確認」を出す
                     if (!window.isSpectatorMode) {
                         window.MinigameManager.confirmRetire(); 
                     }
@@ -140,10 +171,9 @@ window.MinigameUI = {
         mgCountdown.innerHTML = `<div class="mg-cd-label">ゲーム開始まで</div><div id="mg-countdown-text">10</div>`;
         uiLayer.appendChild(mgCountdown);
 
-        // ★追加: リタイア確認ポップアップ
+        // リタイア確認ポップアップ
         const mgRetirePopup = document.createElement('div');
         mgRetirePopup.id = 'mg-retire-popup';
-        mgRetirePopup.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 300px; background: rgba(30, 20, 20, 0.95); border: 3px solid #ffaa00; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 3000; pointer-events: auto; padding: 20px; font-family: sans-serif; text-align: center;';
         mgRetirePopup.innerHTML = `
             <div style="color:#ffaa00; font-size:18px; font-weight:bold; margin-bottom:15px;">リタイア確認</div>
             <div style="margin-bottom:20px; font-size:14px; line-height:1.5; color:white;">このゲームで敗北した扱いになりますが<br>よろしいですか？</div>
@@ -154,9 +184,91 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgRetirePopup);
 
-        [mgListWindow, mgDetailWindow, mgPopup, mgRetirePopup].forEach(el => {
+        // ★リザルト画面の枠組み
+        const mgResultWindow = document.createElement('div');
+        mgResultWindow.id = 'mg-result-window';
+        mgResultWindow.innerHTML = `
+            <div class="result-header">
+                <div class="result-title">RESULT</div>
+                <div class="result-subtitle" id="result-game-name">ミニゲーム</div>
+            </div>
+            <div id="result-list-container"></div>
+            <div class="result-footer">
+                <button id="btn-close-result" onclick="document.getElementById('mg-result-window').style.display='none'">閉じる</button>
+            </div>
+        `;
+        uiLayer.appendChild(mgResultWindow);
+
+        [mgListWindow, mgDetailWindow, mgPopup, mgRetirePopup, mgResultWindow].forEach(el => {
             el.addEventListener('mousedown', preventTouch);
             el.addEventListener('touchstart', preventTouch, {passive: false});
         });
+    },
+
+    // ★汎用タイマーを更新する関数（プラグインから呼び出す用）
+    updateTimer: function(timeString) {
+        const timerUI = document.getElementById('mg-timer-ui');
+        if (timerUI) timerUI.innerText = timeString;
+    },
+
+    // ★リザルト画面を表示する関数
+    // dataArray: [{ id, name, icon, scoreText, isRetired, rank }, ...]
+    showResult: function(gameName, dataArray) {
+        const win = document.getElementById('mg-result-window');
+        const container = document.getElementById('result-list-container');
+        document.getElementById('result-game-name').innerText = gameName;
+        
+        if (!win || !container) return;
+        container.innerHTML = '';
+
+        // ランク順（リタイアは最後）にソート
+        dataArray.sort((a, b) => {
+            if (a.isRetired && !b.isRetired) return 1;
+            if (!a.isRetired && b.isRetired) return -1;
+            return a.rank - b.rank; // どちらも同じなら rank 順
+        });
+
+        dataArray.forEach(data => {
+            const item = document.createElement('div');
+            item.className = 'result-item';
+            
+            if (data.isRetired) item.classList.add('retired');
+            else if (data.rank === 1) item.classList.add('rank-1');
+            else if (data.rank === 2) item.classList.add('rank-2');
+            else if (data.rank === 3) item.classList.add('rank-3');
+
+            // ランク表記
+            const rankEl = document.createElement('div');
+            rankEl.className = 'result-rank';
+            if (data.isRetired) rankEl.innerText = '-';
+            else if (data.rank === 1) rankEl.innerText = '👑';
+            else rankEl.innerText = data.rank;
+
+            // アイコン
+            const iconEl = document.createElement('div');
+            iconEl.className = 'result-icon';
+            if (data.icon) iconEl.style.backgroundImage = `url(${data.icon})`;
+            else iconEl.innerText = '👤';
+
+            // 名前
+            const nameEl = document.createElement('div');
+            nameEl.className = 'result-name';
+            nameEl.innerText = data.name;
+
+            // スコア（生存時間など）
+            const scoreEl = document.createElement('div');
+            scoreEl.className = 'result-score';
+            scoreEl.innerText = data.scoreText || '';
+            if (data.isRetired) scoreEl.style.color = '#ff4444';
+
+            item.appendChild(rankEl);
+            item.appendChild(iconEl);
+            item.appendChild(nameEl);
+            item.appendChild(scoreEl);
+            
+            container.appendChild(item);
+        });
+
+        win.style.display = 'flex';
     }
 };
