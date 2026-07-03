@@ -1,7 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
-// ★多重表示バグの修正と、スコア・リタイアの同期機能を追加
+// ★ゲーム開始待機(3,2,1)の時点で、設定された制限時間の初期値をタイマーUIに表示するよう修正
 // =====================================
 
 window.MinigameManager = {
@@ -186,7 +186,6 @@ window.MinigameManager = {
                 this.currentPlugin.handleNetwork(msg.data);
             }
         } else if (msg.type === 'mg_update_score') {
-            // ★追加: 他プレイヤーのスコア・リタイア同期
             const data = this.resultData.find(d => d.id === msg.userId);
             if (data) {
                 data.scoreValue = msg.scoreValue;
@@ -421,8 +420,13 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
+        // ★UIを表示した瞬間に、提案された制限時間(分)を初期値として表示させる
         const timerUI = document.getElementById('mg-timer-ui');
-        if (timerUI) timerUI.style.display = 'block';
+        if (timerUI) {
+            timerUI.style.display = 'block';
+            let initialMinutes = this.currentProposal && this.currentProposal.settings.time ? parseInt(this.currentProposal.settings.time, 10) : 3;
+            timerUI.innerText = `${initialMinutes.toString().padStart(2, '0')}:00`;
+        }
         
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
@@ -431,7 +435,6 @@ window.MinigameManager = {
             if (this.myVote === false) mgBtn.classList.add('spectator-mode');
         }
 
-        // ★多重表示バグ修正: 自分自身が重複しないようにリストを作る
         this.resultData = [];
         let allUsers = [];
         if (window.GameState && window.GameState.roomUsers) {
@@ -461,7 +464,7 @@ window.MinigameManager = {
                     name: u.name || u.user_name || "Player",
                     icon: u.portrait || u.portait || "",
                     scoreText: "", 
-                    scoreValue: 0, // ★追加: ソート用の数値
+                    scoreValue: 0,
                     isRetired: false,
                     rank: 0
                 });
@@ -537,7 +540,6 @@ window.MinigameManager = {
         
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         
-        // ★プラグイン側に通知して生存時間(スコア)を更新させる
         if (this.currentPlugin && typeof this.currentPlugin.onRetire === 'function') {
             this.currentPlugin.onRetire(myId);
         } else {
@@ -549,7 +551,6 @@ window.MinigameManager = {
             }
         }
         
-        // ★スコアとリタイア状態を他人に同期
         const updatedData = this.resultData.find(d => d.id === myId);
         if (window.MultiplayerManager && updatedData) {
             window.MultiplayerManager.sendData({ 
