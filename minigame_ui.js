@@ -52,7 +52,7 @@ window.MinigameUI = {
             .mg-cd-label { font-size: 24px; color: white; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
             #mg-countdown-text { font-size: 60px; color: #ffaa00; font-weight: bold; text-shadow: 0 4px 10px rgba(0,0,0,0.9); }
 
-            /* ゲーム中のタイマー表示 */
+            /* ゲーム中のタイマー表示（topはJSで動的に設定） */
             #mg-timer-ui { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 20px; padding: 5px 20px; color: white; font-size: 24px; font-weight: bold; font-family: monospace; display: none; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; }
             
             /* リザルト画面 */
@@ -89,7 +89,7 @@ window.MinigameUI = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-        // タイマーUI (★高さをミニゲームボタンと揃える)
+        // タイマーUI (★高さをミニゲームボタンと確実に揃える)
         const timerUI = document.createElement('div');
         timerUI.id = 'mg-timer-ui';
         timerUI.innerText = '03:00';
