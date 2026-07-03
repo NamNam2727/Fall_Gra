@@ -1,8 +1,9 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★落下時の押し出し無効化、観戦モードのドローン操作（重力無視）
-// ★すり抜け防止のため、下向きレイキャストの起点を上昇
+// ★フライ(連続ジャンプ)中の天井衝突判定を追加
+// ★観戦モードのドローン操作（重力無視）を追加
+// ★押し出し処理を安定版（07021000）の構造に戻し、すり抜けを完全解決
 // =====================================
 
 let mapMesh;
@@ -96,7 +97,7 @@ window.updatePlayer = function(delta) {
     const rotationSpeed = 12; 
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
-
+    
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -111,8 +112,7 @@ window.updatePlayer = function(delta) {
     let groundNormal = new THREE.Vector3(0, 1, 0);
     
     if (mapMesh) {
-        // ★修正: レイキャストの起点を少し高くし、ラグで地形に深くめり込んだ際も確実に地面を検知できるようにする
-        let origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 5.0, player.position.z);
+        let origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 3.0, player.position.z);
         raycaster.set(origin, downVector);
         let intersects = raycaster.intersectObject(mapMesh, false);
         
@@ -131,59 +131,22 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    let pushX = 0;
-    let pushZ = 0;
-    // ★自身が初期落下中の場合は他プレイヤーの押し出しを無視する
-    let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
-
-    if (window.MultiplayerManager && !isFalling) {
-        const others = window.MultiplayerManager.otherPlayers;
-        for (let id in others) {
-            let other = others[id];
-            // ★相手が観戦者（isSpectator）の場合は当たり判定をスルー
-            if (other.mesh && other.hasReceivedFirstPos !== false && !other.isSpectator) {
-                let dx = player.position.x - other.mesh.position.x;
-                let dz = player.position.z - other.mesh.position.z;
-                let dy = player.position.y - other.mesh.position.y;
-                let distXZ = Math.hypot(dx, dz);
-                let combinedRadius = pRadius * 1.8; 
-                
-                if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
-                    if (distXZ === 0) { 
-                        dx = (Math.random() - 0.5) * 0.1;
-                        dz = (Math.random() - 0.5) * 0.1;
-                        distXZ = Math.hypot(dx, dz);
-                    }
-                    let overlap = combinedRadius - distXZ;
-                    if (Math.abs(dy) < 0.4) {
-                        pushX += (dx / distXZ) * overlap * 0.5;
-                        pushZ += (dz / distXZ) * overlap * 0.5;
-                    } else if (dy >= 0.4) {
-                        let slideForce = overlap * 0.15; 
-                        pushX += (dx / distXZ) * slideForce;
-                        pushZ += (dz / distXZ) * slideForce;
-                    }
-                }
-            }
-        }
-    }
-
-    let mX = pushX;
-    let mZ = pushZ;
+    let mX = 0, mZ = 0;
 
     if (moveVector.lengthSq() > 0.01) {
         const camForwardX = -Math.sin(cameraAngle), camForwardZ = -Math.cos(cameraAngle);
         const camRightX = Math.cos(cameraAngle), camRightZ = -Math.sin(cameraAngle);
+
         const moveDirX = camRightX * moveVector.x + camForwardX * (-moveVector.y);
         const moveDirZ = camRightZ * moveVector.x + camForwardZ * (-moveVector.y);
         const moveDirection = new THREE.Vector2(moveDirX, moveDirZ).normalize();
         const inputLength = Math.min(moveVector.length(), 1.0);
         
-        mX += moveDirection.x * (inputLength * moveSpeed) * delta;
-        mZ += moveDirection.y * (inputLength * moveSpeed) * delta;
+        mX = moveDirection.x * (inputLength * moveSpeed) * delta;
+        mZ = moveDirection.y * (inputLength * moveSpeed) * delta;
 
         const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
-        currentFacingAngle = targetRotationY;
+        currentFacingAngle = targetRotationY; 
         
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
         const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
@@ -203,6 +166,7 @@ window.updatePlayer = function(delta) {
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
         const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
+        
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
@@ -276,15 +240,17 @@ window.updatePlayer = function(delta) {
         verticalVelocity = 0; 
         isJumping = false; 
     } else {
-        // 通常のジャンプ・重力処理
+        // ★通常のフライ(連続ジャンプ)中の天井衝突判定・重力処理
         if (isJumping) {
             verticalVelocity += gravity * delta;
             
+            // 上昇中のみ天井をチェックする
             if (verticalVelocity > 0 && mapMesh) {
                 let upRayOrigin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 1.5, player.position.z);
                 let upRay = new THREE.Raycaster(upRayOrigin, new THREE.Vector3(0, 1, 0));
                 let upHits = upRay.intersectObject(mapMesh, false);
                 
+                // 頭上すぐに障害物があれば、上昇の速度を殺す（頭をぶつけて止まる）
                 if (upHits.length > 0 && upHits[0].distance < pRadius * 1.0) {
                     verticalVelocity = 0; 
                 }
@@ -314,6 +280,47 @@ window.updatePlayer = function(delta) {
             player.position.set(0, 20, 0); 
             isJumping = true; 
             verticalVelocity = 0;
+        }
+    }
+
+    // =====================================
+    // ★他プレイヤーとの押し出し処理（安定版の構造）
+    // レイキャストによる壁判定の【後】に処理することで、すり抜け・トンネリングを完全防止
+    // =====================================
+    let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
+
+    if (window.MultiplayerManager && !isFalling && !window.isSpectatorMode) {
+        const others = window.MultiplayerManager.otherPlayers;
+        for (let id in others) {
+            let other = others[id];
+            // 相手が観戦モード、または初回ワープ前なら押し出し判定をスルー
+            if (other.mesh && other.hasReceivedFirstPos !== false && !other.isSpectator) {
+                let dx = player.position.x - other.mesh.position.x;
+                let dz = player.position.z - other.mesh.position.z;
+                let dy = player.position.y - other.mesh.position.y;
+                
+                let distXZ = Math.hypot(dx, dz);
+                let combinedRadius = pRadius * 1.8; 
+                
+                if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
+                    if (distXZ === 0) { 
+                        dx = (Math.random() - 0.5) * 0.1;
+                        dz = (Math.random() - 0.5) * 0.1;
+                        distXZ = Math.hypot(dx, dz);
+                    }
+                    
+                    let overlap = combinedRadius - distXZ;
+                    
+                    if (Math.abs(dy) < 0.4) {
+                        player.position.x += (dx / distXZ) * overlap * 0.5;
+                        player.position.z += (dz / distXZ) * overlap * 0.5;
+                    } else if (dy >= 0.4) {
+                        let slideForce = overlap * 0.15; 
+                        player.position.x += (dx / distXZ) * slideForce;
+                        player.position.z += (dz / distXZ) * slideForce;
+                    }
+                }
+            }
         }
     }
 };

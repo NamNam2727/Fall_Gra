@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★途中入室時の初回ワープと、lerp前の非表示処理によるすり抜け防止
+// ★途中入室時の初回ワープ（すり抜け防止）と観戦者フラグの同期
 // =========================================================
 
 window.MultiplayerManager = {
@@ -151,8 +151,8 @@ window.MultiplayerManager = {
 
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
-            // ★修正: hasReceivedFirstPos が true の場合（初回ワープ完了後）のみ lerp を行う
-            if (p.mesh && p.targetPos && p.hasReceivedFirstPos) {
+            // ★hasReceivedFirstPos が false の間（初回ワープ前）は lerp による移動を無効化する
+            if (p.mesh && p.targetPos && p.hasReceivedFirstPos !== false) {
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
                     p.mesh.quaternion.slerp(p.targetQuat, 12 * delta);
@@ -232,7 +232,7 @@ window.MultiplayerManager = {
                         if (p.mesh) p.mesh.visible = !msgData.isSpectator; // 画面から消す
                     }
                     
-                    // ★追加: 誰かが観戦モードになったら生存者チェックを呼ぶ
+                    // 誰かが観戦モードになったら生存者チェックを呼ぶ
                     if (window.MinigameManager && typeof window.MinigameManager.checkAllSpectators === 'function') {
                         window.MinigameManager.checkAllSpectators();
                     }
@@ -263,7 +263,6 @@ window.MultiplayerManager = {
         if (this.otherPlayers[user.user_id]) return; 
 
         const mesh = this.createPlayerMesh(user);
-        mesh.visible = false; // ★追加: 初回位置を受信するまでは非表示にする（ワープ中のちらつきと干渉防止）
         scene.add(mesh);
 
         this.otherPlayers[user.user_id] = {
@@ -294,12 +293,11 @@ window.MultiplayerManager = {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 
-                // ★初回の位置データを受信した時だけ即座にワープ（すり抜けバグ防止）
+                // ★初回の位置データを受信した時だけ即座にワープ（すり抜け・処理落ちバグ防止）
                 if (!p.hasReceivedFirstPos) {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);
                     p.hasReceivedFirstPos = true;
-                    if (!p.isSpectator) p.mesh.visible = true; // ★追加: ワープ完了後に表示する
                 }
 
                 p.lastMoveTime = data.timestamp;
