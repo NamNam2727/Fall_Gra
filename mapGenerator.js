@@ -2,7 +2,7 @@
 // mapGenerator.js
 // 地形データの解析とBufferGeometryメッシュの生成
 // ★まっすぐな坂道が三角に削られるバグを修正
-// ★地形マテリアルを両面判定に変更し、すり抜け落下を完全に防止
+// ★Zファイティング（縞々模様）の原因だった DoubleSide を削除し、綺麗な描画に復元
 // ==========================================
 
 window.MapGenerator = {
@@ -224,10 +224,10 @@ window.MapGenerator = {
         geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
+        // ★Zファイティングの元凶であった side: THREE.DoubleSide を削除し、元の綺麗な描画に戻します
         const material = new THREE.MeshStandardMaterial({ 
             vertexColors: true, 
-            roughness: 0.8,
-            side: THREE.DoubleSide // ★修正: 両面判定にすることで、地形内にめり込んでもすり抜け落下を完全に防止
+            roughness: 0.8
         });
 
         const mesh = new THREE.Mesh(geometry, material);
@@ -242,3 +242,4 @@ window.MapGenerator = {
         return mesh;
     }
 };
+
