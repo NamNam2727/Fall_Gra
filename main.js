@@ -2,6 +2,7 @@
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
 // ★落下時の押し出し無効化、観戦モードのドローン操作（重力無視）
+// ★すり抜け防止のため、下向きレイキャストの起点を上昇
 // =====================================
 
 let mapMesh;
@@ -93,7 +94,7 @@ window.animate = function() {
 
 window.updatePlayer = function(delta) {
     const rotationSpeed = 12; 
-    let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.0;
+    let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
 
     if (player.chatTimer > 0) {
@@ -110,7 +111,8 @@ window.updatePlayer = function(delta) {
     let groundNormal = new THREE.Vector3(0, 1, 0);
     
     if (mapMesh) {
-        let origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 3.0, player.position.z);
+        // ★修正: レイキャストの起点を少し高くし、ラグで地形に深くめり込んだ際も確実に地面を検知できるようにする
+        let origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 5.0, player.position.z);
         raycaster.set(origin, downVector);
         let intersects = raycaster.intersectObject(mapMesh, false);
         
@@ -131,7 +133,7 @@ window.updatePlayer = function(delta) {
 
     let pushX = 0;
     let pushZ = 0;
-    // ★自身が初期落下中の場合は他プレイヤーの押し出しを無視する（すり抜けバグ防止）
+    // ★自身が初期落下中の場合は他プレイヤーの押し出しを無視する
     let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
 
     if (window.MultiplayerManager && !isFalling) {

@@ -2,6 +2,7 @@
 // mapGenerator.js
 // 地形データの解析とBufferGeometryメッシュの生成
 // ★まっすぐな坂道が三角に削られるバグを修正
+// ★地形マテリアルを両面判定に変更し、すり抜け落下を完全に防止
 // ==========================================
 
 window.MapGenerator = {
@@ -93,16 +94,14 @@ window.MapGenerator = {
         if (pull_pZ < 0 && pull_mZ === 0) pull_mZ = 0.5;
         if (pull_mZ < 0 && pull_pZ === 0) pull_pZ = 0.5;
 
-        // ★追加: まっすぐなスロープの判定と横からの干渉無効化
+        // まっすぐなスロープの判定と横からの干渉無効化
         let isSlopeX = (pull_pX === 0.5 && pull_mX === -0.5) || (pull_pX === -0.5 && pull_mX === 0.5);
         let isSlopeZ = (pull_pZ === 0.5 && pull_mZ === -0.5) || (pull_pZ === -0.5 && pull_mZ === 0.5);
 
         if (isSlopeX && !isSlopeZ) {
-            // X方向のまっすぐな坂道なら、横（Z方向）の低さに引っ張られないようにする
             pull_pZ = 0;
             pull_mZ = 0;
         } else if (isSlopeZ && !isSlopeX) {
-            // Z方向のまっすぐな坂道なら、横（X方向）の低さに引っ張られないようにする
             pull_pX = 0;
             pull_mX = 0;
         }
@@ -227,7 +226,8 @@ window.MapGenerator = {
 
         const material = new THREE.MeshStandardMaterial({ 
             vertexColors: true, 
-            roughness: 0.8 
+            roughness: 0.8,
+            side: THREE.DoubleSide // ★修正: 両面判定にすることで、地形内にめり込んでもすり抜け落下を完全に防止
         });
 
         const mesh = new THREE.Mesh(geometry, material);
