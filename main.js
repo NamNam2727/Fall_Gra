@@ -4,6 +4,7 @@
 // ★フライ(連続ジャンプ)中の天井衝突判定を追加
 // ★観戦モードのドローン操作（重力無視）を追加
 // ★押し出し処理を安定版（07021000）の構造に戻し、すり抜けを完全解決
+// ★ミニゲームのupdate呼び出しと、地形判定の動的取得処理を追加
 // =====================================
 
 let mapMesh;
@@ -11,6 +12,26 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
+
+// ★追加: 現在画面に見えている「地形」タグがついたメッシュをすべて取得する
+function getTerrainMeshes() {
+    let meshes = [];
+    if (typeof scene === 'undefined') return meshes;
+    scene.children.forEach(c => {
+        if (c.visible) {
+            if (c.userData && c.userData.isTerrain) {
+                meshes.push(c);
+            } else if (c.isGroup) {
+                c.children.forEach(child => {
+                    if (child.visible && child.userData && child.userData.isTerrain) {
+                        meshes.push(child);
+                    }
+                });
+            }
+        }
+    });
+    return meshes;
+}
 
 window.initThreeJS = function() {
     scene = new THREE.Scene();
@@ -55,7 +76,7 @@ window.initThreeJS = function() {
         }, 1000);
     }
 
-    // ★PC用：観戦モードの上下移動をSpaceとShiftにも割り当て
+    // PC用：観戦モードの上下移動をSpaceとShiftにも割り当て
     window.addEventListener('keydown', (e) => {
         if (window.isSpectatorMode) {
             if (e.code === 'Space') window.specMoveUp = true;
@@ -88,6 +109,11 @@ window.animate = function() {
     if (window.MultiplayerManager) {
         window.MultiplayerManager.update(delta);
     }
+
+    // ★追加: ミニゲームマネージャーの更新処理（プラグインの update 呼び出し）
+    if (window.MinigameManager && typeof window.MinigameManager.update === 'function') {
+        window.MinigameManager.update(delta);
+    }
     
     updateCamera(false);
     renderer.render(scene, camera);
@@ -111,14 +137,18 @@ window.updatePlayer = function(delta) {
     let currentGroundY = -100;
     let groundNormal = new THREE.Vector3(0, 1, 0);
     
-    if (mapMesh) {
+    // ★変更: 動的に有効な地形メッシュ群を取得
+    let terrainMeshes = getTerrainMeshes();
+    
+    if (terrainMeshes.length > 0) {
         let origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 3.0, player.position.z);
         raycaster.set(origin, downVector);
-        let intersects = raycaster.intersectObject(mapMesh, false);
+        let intersects = raycaster.intersectObjects(terrainMeshes, false);
         
         for (let i = 0; i < intersects.length; i++) {
             let hitNormal = intersects[i].face.normal.clone();
-            let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+            // ★変更: 複数のメッシュが対象になるため、当たったオブジェクトの matrixWorld を使用する
+            let normalMatrix = new THREE.Matrix3().getNormalMatrix(intersects[i].object.matrixWorld);
             hitNormal.applyMatrix3(normalMatrix).normalize();
             
             if (hitNormal.y > 0.3) {
@@ -177,7 +207,7 @@ window.updatePlayer = function(delta) {
     let headCheckY = player.position.y + pRadius * 1.8; 
 
     let canMoveX = true;
-    if (Math.abs(mX) > 0.001 && mapMesh) {
+    if (Math.abs(mX) > 0.001 && terrainMeshes.length > 0) {
         let dirX = new THREE.Vector3(Math.sign(mX), 0, 0);
         let checkOrigins = [
             new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
@@ -186,10 +216,10 @@ window.updatePlayer = function(delta) {
 
         for (let origin of checkOrigins) {
             raycaster.set(origin, dirX);
-            let interX = raycaster.intersectObject(mapMesh, false);
+            let interX = raycaster.intersectObjects(terrainMeshes, false);
             if (interX.length > 0 && interX[0].distance < margin + Math.abs(mX)) {
                 let normal = interX[0].face.normal.clone();
-                let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+                let normalMatrix = new THREE.Matrix3().getNormalMatrix(interX[0].object.matrixWorld);
                 normal.applyMatrix3(normalMatrix).normalize();
                 
                 if (normal.y < 0.6) {
@@ -202,7 +232,7 @@ window.updatePlayer = function(delta) {
     if (canMoveX) player.position.x = nextX;
 
     let canMoveZ = true;
-    if (Math.abs(mZ) > 0.001 && mapMesh) {
+    if (Math.abs(mZ) > 0.001 && terrainMeshes.length > 0) {
         let dirZ = new THREE.Vector3(0, 0, Math.sign(mZ));
         let checkOrigins = [
             new THREE.Vector3(player.position.x, wallCheckY, player.position.z),
@@ -211,10 +241,10 @@ window.updatePlayer = function(delta) {
 
         for (let origin of checkOrigins) {
             raycaster.set(origin, dirZ);
-            let interZ = raycaster.intersectObject(mapMesh, false);
+            let interZ = raycaster.intersectObjects(terrainMeshes, false);
             if (interZ.length > 0 && interZ[0].distance < margin + Math.abs(mZ)) {
                 let normal = interZ[0].face.normal.clone();
-                let normalMatrix = new THREE.Matrix3().getNormalMatrix(mapMesh.matrixWorld);
+                let normalMatrix = new THREE.Matrix3().getNormalMatrix(interZ[0].object.matrixWorld);
                 normal.applyMatrix3(normalMatrix).normalize();
                 
                 if (normal.y < 0.6) {
@@ -240,17 +270,16 @@ window.updatePlayer = function(delta) {
         verticalVelocity = 0; 
         isJumping = false; 
     } else {
-        // ★通常のフライ(連続ジャンプ)中の天井衝突判定・重力処理
+        // 通常のフライ(連続ジャンプ)中の天井衝突判定・重力処理
         if (isJumping) {
             verticalVelocity += gravity * delta;
             
             // 上昇中のみ天井をチェックする
-            if (verticalVelocity > 0 && mapMesh) {
+            if (verticalVelocity > 0 && terrainMeshes.length > 0) {
                 let upRayOrigin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 1.5, player.position.z);
                 let upRay = new THREE.Raycaster(upRayOrigin, new THREE.Vector3(0, 1, 0));
-                let upHits = upRay.intersectObject(mapMesh, false);
+                let upHits = upRay.intersectObjects(terrainMeshes, false);
                 
-                // 頭上すぐに障害物があれば、上昇の速度を殺す（頭をぶつけて止まる）
                 if (upHits.length > 0 && upHits[0].distance < pRadius * 1.0) {
                     verticalVelocity = 0; 
                 }
@@ -280,6 +309,13 @@ window.updatePlayer = function(delta) {
             player.position.set(0, 20, 0); 
             isJumping = true; 
             verticalVelocity = 0;
+            
+            // ★追加: ミニゲームプレイ中に落下した場合は強制リタイア(敗北・観戦モード移行)
+            if (window.MinigameManager && window.MinigameManager.state === 'PLAYING') {
+                if (!window.isSpectatorMode) {
+                    window.MinigameManager.executeRetire();
+                }
+            }
         }
     }
 
