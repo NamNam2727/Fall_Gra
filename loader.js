@@ -6,7 +6,7 @@
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
-    // ★minigame_ui.js を追加し、正しい順番で読み込むように更新
+    // ★item_effects.js を追加し、item_system.js の直後に読み込むように更新
     const coreScripts = [
         'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
         'globals.js',
@@ -20,6 +20,7 @@
         'player.js',
         'input.js',
         'item_system.js',
+        'item_effects.js',
         'multiplayer.js',
         'main.js'
     ];

@@ -9,7 +9,7 @@ window.MinigameList = [
         title: "崩壊サバイバル",
         icon: "minigames/survival.png",
         script: "minigames/survival.js",
-        description: "時間経過とともに足場が崩落していく危険なエリア！落下せずに最後まで生き残ったプレイヤーの勝利だ！"
+        description: "歩いた足場が崩壊していく中、落下せずに最後まで生き残ったプレイヤーの勝利だ！"
     },
     {
         id: "coin_rush",
@@ -19,10 +19,10 @@ window.MinigameList = [
         description: "フィールドに大量に出現するコインを集めろ！制限時間終了時に最も多くのコインを持っていたプレイヤーの勝利！"
     },
     {
-        id: "tag_match",
-        title: "大乱闘オニゴッコ",
-        icon: "minigames/tag_match.png",
-        script: "minigames/tag_match.js",
-        description: "アイテムを駆使して逃げ切れ！鬼に捕まると自分も鬼になってしまうぞ。最後まで逃げ切れば生存者の勝利！"
+        id: "bom_battle",
+        title: "爆弾バトル",
+        icon: "minigames/bom_battle.png",
+        script: "minigames/bom_battle.js",
+        description: "爆弾を使ってライバルを倒そう！3回爆風に当たるか、落下すると敗北だ！※このゲーム中は入手できるアイテムが全て💣となり、所持アイテムのスタック(複数所持)が可能となります。また、出現アイテム数は下記項目で指定した数に+3個されます。"
     }
 ];

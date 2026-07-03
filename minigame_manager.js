@@ -1,8 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
-// ★UI生成を minigame_ui.js に完全に分離し軽量化
-// ★全員が観戦モードになった場合の終了判定(checkAllSpectators)を追加
+// ★START表示が消えるまでアイテム取得をロックする処理を追加
 // =====================================
 
 window.MinigameManager = {
@@ -68,7 +67,7 @@ window.MinigameManager = {
             }
             if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(true);
 
-            // ★追加: 自分が観戦モードになった時点で、全員が観戦モードかチェック
+            // 自分が観戦モードになった時点で、全員が観戦モードかチェック
             this.checkAllSpectators();
         }
     },
@@ -103,7 +102,7 @@ window.MinigameManager = {
         }
     },
 
-    // ★追加: 全員が観戦モードになったかチェックする機能
+    // 全員が観戦モードになったかチェックする機能
     checkAllSpectators: function() {
         if (this.state !== 'PLAYING') return;
 
@@ -516,6 +515,8 @@ window.MinigameManager = {
         if (window.ItemSystem && this.currentProposal) {
             window.ItemSystem.maxItems = parseInt(this.currentProposal.settings.items, 10);
             window.ItemSystem.clearAllItems();
+            // ★START表示が消えるまではアイテムの取得をロックする
+            window.ItemSystem.canPickup = false;
         }
 
         if (this.currentProposal && this.currentProposal.settings.pos === 'initial') {
@@ -545,6 +546,8 @@ window.MinigameManager = {
                 clearInterval(startTimer);
                 centerMsg.remove();
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームが開始されました！</span>', 'sys');
+                // ★START表示が消えたら、アイテムの取得を解禁する
+                if (window.ItemSystem) window.ItemSystem.canPickup = true;
             }
         }, 1000);
     },
@@ -563,7 +566,10 @@ window.MinigameManager = {
 
         this.exitSpectatorMode();
         
-        if (window.ItemSystem) window.ItemSystem.clearAllItems();
+        if (window.ItemSystem) {
+            window.ItemSystem.clearAllItems();
+            window.ItemSystem.canPickup = true; // 念のため取得ロックをリセット
+        }
     }
 };
 
