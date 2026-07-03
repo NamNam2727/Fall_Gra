@@ -1,7 +1,6 @@
 // =====================================
 // minigame_manager.js
-// ★ミリ秒単位の同時スタート同期、正確なキャンセル管理
-// ★自分だけの半透明化・無限ジャンプ対応
+// ★全体強制終了を廃止し、個人の「リタイア」機能に変更
 // =====================================
 
 window.MinigameManager = {
@@ -9,17 +8,34 @@ window.MinigameManager = {
     currentProposal: null,
     myVote: null,
     participantCount: 1, 
-    targetStartTime: 0, // ★同時スタート用の目標時刻
+    targetStartTime: 0, 
 
     init: function() {
         console.log("Minigame Manager Initialized.");
         window.isSpectatorMode = false;
     },
 
+    // ★追加: リタイア確認画面を出す
+    confirmRetire: function() {
+        document.getElementById('mg-retire-popup').style.display = 'flex';
+        document.getElementById('mg-btn-retire-yes').onclick = () => {
+            document.getElementById('mg-retire-popup').style.display = 'none';
+            this.executeRetire();
+        };
+        document.getElementById('mg-btn-retire-no').onclick = () => {
+            document.getElementById('mg-retire-popup').style.display = 'none';
+        };
+    },
+
+    // ★追加: 自分だけリタイアして観戦モードに移行
+    executeRetire: function() {
+        if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">リタイアしました。観戦モードに移行します。</span>', 'sys');
+        this.enterSpectatorMode();
+    },
+
     enterSpectatorMode: function() {
         if (!window.isSpectatorMode) {
             window.isSpectatorMode = true;
-            // 自キャラは完全に消さず、操作しやすいように半透明(opacity: 0.4)にする
             if (typeof player !== 'undefined' && player) {
                 player.traverse((child) => {
                     if (child.isMesh && child.material) {
@@ -33,17 +49,22 @@ window.MinigameManager = {
                     }
                 });
             }
-            // 他の人の画面からは自分を完全に消してもらうよう通信を送る
             if (window.MultiplayerManager) {
                 window.MultiplayerManager.sendData({ type: 'mg_spectator', isSpectator: true });
             }
+            
+            // ★UIの変更: ミニゲームボタンを「観戦モード」にし、ジャンプボタンを🔺🔻に変更
+            const mgBtn = document.getElementById('minigame-btn');
+            if (mgBtn && mgBtn.classList.contains('abort-mode')) {
+                mgBtn.innerText = '観戦モード';
+            }
+            if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(true);
         }
     },
 
     exitSpectatorMode: function() {
         if (window.isSpectatorMode) {
             window.isSpectatorMode = false;
-            // 自キャラを元の不透明に戻す
             if (typeof player !== 'undefined' && player) {
                 player.traverse((child) => {
                     if (child.isMesh && child.material) {
@@ -57,11 +78,12 @@ window.MinigameManager = {
                     }
                 });
             }
-            // 他の人に「もう1回表示してね」と伝える
-            if (window.MultiplayerManager) {
-                window.MultiplayerManager.sendData({ type: 'mg_spectator', isSpectator: false });
+            if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
                 window.MultiplayerManager.forceSendPos();
             }
+            
+            // ★UIの復元
+            if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(false);
         }
     },
 
@@ -220,9 +242,8 @@ window.MinigameManager = {
         } else if (msg.type === 'mg_vote') {
             this.receiveVote(msg.proposerId, msg.userId, msg.vote);
         } else if (msg.type === 'mg_start_countdown') {
-            this.startCountdown(msg.targetStartTime); // ★ミリ秒時刻を受け取る
-        } else if (msg.type === 'mg_abort') {
-            this.abortGame(true); 
+            this.startCountdown(msg.targetStartTime); 
+        // ★修正: 他人からの abort (全体終了) は受け付けないように削除
         } else if (msg.type === 'mg_cancel') {
             this.cancelProposal(msg.reason);
         } else if (msg.type === 'mg_sync_state') {
@@ -263,7 +284,6 @@ window.MinigameManager = {
                 this.showProposalPopup();
             }
         } else if (remoteState === 'COUNTDOWN' || remoteState === 'PLAYING') {
-            // ★途中入室した人は、強制的に不参加（観戦モード）としてゲームに合流する
             this.state = remoteState;
             this.myVote = false; 
             
@@ -281,14 +301,14 @@ window.MinigameManager = {
             this.enterSpectatorMode();
 
             if (remoteState === 'COUNTDOWN' && targetStartTime) {
-                this.startCountdown(targetStartTime); // 進行中のカウントダウンに合流
+                this.startCountdown(targetStartTime); 
             }
 
             if (remoteState === 'PLAYING') {
                 const mgBtn = document.getElementById('minigame-btn');
                 if (mgBtn) {
                     mgBtn.classList.add('abort-mode');
-                    mgBtn.innerText = 'ゲーム終了';
+                    mgBtn.innerText = '観戦モード';
                 }
             }
         }
@@ -353,7 +373,7 @@ window.MinigameManager = {
     },
 
     cancelProposal: function(reason) {
-        if (this.state === 'IDLE' || !this.currentProposal) return; // IDLEなら重複実行しない
+        if (this.state === 'IDLE' || !this.currentProposal) return;
         
         this.state = 'IDLE';
         this.currentProposal = null;
@@ -368,9 +388,6 @@ window.MinigameManager = {
         if (!this.currentProposal) return;
         
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
-        
-        // ★修正: 人数の計算と結果の判断は「ホスト（提案者）のみ」が行う。
-        // これにより、ゲスト側で「参加人数が集まりませんでした」と勝手に判断して二重にログを出すことがなくなる。
         if (this.currentProposal.proposerId !== myId) return;
 
         let totalUsers = 1;
@@ -394,7 +411,6 @@ window.MinigameManager = {
             this.participantCount = joinCount;
             
             if (this.state === 'PROPOSING') {
-                // ★同期の極意: 10秒後の「正確な時刻」を計算して全員に送る
                 const startTime = Date.now() + 10000;
                 if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_start_countdown', targetStartTime: startTime });
                 this.startCountdown(startTime);
@@ -407,7 +423,6 @@ window.MinigameManager = {
         }
     },
 
-    // ★修正: targetStartTime を使って、通信ラグに左右されない正確なカウントダウンを行う
     startCountdown: function(targetStartTime) {
         if (this.state === 'COUNTDOWN' && this.targetStartTime === targetStartTime) return; 
         this.state = 'COUNTDOWN';
@@ -420,13 +435,13 @@ window.MinigameManager = {
         overlay.style.display = 'flex';
         
         const updateTimer = () => {
-            if (this.state !== 'COUNTDOWN') return; // キャンセル等で状態が変わったら停止
+            if (this.state !== 'COUNTDOWN') return; 
             
             const remain = Math.ceil((this.targetStartTime - Date.now()) / 1000);
             
             if (remain > 0) {
                 countText.innerText = remain;
-                requestAnimationFrame(updateTimer); // 高精度ループ
+                requestAnimationFrame(updateTimer); 
             } else {
                 overlay.style.display = 'none';
                 this.startGame();
@@ -439,10 +454,11 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
+        // ★修正: 参加者は「リタイア」、観戦者は「観戦モード」表記にする
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
             mgBtn.classList.add('abort-mode');
-            mgBtn.innerText = 'ゲーム終了';
+            mgBtn.innerText = this.myVote === false ? '観戦モード' : 'リタイア';
         }
 
         if (this.myVote === false) {
@@ -488,17 +504,7 @@ window.MinigameManager = {
         }, 1000);
     },
 
-    abortGame: function(isRemote = false) {
-        // ★修正: カウントダウン中やゲーム中ならいつでも強制終了(abort)を受け付ける
-        if (this.state === 'PLAYING' || this.state === 'COUNTDOWN') {
-            if (!isRemote && window.MultiplayerManager) {
-                window.MultiplayerManager.sendData({ type: 'mg_abort' });
-            }
-            if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">ゲームが強制終了されました。</span>', 'sys');
-            this.endGame();
-        }
-    },
-
+    // リザルト等でゲーム自体が終了した際に呼ばれる処理（将来のプラグインから呼ばれる）
     endGame: function() {
         this.state = 'IDLE';
         this.currentProposal = null;

@@ -58,7 +58,7 @@ window.MinigameUI = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-        // ミニゲームボタン（ゲーム中は終了ボタン）
+        // ミニゲームボタン（ゲーム中はリタイア/観戦ボタン）
         const minigameBtn = document.createElement('div');
         minigameBtn.id = 'minigame-btn';
         minigameBtn.innerText = 'ミニゲーム';
@@ -71,8 +71,11 @@ window.MinigameUI = {
             lastMgBtnClick = now;
 
             if (window.MinigameManager) {
-                if (window.MinigameManager.state === 'PLAYING') {
-                    window.MinigameManager.abortGame(); 
+                if (window.MinigameManager.state === 'PLAYING' || window.MinigameManager.state === 'COUNTDOWN') {
+                    // ★変更: 既に観戦モードなら無反応、プレイ中なら「リタイア確認」を出す
+                    if (!window.isSpectatorMode) {
+                        window.MinigameManager.confirmRetire(); 
+                    }
                 } else {
                     window.MinigameManager.openListView(); 
                 }
@@ -135,7 +138,21 @@ window.MinigameUI = {
         mgCountdown.innerHTML = `<div class="mg-cd-label">ゲーム開始まで</div><div id="mg-countdown-text">10</div>`;
         uiLayer.appendChild(mgCountdown);
 
-        [mgListWindow, mgDetailWindow, mgPopup].forEach(el => {
+        // ★追加: リタイア確認ポップアップ
+        const mgRetirePopup = document.createElement('div');
+        mgRetirePopup.id = 'mg-retire-popup';
+        mgRetirePopup.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 300px; background: rgba(30, 20, 20, 0.95); border: 3px solid #ffaa00; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 3000; pointer-events: auto; padding: 20px; font-family: sans-serif; text-align: center;';
+        mgRetirePopup.innerHTML = `
+            <div style="color:#ffaa00; font-size:18px; font-weight:bold; margin-bottom:15px;">リタイア確認</div>
+            <div style="margin-bottom:20px; font-size:14px; line-height:1.5; color:white;">このゲームで敗北した扱いになりますが<br>よろしいですか？</div>
+            <div style="display:flex; gap:10px;">
+                <button id="mg-btn-retire-yes" style="flex:1; padding:12px; background:#f44336; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">はい</button>
+                <button id="mg-btn-retire-no" style="flex:1; padding:12px; background:#555; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">いいえ</button>
+            </div>
+        `;
+        uiLayer.appendChild(mgRetirePopup);
+
+        [mgListWindow, mgDetailWindow, mgPopup, mgRetirePopup].forEach(el => {
             el.addEventListener('mousedown', preventTouch);
             el.addEventListener('touchstart', preventTouch, {passive: false});
         });

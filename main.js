@@ -1,8 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★他プレイヤーからの押し出し(すり抜け)バグを修正
-// ★観戦モード時の無限空中ジャンプ機能を実装
+// ★観戦モード専用の重力無視・上下移動(ドローン化)を追加
 // =====================================
 
 let mapMesh;
@@ -10,7 +9,6 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
-let spectatorJumpBound = false;
 
 window.initThreeJS = function() {
     scene = new THREE.Scene();
@@ -55,11 +53,17 @@ window.initThreeJS = function() {
         }, 1000);
     }
 
-    // ★キーボードのスペースキーでも観戦中に無限ジャンプできるようにする
+    // ★追加: PCキーボード用の観戦モード上下移動（Space=上, Shift=下）
     window.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' && window.isSpectatorMode) {
-            window.isJumping = true;
-            window.verticalVelocity = 20;
+        if (window.isSpectatorMode) {
+            if (e.code === 'Space') window.specMoveUp = true;
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') window.specMoveDown = true;
+        }
+    });
+    window.addEventListener('keyup', (e) => {
+        if (window.isSpectatorMode) {
+            if (e.code === 'Space') window.specMoveUp = false;
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') window.specMoveDown = false;
         }
     });
 
@@ -91,22 +95,6 @@ window.updatePlayer = function(delta) {
     const rotationSpeed = 12; 
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.0;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
-    
-    // ★スマホのJUMPボタンに、観戦モード用の強制無限ジャンプ処理を1回だけ紐付ける
-    if (!spectatorJumpBound) {
-        const jBtn = document.getElementById('jump-btn');
-        if (jBtn) {
-            const doSpecJump = () => {
-                if (window.isSpectatorMode) {
-                    window.isJumping = true;
-                    window.verticalVelocity = 20;
-                }
-            };
-            jBtn.addEventListener('mousedown', doSpecJump);
-            jBtn.addEventListener('touchstart', (e) => { doSpecJump(); }, {passive: false});
-            spectatorJumpBound = true;
-        }
-    }
 
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
@@ -149,7 +137,6 @@ window.updatePlayer = function(delta) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
             let other = others[id];
-            // ★相手が観戦モード(isSpectator)の場合は、当たり判定(押し出し)を完全にスルーする
             if (other.mesh && other.hasReceivedFirstPos !== false && !other.isSpectator) {
                 let dx = player.position.x - other.mesh.position.x;
                 let dz = player.position.z - other.mesh.position.z;
@@ -195,7 +182,7 @@ window.updatePlayer = function(delta) {
         currentFacingAngle = targetRotationY;
         
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
-        const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
+        const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         
         const targetQuaternion = tiltQuat.multiply(rotQuat);
@@ -210,7 +197,7 @@ window.updatePlayer = function(delta) {
         }
     } else {
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
-        const effectiveNormal = !isJumping ? groundNormal : new THREE.Vector3(0, 1, 0);
+        const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
         const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
         player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
@@ -271,43 +258,60 @@ window.updatePlayer = function(delta) {
     }
     if (canMoveZ) player.position.z = nextZ;
 
-    if (isJumping) {
-        verticalVelocity += gravity * delta;
+    // =====================================
+    // ★追加: 観戦モード用の上下移動と重力カット処理
+    // =====================================
+    if (window.isSpectatorMode) {
+        const flySpeed = 20.0;
+        if (window.specMoveUp) player.position.y += flySpeed * delta;
+        if (window.specMoveDown) player.position.y -= flySpeed * delta;
         
-        if (verticalVelocity > 0 && mapMesh) {
-            let upRayOrigin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 1.5, player.position.z);
-            let upRay = new THREE.Raycaster(upRayOrigin, new THREE.Vector3(0, 1, 0));
-            let upHits = upRay.intersectObject(mapMesh, false);
-            
-            if (upHits.length > 0 && upHits[0].distance < pRadius * 1.0) {
-                verticalVelocity = 0; 
-            }
-        }
+        // 奈落に行かないようにする制限
+        if (player.position.y < -30) player.position.y = 20;
 
-        player.position.y += verticalVelocity * delta;
-        
-        if (verticalVelocity < 0 && player.position.y <= currentGroundY) {
-            player.position.y = currentGroundY; 
-            isJumping = false; 
-            verticalVelocity = 0;
+        verticalVelocity = 0; 
+        isJumping = false; 
+
+    } else {
+        // 通常のジャンプと重力処理
+        if (isJumping) {
+            verticalVelocity += gravity * delta;
             
-            if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
-                window.MultiplayerManager.forceSendPos();
+            if (verticalVelocity > 0 && mapMesh) {
+                let upRayOrigin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 1.5, player.position.z);
+                let upRay = new THREE.Raycaster(upRayOrigin, new THREE.Vector3(0, 1, 0));
+                let upHits = upRay.intersectObject(mapMesh, false);
+                
+                if (upHits.length > 0 && upHits[0].distance < pRadius * 1.0) {
+                    verticalVelocity = 0; 
+                }
+            }
+
+            player.position.y += verticalVelocity * delta;
+            
+            if (verticalVelocity < 0 && player.position.y <= currentGroundY) {
+                player.position.y = currentGroundY; 
+                isJumping = false; 
+                verticalVelocity = 0;
+                
+                if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+                    window.MultiplayerManager.forceSendPos();
+                }
+            }
+        } else {
+            if (player.position.y > currentGroundY + 0.8) { 
+                isJumping = true; 
+                verticalVelocity = 0; 
+            } else {
+                player.position.y += (currentGroundY - player.position.y) * 0.3;
             }
         }
-    } else {
-        if (player.position.y > currentGroundY + 0.8) { 
+        
+        if (player.position.y < -30) {
+            player.position.set(0, 20, 0); 
             isJumping = true; 
-            verticalVelocity = 0; 
-        } else {
-            player.position.y += (currentGroundY - player.position.y) * 0.3;
+            verticalVelocity = 0;
         }
-    }
-    
-    if (player.position.y < -30) {
-        player.position.set(0, 20, 0); 
-        isJumping = true; 
-        verticalVelocity = 0;
     }
 };
 

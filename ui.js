@@ -1,6 +1,7 @@
 // =====================================
 // ui.js
 // 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
+// ★ジャンプボタンを観戦モード用の🔺🔻に切り替える機能を追加
 // =====================================
 
 function initUI() {
@@ -21,11 +22,15 @@ function initUI() {
         #jump-btn {
             position: absolute; bottom: 10px; right: 15px; width: 80px; height: 80px;
             background: rgba(255, 255, 255, 0.5); border: 3px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
-            display: flex; justify-content: center; align-items: center; color: #333; font-weight: bold;
-            font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            pointer-events: auto; cursor: pointer;
+            color: #333; font-weight: bold; font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            pointer-events: auto; cursor: pointer; overflow: hidden;
         }
-        #jump-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
+        #jump-btn-normal { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+        #jump-btn-normal:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.95); }
+        
+        #jump-btn-spec { display: none; flex-direction: column; width: 100%; height: 100%; }
+        .spec-btn { flex: 1; display: flex; justify-content: center; align-items: center; font-size: 24px; transition: background 0.1s; }
+        .spec-btn:active { background: rgba(255, 255, 255, 0.6); }
 
         #item-slot {
             position: absolute; bottom: 100px; right: 25px; width: 60px; height: 60px;
@@ -46,12 +51,7 @@ function initUI() {
             box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; z-index: 100;
             padding: 10px 0; box-sizing: border-box;
         }
-        #camera-slider {
-            -webkit-appearance: slider-vertical;
-            writing-mode: bt-lr; 
-            appearance: slider-vertical;
-            width: 8px; height: 80px; outline: none; margin-top: 5px; cursor: pointer;
-        }
+        #camera-slider { -webkit-appearance: slider-vertical; writing-mode: bt-lr; appearance: slider-vertical; width: 8px; height: 80px; outline: none; margin-top: 5px; cursor: pointer; }
         #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
 
         #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 250px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; pointer-events: none; }
@@ -86,10 +86,60 @@ function initUI() {
     joystickBase.appendChild(joystickStick);
     uiLayer.appendChild(joystickBase);
 
+    // ★修正: ジャンプボタンを通常版と観戦モード版(上下分割)に構造変更
     const jumpBtn = document.createElement('div');
     jumpBtn.id = 'jump-btn';
-    jumpBtn.innerText = 'JUMP';
+    jumpBtn.innerHTML = `
+        <div id="jump-btn-normal">JUMP</div>
+        <div id="jump-btn-spec">
+            <div id="spec-up" class="spec-btn" style="border-bottom: 2px solid rgba(0,0,0,0.2);">🔺</div>
+            <div id="spec-down" class="spec-btn">🔻</div>
+        </div>
+    `;
     uiLayer.appendChild(jumpBtn);
+
+    const normalJump = jumpBtn.querySelector('#jump-btn-normal');
+    const specUp = jumpBtn.querySelector('#spec-up');
+    const specDown = jumpBtn.querySelector('#spec-down');
+
+    // ★追加: 観戦モード用のグローバルな上下移動フラグ
+    window.specMoveUp = false;
+    window.specMoveDown = false;
+
+    const stopPropagation = (e) => e.stopPropagation();
+    
+    // 上昇ボタン
+    const doSpecUp = (e) => { stopPropagation(e); window.specMoveUp = true; };
+    const endSpecUp = (e) => { stopPropagation(e); window.specMoveUp = false; };
+    specUp.addEventListener('mousedown', doSpecUp);
+    specUp.addEventListener('touchstart', doSpecUp, {passive: false});
+    specUp.addEventListener('mouseup', endSpecUp);
+    specUp.addEventListener('mouseleave', endSpecUp);
+    specUp.addEventListener('touchend', endSpecUp);
+    specUp.addEventListener('touchcancel', endSpecUp);
+
+    // 下降ボタン
+    const doSpecDown = (e) => { stopPropagation(e); window.specMoveDown = true; };
+    const endSpecDown = (e) => { stopPropagation(e); window.specMoveDown = false; };
+    specDown.addEventListener('mousedown', doSpecDown);
+    specDown.addEventListener('touchstart', doSpecDown, {passive: false});
+    specDown.addEventListener('mouseup', endSpecDown);
+    specDown.addEventListener('mouseleave', endSpecDown);
+    specDown.addEventListener('touchend', endSpecDown);
+    specDown.addEventListener('touchcancel', endSpecDown);
+
+    // ★追加: 観戦モードのON/OFFに合わせてUIを切り替えるグローバル関数
+    window.toggleSpectatorUI = function(isSpec) {
+        if (isSpec) {
+            normalJump.style.display = 'none';
+            jumpBtn.querySelector('#jump-btn-spec').style.display = 'flex';
+        } else {
+            normalJump.style.display = 'flex';
+            jumpBtn.querySelector('#jump-btn-spec').style.display = 'none';
+            window.specMoveUp = false;
+            window.specMoveDown = false;
+        }
+    };
 
     const itemSlot = document.createElement('div');
     itemSlot.id = 'item-slot';
@@ -167,11 +217,9 @@ function initUI() {
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 
-    // ★分離した他モジュールのUI生成を呼び出す
     if (window.MultiplayerManager && typeof window.MultiplayerManager.initUI === 'function') {
         window.MultiplayerManager.initUI();
     }
-    // ★ここで新しく作った minigame_ui.js の関数を呼び出す
     if (window.MinigameUI && typeof window.MinigameUI.initUI === 'function') {
         window.MinigameUI.initUI();
     }
