@@ -160,9 +160,6 @@ window.MinigamePlugins['survival'] = {
 
     // 足元のブロックを判定し、踏んでいれば同期を送信する
     checkPlayerStep: function(nowTime) {
-        // ★ジャンプ中や落下中などの空中にいる時は判定しない
-        if (typeof isJumping !== 'undefined' && isJumping) return;
-
         let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
 
         const raycaster = new THREE.Raycaster();
@@ -173,8 +170,9 @@ window.MinigamePlugins['survival'] = {
 
         if (intersects.length > 0) {
             let hit = intersects[0];
-            // ★プレイヤーの足元(y)と床の高さがほぼ同じ（着地している）時のみ判定
-            if (Math.abs(hit.point.y - player.position.y) < 0.5) {
+            
+            // ★プレイヤーの足元(player.position.y)と床の上面の高さ(hit.point.y)の誤差が「0.1以内」の時のみ着地と判定する
+            if (Math.abs(hit.point.y - player.position.y) < 0.1) {
                 let blockId = hit.object.userData.id;
                 let b = this.blocks[blockId];
                 
