@@ -1,7 +1,7 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
-// ★リタイア確認UIが最初から表示されてしまうバグを修正
+// ★タイマーUIの表示位置をリタイアボタンと揃えるように修正
 // =====================================
 
 window.MinigameUI = {
@@ -53,7 +53,7 @@ window.MinigameUI = {
             #mg-countdown-text { font-size: 60px; color: #ffaa00; font-weight: bold; text-shadow: 0 4px 10px rgba(0,0,0,0.9); }
 
             /* ゲーム中のタイマー表示 */
-            #mg-timer-ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 20px; padding: 5px 20px; color: white; font-size: 24px; font-weight: bold; font-family: monospace; display: none; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; }
+            #mg-timer-ui { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 20px; padding: 5px 20px; color: white; font-size: 24px; font-weight: bold; font-family: monospace; display: none; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; }
             
             /* リザルト画面 */
             #mg-result-window { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; height: 80%; max-height: 600px; background: rgba(20, 20, 30, 0.95); border: 4px solid #ffcc00; border-radius: 16px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 2500; pointer-events: auto; font-family: sans-serif; }
@@ -77,7 +77,7 @@ window.MinigameUI = {
             #btn-close-result { background: #4CAF50; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
             #btn-close-result:active { transform: scale(0.95); }
 
-            /* ★追加: リタイア確認ポップアップのスタイル */
+            /* リタイア確認ポップアップ */
             #mg-retire-popup { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 300px; background: rgba(30, 20, 20, 0.95); border: 3px solid #ffaa00; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 3000; pointer-events: auto; padding: 20px; font-family: sans-serif; text-align: center; }
         `;
         document.head.appendChild(style);
@@ -89,10 +89,11 @@ window.MinigameUI = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-        // タイマーUI
+        // タイマーUI (★高さをミニゲームボタンと揃える)
         const timerUI = document.createElement('div');
         timerUI.id = 'mg-timer-ui';
         timerUI.innerText = '03:00';
+        timerUI.style.top = (topExclusionHeight + 15) + 'px';
         uiLayer.appendChild(timerUI);
 
         // ミニゲームボタン（ゲーム中はリタイア/観戦ボタン）
@@ -174,7 +175,7 @@ window.MinigameUI = {
         mgCountdown.innerHTML = `<div class="mg-cd-label">ゲーム開始まで</div><div id="mg-countdown-text">10</div>`;
         uiLayer.appendChild(mgCountdown);
 
-        // ★リタイア確認ポップアップ (スタイルは上のCSSブロックに移動しました)
+        // リタイア確認ポップアップ
         const mgRetirePopup = document.createElement('div');
         mgRetirePopup.id = 'mg-retire-popup';
         mgRetirePopup.innerHTML = `
@@ -187,7 +188,7 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgRetirePopup);
 
-        // リザルト画面の枠組み
+        // リザルト画面
         const mgResultWindow = document.createElement('div');
         mgResultWindow.id = 'mg-result-window';
         mgResultWindow.innerHTML = `
