@@ -1,8 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
-// ★START表示が消えるまでアイテム取得をロックする処理を追加
-// ★プラグインのライフサイクル呼び出しと、汎用リザルト表示を追加
+// ★多重表示バグの修正と、スコア・リタイアの同期機能を追加
 // =====================================
 
 window.MinigameManager = {
@@ -12,10 +11,7 @@ window.MinigameManager = {
     participantCount: 1, 
     targetStartTime: 0, 
     
-    // ★追加: 現在実行中のプラグイン
     currentPlugin: null,
-    
-    // ★追加: リザルト用データの一時保存
     resultData: [],
 
     init: function() {
@@ -23,9 +19,6 @@ window.MinigameManager = {
         window.isSpectatorMode = false;
     },
 
-    // ---------------------------------
-    // 多数決・UI関連
-    // ---------------------------------
     openListView: function() {
         if (this.state !== 'IDLE') {
             if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">現在はミニゲームリストを開けません。</span>', 'sys');
@@ -123,9 +116,6 @@ window.MinigameManager = {
         return activeBtn ? activeBtn.dataset.val : null;
     },
 
-    // ---------------------------------
-    // 通信・進行関連
-    // ---------------------------------
     proposeGame: function(game) {
         const time = this.getToggleValue('mg-toggle-time');
         const items = this.getToggleValue('mg-toggle-item');
@@ -140,7 +130,7 @@ window.MinigameManager = {
             gameId: game.id,
             title: game.title,
             icon: game.icon,
-            script: game.script, // ★追加: プラグインのパス
+            script: game.script, 
             settings: { time, items, pos },
             proposerId: myId,
             timestamp: timestamp,
@@ -192,9 +182,16 @@ window.MinigameManager = {
         } else if (msg.type === 'mg_sync_state') {
             this.syncState(msg.state, msg.targetStartTime, msg.proposal);
         } else if (msg.type === 'mg_plugin_sync') {
-            // ★プラグイン用の通信を中継
             if (this.currentPlugin && typeof this.currentPlugin.handleNetwork === 'function') {
                 this.currentPlugin.handleNetwork(msg.data);
+            }
+        } else if (msg.type === 'mg_update_score') {
+            // ★追加: 他プレイヤーのスコア・リタイア同期
+            const data = this.resultData.find(d => d.id === msg.userId);
+            if (data) {
+                data.scoreValue = msg.scoreValue;
+                data.scoreText = msg.scoreText;
+                data.isRetired = msg.isRetired;
             }
         }
     },
@@ -259,7 +256,6 @@ window.MinigameManager = {
                     mgBtn.innerText = '観戦モード';
                     mgBtn.classList.add('spectator-mode');
                 }
-                // 途中入室の場合でもプラグインをロードしておく
                 this.loadPlugin();
             }
         }
@@ -362,7 +358,7 @@ window.MinigameManager = {
             this.participantCount = joinCount;
             
             if (this.state === 'PROPOSING') {
-                const startTime = Date.now() + 10000; // 10秒後に開始
+                const startTime = Date.now() + 10000; 
                 if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_start_countdown', targetStartTime: startTime });
                 this.startCountdown(startTime);
             }
@@ -374,18 +370,16 @@ window.MinigameManager = {
         }
     },
 
-    // ★追加: プラグインの動的読み込み
     loadPlugin: function() {
         if (!this.currentProposal || !this.currentProposal.script) return;
         
         if (window.loadGameScript) {
             window.loadGameScript(this.currentProposal.script, () => {
-                const pluginName = this.currentProposal.gameId; // 例: survival
+                const pluginName = this.currentProposal.gameId; 
                 if (window.MinigamePlugins && window.MinigamePlugins[pluginName]) {
                     this.currentPlugin = window.MinigamePlugins[pluginName];
                     console.log(`Plugin ${pluginName} loaded.`);
                     
-                    // カウントダウン中なら初期化を呼ぶ（マップの差し替え等）
                     if (this.state === 'COUNTDOWN' && typeof this.currentPlugin.init === 'function') {
                         this.currentPlugin.init(this.currentProposal.settings);
                     }
@@ -399,7 +393,6 @@ window.MinigameManager = {
         this.state = 'COUNTDOWN';
         this.targetStartTime = targetStartTime || (Date.now() + 10000); 
         
-        // ★この10秒間の間にプラグインをロードして初期化させる
         this.loadPlugin();
 
         document.getElementById('mg-proposal-popup').style.display = 'none';
@@ -428,7 +421,6 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
-        // 汎用タイマーUIの表示（プラグイン側から操作可能）
         const timerUI = document.getElementById('mg-timer-ui');
         if (timerUI) timerUI.style.display = 'block';
         
@@ -439,13 +431,25 @@ window.MinigameManager = {
             if (this.myVote === false) mgBtn.classList.add('spectator-mode');
         }
 
-        // リザルトデータの初期化
+        // ★多重表示バグ修正: 自分自身が重複しないようにリストを作る
         this.resultData = [];
-        const allUsers = window.GameState && window.GameState.roomUsers ? [window.GameState.userInfo, ...window.GameState.roomUsers] : [window.GameState.userInfo || {user_id:'local', name:'Player'}];
-        
+        let allUsers = [];
+        if (window.GameState && window.GameState.roomUsers) {
+            allUsers = [...window.GameState.roomUsers];
+        }
+        if (window.GameState && window.GameState.userInfo) {
+            const myId = window.GameState.userInfo.user_id;
+            const hasMe = allUsers.some(u => u.user_id === myId);
+            if (!hasMe) {
+                allUsers.unshift(window.GameState.userInfo);
+            }
+        }
+        if (allUsers.length === 0) {
+            allUsers.push({ user_id: 'local', name: 'Player' });
+        }
+
         allUsers.forEach(u => {
             if (!u) return;
-            // 参加表明した人（または不明な人）だけをリストに入れる
             let isParticipating = true;
             if (this.currentProposal && this.currentProposal.votes) {
                 if (this.currentProposal.votes[u.user_id] === false) isParticipating = false;
@@ -456,7 +460,8 @@ window.MinigameManager = {
                     id: u.user_id,
                     name: u.name || u.user_name || "Player",
                     icon: u.portrait || u.portait || "",
-                    scoreText: "", // "生存" や "12枚" など
+                    scoreText: "", 
+                    scoreValue: 0, // ★追加: ソート用の数値
                     isRetired: false,
                     rank: 0
                 });
@@ -473,7 +478,6 @@ window.MinigameManager = {
         if (window.ItemSystem && this.currentProposal) {
             window.ItemSystem.maxItems = parseInt(this.currentProposal.settings.items, 10);
             window.ItemSystem.clearAllItems();
-            // START表示が消えるまではアイテムの取得をロックする
             window.ItemSystem.canPickup = false;
         }
 
@@ -505,10 +509,8 @@ window.MinigameManager = {
                 centerMsg.remove();
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">ゲームが開始されました！</span>', 'sys');
                 
-                // アイテムの取得を解禁する
                 if (window.ItemSystem) window.ItemSystem.canPickup = true;
                 
-                // ★プラグインの start() を呼ぶ
                 if (this.currentPlugin && typeof this.currentPlugin.start === 'function') {
                     this.currentPlugin.start();
                 }
@@ -516,9 +518,6 @@ window.MinigameManager = {
         }, 1000);
     },
 
-    // ---------------------------------
-    // リタイアと終了判定
-    // ---------------------------------
     confirmRetire: function() {
         const popup = document.getElementById('mg-retire-popup');
         if (popup) {
@@ -536,17 +535,30 @@ window.MinigameManager = {
     executeRetire: function() {
         if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">リタイアしました。観戦モードに移行します。</span>', 'sys');
         
-        // 自分のリザルト情報を更新
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
-        const myData = this.resultData.find(d => d.id === myId);
-        if (myData) {
-            myData.isRetired = true;
-            myData.scoreText = "リタイア";
-        }
         
-        // プラグイン側に通知
+        // ★プラグイン側に通知して生存時間(スコア)を更新させる
         if (this.currentPlugin && typeof this.currentPlugin.onRetire === 'function') {
             this.currentPlugin.onRetire(myId);
+        } else {
+            const myData = this.resultData.find(d => d.id === myId);
+            if (myData) {
+                myData.isRetired = true;
+                myData.scoreText = "リタイア";
+                myData.scoreValue = -1;
+            }
+        }
+        
+        // ★スコアとリタイア状態を他人に同期
+        const updatedData = this.resultData.find(d => d.id === myId);
+        if (window.MultiplayerManager && updatedData) {
+            window.MultiplayerManager.sendData({ 
+                type: 'mg_update_score', 
+                userId: myId, 
+                scoreValue: updatedData.scoreValue, 
+                scoreText: updatedData.scoreText,
+                isRetired: updatedData.isRetired
+            });
         }
 
         this.enterSpectatorMode();
@@ -618,7 +630,6 @@ window.MinigameManager = {
 
         if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
             for (let id in window.MultiplayerManager.otherPlayers) {
-                // 不参加の人も含め、isSpectator が false の人がいればまだ続行
                 if (!window.MultiplayerManager.otherPlayers[id].isSpectator) {
                     allSpectators = false;
                     break;
@@ -634,27 +645,21 @@ window.MinigameManager = {
         }
     },
 
-    // ---------------------------------
-    // ゲーム終了とリザルト
-    // ---------------------------------
     endGame: function() {
         this.state = 'RESULT';
         
         const timerUI = document.getElementById('mg-timer-ui');
         if (timerUI) timerUI.style.display = 'none';
 
-        // プラグインの終了処理を呼ぶ（マップの復元など）
         if (this.currentPlugin && typeof this.currentPlugin.end === 'function') {
             this.currentPlugin.end();
         }
         this.currentPlugin = null;
 
-        // リザルト画面の表示
         if (window.MinigameUI && typeof window.MinigameUI.showResult === 'function') {
             window.MinigameUI.showResult(this.currentProposal ? this.currentProposal.title : "ミニゲーム", this.resultData);
         }
 
-        // リセット処理
         this.currentProposal = null;
         
         const mgBtn = document.getElementById('minigame-btn');
@@ -669,17 +674,15 @@ window.MinigameManager = {
         if (window.ItemSystem) {
             window.ItemSystem.clearAllItems();
             window.ItemSystem.canPickup = true; 
-            window.ItemSystem.forceItemType = null; // アイテム固定の解除
-            window.ItemSystem.isStackable = false; // スタックの解除
+            window.ItemSystem.forceItemType = null; 
+            window.ItemSystem.isStackable = false; 
         }
         
-        // 5秒後にIDLEに戻る
         setTimeout(() => {
             this.state = 'IDLE';
         }, 5000);
     },
 
-    // ★追加: 毎フレーム呼ばれる更新処理（プラグインの update を中継）
     update: function(delta) {
         if (this.state === 'PLAYING' && this.currentPlugin && typeof this.currentPlugin.update === 'function') {
             this.currentPlugin.update(delta);

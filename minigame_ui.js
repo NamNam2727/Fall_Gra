@@ -1,7 +1,7 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
-// ★タイマーUIの表示位置をリタイアボタンと揃えるように修正
+// ★プラグイン側でソートされた順番通りに表示し、リタイアバッジを追加
 // =====================================
 
 window.MinigameUI = {
@@ -52,7 +52,7 @@ window.MinigameUI = {
             .mg-cd-label { font-size: 24px; color: white; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
             #mg-countdown-text { font-size: 60px; color: #ffaa00; font-weight: bold; text-shadow: 0 4px 10px rgba(0,0,0,0.9); }
 
-            /* ゲーム中のタイマー表示（topはJSで動的に設定） */
+            /* ゲーム中のタイマー表示 */
             #mg-timer-ui { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 20px; padding: 5px 20px; color: white; font-size: 24px; font-weight: bold; font-family: monospace; display: none; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; }
             
             /* リザルト画面 */
@@ -89,14 +89,14 @@ window.MinigameUI = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-        // タイマーUI (★高さをミニゲームボタンと確実に揃える)
+        // タイマーUI
         const timerUI = document.createElement('div');
         timerUI.id = 'mg-timer-ui';
         timerUI.innerText = '03:00';
         timerUI.style.top = (topExclusionHeight + 15) + 'px';
         uiLayer.appendChild(timerUI);
 
-        // ミニゲームボタン（ゲーム中はリタイア/観戦ボタン）
+        // ミニゲームボタン
         const minigameBtn = document.createElement('div');
         minigameBtn.id = 'minigame-btn';
         minigameBtn.innerText = 'ミニゲーム';
@@ -116,8 +116,6 @@ window.MinigameUI = {
                 } else {
                     window.MinigameManager.openListView(); 
                 }
-            } else {
-                if (typeof window.addLog === 'function') window.addLog('<span style="color:#ff3300;">【エラー】ファイルが読み込めていません。</span>', 'sys');
             }
         };
         
@@ -222,12 +220,7 @@ window.MinigameUI = {
         if (!win || !container) return;
         container.innerHTML = '';
 
-        dataArray.sort((a, b) => {
-            if (a.isRetired && !b.isRetired) return 1;
-            if (!a.isRetired && b.isRetired) return -1;
-            return a.rank - b.rank; 
-        });
-
+        // ★プラグイン側でソート済みのまま（あるいはマネージャーが渡した順）に描画する
         dataArray.forEach(data => {
             const item = document.createElement('div');
             item.className = 'result-item';
@@ -237,11 +230,10 @@ window.MinigameUI = {
             else if (data.rank === 2) item.classList.add('rank-2');
             else if (data.rank === 3) item.classList.add('rank-3');
 
+            // ランク表記（リタイアでも順位は表示する）
             const rankEl = document.createElement('div');
             rankEl.className = 'result-rank';
-            if (data.isRetired) rankEl.innerText = '-';
-            else if (data.rank === 1) rankEl.innerText = '👑';
-            else rankEl.innerText = data.rank;
+            rankEl.innerText = data.rank || '-';
 
             const iconEl = document.createElement('div');
             iconEl.className = 'result-icon';
@@ -254,8 +246,14 @@ window.MinigameUI = {
 
             const scoreEl = document.createElement('div');
             scoreEl.className = 'result-score';
-            scoreEl.innerText = data.scoreText || '';
-            if (data.isRetired) scoreEl.style.color = '#ff4444';
+            
+            // ★リタイア表記の追加
+            if (data.isRetired) {
+                scoreEl.innerHTML = `<span style="font-size:12px; border:1px solid #ff4444; border-radius:4px; padding:2px 4px; margin-right:5px; color:#ff4444; background:rgba(255,0,0,0.1);">リタイア</span>${data.scoreText || ''}`;
+                scoreEl.style.color = '#ffaa00';
+            } else {
+                scoreEl.innerText = data.scoreText || '';
+            }
 
             item.appendChild(rankEl);
             item.appendChild(iconEl);
