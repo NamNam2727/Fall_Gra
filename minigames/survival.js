@@ -2,15 +2,18 @@
 // minigames/survival.js
 // 崩壊サバイバル プラグイン
 // 独自の床メッシュを生成し、タイムスタンプベースで崩壊を同期する
+// ★タイマー機能とリザルト（生存）処理を追加
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
 
 window.MinigamePlugins['survival'] = {
-    blocks: {}, // id -> { mesh, originalColor, stepTime, isOdd }
+    blocks: {}, 
     survivalGroup: null,
     originalMapMesh: null,
     isPlaying: false,
+    timeLimit: 3,     // 制限時間（分）
+    remainTime: 0,    // 残り時間（秒）
 
     // カラー定義
     colorNormal: new THREE.Color(0xaaaaaa),
@@ -23,6 +26,9 @@ window.MinigamePlugins['survival'] = {
         console.log("[Survival] Initializing...");
         this.isPlaying = false;
         this.blocks = {};
+        
+        // マネージャーから設定された制限時間を取得
+        this.timeLimit = settings && settings.time ? parseInt(settings.time, 10) : 3;
 
         // 元の地形を非表示にする
         if (typeof scene !== 'undefined') {
@@ -64,13 +70,13 @@ window.MinigamePlugins['survival'] = {
                         }
 
                         const blockMesh = this.createBlockMesh(px, pz, yB, c_center, c_pXpZ, c_mXpZ, c_pXmZ, c_mXmZ, l.isOdd, bs);
-                        const blockId = `${x}_${z}_${layerIndex}`; // 座標と階層で一意のID
+                        const blockId = `${x}_${z}_${layerIndex}`; 
                         
                         blockMesh.userData = {
-                            isTerrain: true, // main.jsの当たり判定に認識させる
+                            isTerrain: true, // ★main.jsの当たり判定に認識させる
                             isSurvivalBlock: true,
                             id: blockId,
-                            topY: yT * bs // 踏み判定用
+                            topY: yT * bs 
                         };
 
                         this.blocks[blockId] = {
@@ -95,20 +101,46 @@ window.MinigamePlugins['survival'] = {
     start: function() {
         console.log("[Survival] Game Started!");
         this.isPlaying = true;
+        this.remainTime = this.timeLimit * 60; // 分を秒に変換
     },
 
     // 毎フレーム呼ばれる更新処理
     update: function(delta) {
         if (!this.isPlaying) return;
 
+        // ★1. タイマーの処理
+        this.remainTime -= delta;
+        if (this.remainTime <= 0) {
+            this.remainTime = 0;
+            this.isPlaying = false;
+            
+            // 時間切れ＝最後まで生き残ったので「生存」としてリザルトに記録
+            if (window.MinigameManager && window.MinigameManager.resultData) {
+                window.MinigameManager.resultData.forEach(data => {
+                    if (!data.isRetired) {
+                        data.rank = 1; // 1位扱い
+                        data.scoreText = "生存!";
+                    }
+                });
+                window.MinigameManager.endGame();
+            }
+            return;
+        }
+
+        // タイマーUIの更新
+        let m = Math.floor(this.remainTime / 60);
+        let s = Math.floor(this.remainTime % 60);
+        let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
+
         const now = Date.now();
 
-        // 1. 自分がどのブロックの上にいるか判定する
+        // ★2. 自分がどのブロックの上にいるか判定する
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             this.checkPlayerStep(now);
         }
 
-        // 2. ブロックの色と消失の更新
+        // ★3. ブロックの色と消失の更新
         for (let id in this.blocks) {
             let b = this.blocks[id];
             if (b.stepTime !== null && b.mesh.visible) {
@@ -134,10 +166,8 @@ window.MinigamePlugins['survival'] = {
 
     // 足元のブロックを判定し、踏んでいれば同期を送信する
     checkPlayerStep: function(nowTime) {
-        const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
         let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
 
-        // キャラクターの真下に向かってレイを飛ばし、足元の survivalBlock を探す
         const raycaster = new THREE.Raycaster();
         const origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 3.0, player.position.z);
         raycaster.set(origin, new THREE.Vector3(0, -1, 0));
@@ -146,13 +176,11 @@ window.MinigamePlugins['survival'] = {
 
         if (intersects.length > 0) {
             let hit = intersects[0];
-            // 足元(stepHeight + 0.5以内の距離)にあるかチェック
             let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
             if (hit.point.y <= player.position.y + myStepHeight + 0.5) {
                 let blockId = hit.object.userData.id;
                 let b = this.blocks[blockId];
                 
-                // まだ踏まれていないブロックなら、タイムスタンプをセットして通信送信
                 if (b && b.stepTime === null) {
                     b.stepTime = nowTime;
                     
@@ -167,12 +195,10 @@ window.MinigamePlugins['survival'] = {
         }
     },
 
-    // 通信の受信
     handleNetwork: function(data) {
         if (data.action === 'step') {
             let b = this.blocks[data.id];
             if (b) {
-                // 既にタイムスタンプがあっても、受信したものがより古ければ上書き（同時踏みのラグ解決）
                 if (b.stepTime === null || data.timestamp < b.stepTime) {
                     b.stepTime = data.timestamp;
                 }
@@ -180,21 +206,16 @@ window.MinigamePlugins['survival'] = {
         }
     },
 
-    // リタイア時の処理
     onRetire: function(userId) {
-        // サバイバルでは、リタイア＝奈落落ちと同等の扱い。
         // リザルトデータ側は manager で処理されるため特に処理なし
     },
 
-    // ゲーム終了時（マップの復元など）
     end: function() {
         console.log("[Survival] Game Ended. Restoring map...");
         this.isPlaying = false;
 
-        // サバイバル専用マップの破棄
         if (this.survivalGroup && typeof scene !== 'undefined') {
             scene.remove(this.survivalGroup);
-            // ジオメトリとマテリアルのメモリ解放
             this.survivalGroup.children.forEach(child => {
                 if (child.geometry) child.geometry.dispose();
                 if (child.material) child.material.dispose();
@@ -203,16 +224,12 @@ window.MinigamePlugins['survival'] = {
         }
         this.blocks = {};
 
-        // 元の地形を再表示
         if (this.originalMapMesh) {
             this.originalMapMesh.visible = true;
             this.originalMapMesh = null;
         }
     },
 
-    // ---------------------------------
-    // ブロック生成ユーティリティ
-    // ---------------------------------
     createBlockMesh: function(px, pz, yB, c_center, c_pXpZ, c_mXpZ, c_pXmZ, c_mXmZ, isOdd, bs) {
         const vertices = [];
         const normals = [];
@@ -244,7 +261,6 @@ window.MinigamePlugins['survival'] = {
         const b_pXpZ = [px + 0.5, yB, pz + 0.5];
         const b_mXpZ = [px - 0.5, yB, pz + 0.5];
 
-        // 上面
         if (isOdd) {
             addFace(v_mXmZ, v_center, v_pXmZ);
             addFace(v_pXmZ, v_center, v_pXpZ);
@@ -254,10 +270,8 @@ window.MinigamePlugins['survival'] = {
             addQuad(v_mXmZ, v_mXpZ, v_pXpZ, v_pXmZ);
         }
 
-        // 底面
         addQuad(b_mXmZ, b_pXmZ, b_pXpZ, b_mXpZ);
 
-        // 側面
         addQuad(b_pXpZ, v_pXpZ, v_mXpZ, b_mXpZ); 
         addQuad(b_mXmZ, v_mXmZ, v_pXmZ, b_pXmZ); 
         addQuad(b_pXmZ, v_pXmZ, v_pXpZ, b_pXpZ); 
@@ -267,7 +281,6 @@ window.MinigamePlugins['survival'] = {
         geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
         geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
 
-        // 色はチェッカーボード風の少し明るい色をベースにする
         const isChecker = (Math.abs(px) + Math.abs(pz)) % 2 === 0;
         const colorHex = isOdd ? 0x81C784 : (isChecker ? 0x66BB6A : 0x4CAF50);
         
