@@ -1,6 +1,7 @@
 // =====================================
 // minigame_manager.js
-// ★全体強制終了を廃止し、個人の「リタイア」機能に変更
+// ミニゲームの進行、リタイア機能、多数決管理
+// ★UI生成を minigame_ui.js に完全に分離し軽量化
 // =====================================
 
 window.MinigameManager = {
@@ -15,19 +16,22 @@ window.MinigameManager = {
         window.isSpectatorMode = false;
     },
 
-    // ★追加: リタイア確認画面を出す
+    // リタイア確認画面を出す
     confirmRetire: function() {
-        document.getElementById('mg-retire-popup').style.display = 'flex';
-        document.getElementById('mg-btn-retire-yes').onclick = () => {
-            document.getElementById('mg-retire-popup').style.display = 'none';
-            this.executeRetire();
-        };
-        document.getElementById('mg-btn-retire-no').onclick = () => {
-            document.getElementById('mg-retire-popup').style.display = 'none';
-        };
+        const popup = document.getElementById('mg-retire-popup');
+        if (popup) {
+            popup.style.display = 'flex';
+            document.getElementById('mg-btn-retire-yes').onclick = () => {
+                popup.style.display = 'none';
+                this.executeRetire();
+            };
+            document.getElementById('mg-btn-retire-no').onclick = () => {
+                popup.style.display = 'none';
+            };
+        }
     },
 
-    // ★追加: 自分だけリタイアして観戦モードに移行
+    // 敗北扱いとして自分だけ観戦モードに移行
     executeRetire: function() {
         if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">リタイアしました。観戦モードに移行します。</span>', 'sys');
         this.enterSpectatorMode();
@@ -36,6 +40,7 @@ window.MinigameManager = {
     enterSpectatorMode: function() {
         if (!window.isSpectatorMode) {
             window.isSpectatorMode = true;
+            // 自分を半透明化（操作しやすいように0.4）
             if (typeof player !== 'undefined' && player) {
                 player.traverse((child) => {
                     if (child.isMesh && child.material) {
@@ -49,14 +54,16 @@ window.MinigameManager = {
                     }
                 });
             }
+            // 他人からは自分を完全に見えなくする通信を送る
             if (window.MultiplayerManager) {
                 window.MultiplayerManager.sendData({ type: 'mg_spectator', isSpectator: true });
             }
             
-            // ★UIの変更: ミニゲームボタンを「観戦モード」にし、ジャンプボタンを🔺🔻に変更
+            // ボタン表記の変更とジャンプボタンの切り替え
             const mgBtn = document.getElementById('minigame-btn');
             if (mgBtn && mgBtn.classList.contains('abort-mode')) {
                 mgBtn.innerText = '観戦モード';
+                mgBtn.classList.add('spectator-mode');
             }
             if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(true);
         }
@@ -65,6 +72,7 @@ window.MinigameManager = {
     exitSpectatorMode: function() {
         if (window.isSpectatorMode) {
             window.isSpectatorMode = false;
+            // 自分の不透明度を元に戻す
             if (typeof player !== 'undefined' && player) {
                 player.traverse((child) => {
                     if (child.isMesh && child.material) {
@@ -78,12 +86,16 @@ window.MinigameManager = {
                     }
                 });
             }
-            if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+            // 他人に表示を戻すように伝える
+            if (window.MultiplayerManager) {
+                window.MultiplayerManager.sendData({ type: 'mg_spectator', isSpectator: false });
                 window.MultiplayerManager.forceSendPos();
             }
             
-            // ★UIの復元
+            // ボタンUIの復元
             if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(false);
+            const mgBtn = document.getElementById('minigame-btn');
+            if (mgBtn) mgBtn.classList.remove('spectator-mode');
         }
     },
 
@@ -103,6 +115,7 @@ window.MinigameManager = {
 
     renderList: function() {
         const container = document.getElementById('mg-list-container');
+        if (!container) return;
         container.innerHTML = '';
         
         window.MinigameList.forEach(game => {
@@ -243,7 +256,6 @@ window.MinigameManager = {
             this.receiveVote(msg.proposerId, msg.userId, msg.vote);
         } else if (msg.type === 'mg_start_countdown') {
             this.startCountdown(msg.targetStartTime); 
-        // ★修正: 他人からの abort (全体終了) は受け付けないように削除
         } else if (msg.type === 'mg_cancel') {
             this.cancelProposal(msg.reason);
         } else if (msg.type === 'mg_sync_state') {
@@ -309,6 +321,7 @@ window.MinigameManager = {
                 if (mgBtn) {
                     mgBtn.classList.add('abort-mode');
                     mgBtn.innerText = '観戦モード';
+                    mgBtn.classList.add('spectator-mode');
                 }
             }
         }
@@ -454,11 +467,11 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
-        // ★修正: 参加者は「リタイア」、観戦者は「観戦モード」表記にする
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
             mgBtn.classList.add('abort-mode');
             mgBtn.innerText = this.myVote === false ? '観戦モード' : 'リタイア';
+            if (this.myVote === false) mgBtn.classList.add('spectator-mode');
         }
 
         if (this.myVote === false) {
@@ -504,7 +517,7 @@ window.MinigameManager = {
         }, 1000);
     },
 
-    // リザルト等でゲーム自体が終了した際に呼ばれる処理（将来のプラグインから呼ばれる）
+    // リザルト等でゲームが終了した際に呼ばれる
     endGame: function() {
         this.state = 'IDLE';
         this.currentProposal = null;
@@ -512,6 +525,7 @@ window.MinigameManager = {
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
             mgBtn.classList.remove('abort-mode');
+            mgBtn.classList.remove('spectator-mode');
             mgBtn.innerText = 'ミニゲーム';
         }
 

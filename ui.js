@@ -86,7 +86,7 @@ function initUI() {
     joystickBase.appendChild(joystickStick);
     uiLayer.appendChild(joystickBase);
 
-    // ★修正: ジャンプボタンを通常版と観戦モード版(上下分割)に構造変更
+    // ★ジャンプボタンを通常版と観戦モード版(上下分割)に構造変更
     const jumpBtn = document.createElement('div');
     jumpBtn.id = 'jump-btn';
     jumpBtn.innerHTML = `
@@ -102,7 +102,7 @@ function initUI() {
     const specUp = jumpBtn.querySelector('#spec-up');
     const specDown = jumpBtn.querySelector('#spec-down');
 
-    // ★追加: 観戦モード用のグローバルな上下移動フラグ
+    // 観戦モード用のグローバルな上下移動フラグ
     window.specMoveUp = false;
     window.specMoveDown = false;
 
@@ -128,7 +128,7 @@ function initUI() {
     specDown.addEventListener('touchend', endSpecDown);
     specDown.addEventListener('touchcancel', endSpecDown);
 
-    // ★追加: 観戦モードのON/OFFに合わせてUIを切り替えるグローバル関数
+    // 観戦モードのON/OFFに合わせてUIを切り替えるグローバル関数
     window.toggleSpectatorUI = function(isSpec) {
         if (isSpec) {
             normalJump.style.display = 'none';
@@ -217,9 +217,11 @@ function initUI() {
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 
+    // 分離した他モジュールのUI生成を呼び出す
     if (window.MultiplayerManager && typeof window.MultiplayerManager.initUI === 'function') {
         window.MultiplayerManager.initUI();
     }
+    // ミニゲーム専用UIの初期化
     if (window.MinigameUI && typeof window.MinigameUI.initUI === 'function') {
         window.MinigameUI.initUI();
     }

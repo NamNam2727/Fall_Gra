@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
-// ★メンバーリストUIの生成とマルチプレイ管理
-// ★観戦モード(透明化・当たり判定除外)の通信同期を追加
+// メンバーリストUIの生成とマルチプレイ管理
+// ★途中入室時の初回ワープ（すり抜け防止）と観戦者フラグの同期
 // =========================================================
 
 window.MultiplayerManager = {
@@ -111,8 +111,7 @@ window.MultiplayerManager = {
     
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
-        
-        if (window.isSpectatorMode) return; // 観戦中は送らない
+        if (window.isSpectatorMode) return; // 観戦モード中は送信しない
         
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
@@ -209,7 +208,6 @@ window.MultiplayerManager = {
                         }
                     }
 
-                    // 自分が観戦モードなら新規入室者にも伝える
                     if (window.isSpectatorMode) {
                         this.sendData({ type: 'mg_spectator', isSpectator: true });
                     }
@@ -220,17 +218,17 @@ window.MultiplayerManager = {
                             this.sendData({
                                 type: 'mg_sync_state',
                                 state: window.MinigameManager.state,
-                                targetStartTime: window.MinigameManager.targetStartTime, // 同時開始時刻も送信
+                                targetStartTime: window.MinigameManager.targetStartTime,
                                 proposal: window.MinigameManager.currentProposal
                             });
                         }
                     }
-                // ★追加: 観戦モードの同期を受信
                 } else if (msgData.type === 'mg_spectator') {
+                    // ★他プレイヤーが観戦モードに入った（または出た）情報の同期
                     const p = this.otherPlayers[data.user_id];
                     if (p) {
                         p.isSpectator = msgData.isSpectator;
-                        if (p.mesh) p.mesh.visible = !msgData.isSpectator; // 観戦者は画面から非表示にする
+                        if (p.mesh) p.mesh.visible = !msgData.isSpectator; // 画面から消す
                     }
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
@@ -266,8 +264,8 @@ window.MultiplayerManager = {
             targetPos: new THREE.Vector3(0, 20, 0),
             targetQuat: new THREE.Quaternion(),
             lastMoveTime: 0,
-            hasReceivedFirstPos: false,
-            isSpectator: false // 観戦モードフラグ
+            hasReceivedFirstPos: false, // ★初回の位置ワープ用フラグ
+            isSpectator: false
         };
     },
 
@@ -288,6 +286,7 @@ window.MultiplayerManager = {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 
+                // ★初回の位置データを受信した時だけ即座にワープ（すり抜けバグ防止）
                 if (!p.hasReceivedFirstPos) {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);

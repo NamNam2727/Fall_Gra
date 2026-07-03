@@ -11,6 +11,8 @@ window.MinigameUI = {
             #minigame-btn:active { background: rgba(255, 150, 0, 1.0); transform: scale(0.95); }
             #minigame-btn.abort-mode { background: rgba(220, 50, 50, 0.9) !important; border-color: white !important; }
             #minigame-btn.abort-mode:active { background: rgba(200, 40, 40, 1.0) !important; }
+            #minigame-btn.spectator-mode { background: #555 !important; border-color: #777 !important; cursor: default; }
+            #minigame-btn.spectator-mode:active { transform: none; }
 
             .mg-window-base { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; height: 70%; max-height: 500px; background: rgba(15, 15, 25, 0.95); border: 3px solid #ffaa00; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); display: none; flex-direction: column; z-index: 1000; pointer-events: auto; font-family: sans-serif; color: white; }
 
@@ -72,7 +74,7 @@ window.MinigameUI = {
 
             if (window.MinigameManager) {
                 if (window.MinigameManager.state === 'PLAYING' || window.MinigameManager.state === 'COUNTDOWN') {
-                    // ★変更: 既に観戦モードなら無反応、プレイ中なら「リタイア確認」を出す
+                    // ★観戦モードなら無反応、プレイ中なら「リタイア確認」を出す
                     if (!window.isSpectatorMode) {
                         window.MinigameManager.confirmRetire(); 
                     }

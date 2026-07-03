@@ -1,7 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★観戦モード専用の重力無視・上下移動(ドローン化)を追加
+// ★落下時の押し出し無効化、観戦モードのドローン操作（重力無視）
 // =====================================
 
 let mapMesh;
@@ -53,7 +53,7 @@ window.initThreeJS = function() {
         }, 1000);
     }
 
-    // ★追加: PCキーボード用の観戦モード上下移動（Space=上, Shift=下）
+    // ★PC用：観戦モードの上下移動をSpaceとShiftにも割り当て
     window.addEventListener('keydown', (e) => {
         if (window.isSpectatorMode) {
             if (e.code === 'Space') window.specMoveUp = true;
@@ -131,12 +131,14 @@ window.updatePlayer = function(delta) {
 
     let pushX = 0;
     let pushZ = 0;
+    // ★自身が初期落下中の場合は他プレイヤーの押し出しを無視する（すり抜けバグ防止）
     let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
 
     if (window.MultiplayerManager && !isFalling) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
             let other = others[id];
+            // ★相手が観戦者（isSpectator）の場合は当たり判定をスルー
             if (other.mesh && other.hasReceivedFirstPos !== false && !other.isSpectator) {
                 let dx = player.position.x - other.mesh.position.x;
                 let dz = player.position.z - other.mesh.position.z;
@@ -259,21 +261,20 @@ window.updatePlayer = function(delta) {
     if (canMoveZ) player.position.z = nextZ;
 
     // =====================================
-    // ★追加: 観戦モード用の上下移動と重力カット処理
+    // ★観戦モード時のドローン化（重力無視）
     // =====================================
     if (window.isSpectatorMode) {
         const flySpeed = 20.0;
         if (window.specMoveUp) player.position.y += flySpeed * delta;
         if (window.specMoveDown) player.position.y -= flySpeed * delta;
         
-        // 奈落に行かないようにする制限
+        // 奈落制限
         if (player.position.y < -30) player.position.y = 20;
 
         verticalVelocity = 0; 
         isJumping = false; 
-
     } else {
-        // 通常のジャンプと重力処理
+        // 通常のジャンプ・重力処理
         if (isJumping) {
             verticalVelocity += gravity * delta;
             
