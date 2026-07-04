@@ -12,9 +12,8 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
-let lastPerfWarnTime = 0; // ★追加: 処理落ちログの連続出力防止タイマー
+let lastPerfWarnTime = 0; 
 
-// ★追加: 現在画面に見えている「地形」タグがついたメッシュをすべて取得する
 function getTerrainMeshes() {
     let meshes = [];
     if (typeof scene === 'undefined') return meshes;
@@ -77,7 +76,6 @@ window.initThreeJS = function() {
         }, 1000);
     }
 
-    // PC用：観戦モードの上下移動をSpaceとShiftにも割り当て
     window.addEventListener('keydown', (e) => {
         if (window.isSpectatorMode) {
             if (e.code === 'Space') window.specMoveUp = true;
@@ -104,17 +102,14 @@ window.onWindowResize = function() {
 window.animate = function() {
     requestAnimationFrame(window.animate);
     
-    // ★追加: 処理落ち調査用の delta 監視
     const rawDelta = clock.getDelta();
     
     // 0.05秒 (20FPS相当) 以上かかったフレームを処理落ちとして検知
     if (rawDelta > 0.05) {
         const now = performance.now();
-        // ログが溢れてクラッシュするのを防ぐため、最低でも1秒間隔をあける
         if (now - lastPerfWarnTime > 1000) {
             let msg = `[処理落ち] delta = ${(rawDelta * 1000).toFixed(1)}ms`;
             console.warn(msg);
-            // ゲーム画面上のシステムメッセージとして表示
             if (typeof window.addLog === 'function') {
                 window.addLog(`<span style="color:#ff5555; font-weight:bold;">${msg}</span>`, 'sys');
             }
@@ -135,12 +130,34 @@ window.animate = function() {
     }
     
     updateCamera(false);
+    
+    // =====================================
+    // ★追加: renderer.render 自体の実行時間を計測
+    // （ここで数百msかかる場合、シェーダーコンパイルが原因）
+    // =====================================
+    const tRenderStart = performance.now();
+    
     renderer.render(scene, camera);
+    
+    const tRenderEnd = performance.now();
+    const renderTime = tRenderEnd - tRenderStart;
+
+    // 初回レンダリングのみ確定でログ出力
+    if (!window._firstRenderDone) {
+        console.log(`[Perf] 初回 renderer.render: ${renderTime.toFixed(2)}ms`);
+        if (typeof window.addLog === 'function') {
+            window.addLog(`<span style="color:#ff55ff; font-weight:bold;">[Perf] 初回Render: ${renderTime.toFixed(2)}ms</span>`, 'sys');
+        }
+        window._firstRenderDone = true;
+    } else if (renderTime > 50) { 
+        // 2回目以降でも 50ms 以上かかったらスパイクとしてログ出力
+        console.log(`[Perf] Render Spike: ${renderTime.toFixed(2)}ms`);
+        if (typeof window.addLog === 'function') {
+            window.addLog(`<span style="color:#ffaa00;">[Perf] Render Spike: ${renderTime.toFixed(2)}ms</span>`, 'sys');
+        }
+    }
 };
 
-// =====================================
-// 地面判定関数
-// =====================================
 function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
     let currentGroundY = -100;
     let groundNormal = new THREE.Vector3(0, 1, 0);
@@ -173,7 +190,6 @@ window.updatePlayer = function(delta) {
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
     
-    // 1. UI更新
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -184,15 +200,12 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // 2. terrainMeshes取得
     let terrainMeshes = getTerrainMeshes();
 
-    // ・updatePlayer()開始時の地面Ray取得
     let groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
     let currentGroundY = groundInfo.currentGroundY;
     let groundNormal = groundInfo.groundNormal;
 
-    // 3. 入力から mX,mZ 計算
     let mX = 0, mZ = 0;
 
     if (moveVector.lengthSq() > 0.01) {
@@ -219,8 +232,6 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // 4. 水平壁判定
-    // 5. XZ移動
     const nextX = player.position.x + mX;
     const nextZ = player.position.z + mZ;
     let margin = pRadius * 0.8; 
@@ -277,14 +288,10 @@ window.updatePlayer = function(delta) {
     }
     if (canMoveZ) player.position.z = nextZ;
 
-    // 6. 移動後の座標で地面Ray再取得
-    // 7. currentGroundY 更新
-    // 8. groundNormal 更新
     groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
     currentGroundY = groundInfo.currentGroundY;
     groundNormal = groundInfo.groundNormal;
 
-    // 9. ジャンプ・重力・着地判定
     if (window.isSpectatorMode) {
         const flySpeed = 20.0;
         if (window.specMoveUp) player.position.y += flySpeed * delta;
@@ -323,11 +330,9 @@ window.updatePlayer = function(delta) {
             const groundGap = player.position.y - currentGroundY;
             if (groundGap > 0.8 && verticalVelocity <= 0) { 
                 
-                // ★追加: ジャンプ(落下)移行時の状況をチャットログに表示する
                 let dbgMsg = `[Jump] gap:${groundGap.toFixed(2)}, pY:${player.position.y.toFixed(2)}, gY:${currentGroundY.toFixed(2)}`;
                 console.log(dbgMsg, { groundY: currentGroundY, playerY: player.position.y, gap: groundGap, verticalVelocity: verticalVelocity });
                 
-                // ゲーム画面上のシステムメッセージとして表示
                 if (typeof window.addLog === 'function') {
                     window.addLog(`<span style="color:#ffff55;">${dbgMsg}</span>`, 'sys');
                 }
@@ -352,14 +357,11 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // 10. Quaternion更新（最新の groundNormal を使用）
     const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
     const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
     const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 
-
-    // 11. 他プレイヤー押し出し
     let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
 
     if (window.MultiplayerManager && !isFalling && !window.isSpectatorMode) {
