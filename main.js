@@ -14,7 +14,6 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
-let lastPerfWarnTime = 0; 
 
 function getTerrainMeshes() {
     let meshes = [];
@@ -112,18 +111,6 @@ window.animate = function() {
     const rawDelta = clock.getDelta();
     const delta = Math.min(rawDelta, 0.05); 
     
-    if (rawDelta > 0.05) {
-        const now = performance.now();
-        if (now - lastPerfWarnTime > 1000) {
-            let msg = `[処理落ち] delta = ${(rawDelta * 1000).toFixed(1)}ms`;
-            console.warn(msg);
-            if (typeof window.addLog === 'function') {
-                window.addLog(`<span style="color:#ff5555; font-weight:bold;">${msg}</span>`, 'sys');
-            }
-            lastPerfWarnTime = now;
-        }
-    }
-
     updatePlayer(delta);
     
     if (window.MultiplayerManager) {
@@ -135,24 +122,7 @@ window.animate = function() {
     }
     
     updateCamera(false);
-    
-    const tRenderStart = performance.now();
     renderer.render(scene, camera);
-    const tRenderEnd = performance.now();
-    const renderTime = tRenderEnd - tRenderStart;
-
-    if (!window._firstRenderDone) {
-        console.log(`[Perf] 初回 renderer.render: ${renderTime.toFixed(2)}ms`);
-        if (typeof window.addLog === 'function') {
-            window.addLog(`<span style="color:#ff55ff; font-weight:bold;">[Perf] 初回Render: ${renderTime.toFixed(2)}ms</span>`, 'sys');
-        }
-        window._firstRenderDone = true;
-    } else if (renderTime > 50) { 
-        console.log(`[Perf] Render Spike: ${renderTime.toFixed(2)}ms`);
-        if (typeof window.addLog === 'function') {
-            window.addLog(`<span style="color:#ffaa00;">[Perf] Render Spike: ${renderTime.toFixed(2)}ms</span>`, 'sys');
-        }
-    }
 };
 
 function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
