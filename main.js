@@ -12,6 +12,7 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
+let lastPerfWarnTime = 0; // ★追加: 処理落ちログの連続出力防止タイマー
 
 // ★追加: 現在画面に見えている「地形」タグがついたメッシュをすべて取得する
 function getTerrainMeshes() {
@@ -108,7 +109,17 @@ window.animate = function() {
     
     // 0.05秒 (20FPS相当) 以上かかったフレームを処理落ちとして検知
     if (rawDelta > 0.05) {
-        console.warn(`[Performance Warning] 処理落ち検知: delta = ${rawDelta.toFixed(4)}s (${(rawDelta * 1000).toFixed(1)}ms)`);
+        const now = performance.now();
+        // ログが溢れてクラッシュするのを防ぐため、最低でも1秒間隔をあける
+        if (now - lastPerfWarnTime > 1000) {
+            let msg = `[処理落ち] delta = ${(rawDelta * 1000).toFixed(1)}ms`;
+            console.warn(msg);
+            // ゲーム画面上のシステムメッセージとして表示
+            if (typeof window.addLog === 'function') {
+                window.addLog(`<span style="color:#ff5555; font-weight:bold;">${msg}</span>`, 'sys');
+            }
+            lastPerfWarnTime = now;
+        }
     }
 
     const delta = Math.min(rawDelta, 0.1); 
@@ -311,12 +322,15 @@ window.updatePlayer = function(delta) {
         } else {
             const groundGap = player.position.y - currentGroundY;
             if (groundGap > 0.8 && verticalVelocity <= 0) { 
-                console.log({
-                    groundY: currentGroundY,
-                    playerY: player.position.y,
-                    gap: groundGap,
-                    verticalVelocity: verticalVelocity
-                });
+                
+                // ★追加: ジャンプ(落下)移行時の状況をチャットログに表示する
+                let dbgMsg = `[Jump] gap:${groundGap.toFixed(2)}, pY:${player.position.y.toFixed(2)}, gY:${currentGroundY.toFixed(2)}`;
+                console.log(dbgMsg, { groundY: currentGroundY, playerY: player.position.y, gap: groundGap, verticalVelocity: verticalVelocity });
+                
+                // ゲーム画面上のシステムメッセージとして表示
+                if (typeof window.addLog === 'function') {
+                    window.addLog(`<span style="color:#ffff55;">${dbgMsg}</span>`, 'sys');
+                }
 
                 isJumping = true; 
                 verticalVelocity = 0; 
