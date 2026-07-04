@@ -4,7 +4,8 @@
 // ★フライ(連続ジャンプ)中の天井衝突判定を追加
 // ★観戦モードのドローン操作（重力無視）を追加
 // ★押し出し処理を安定版（07021000）の構造に戻し、すり抜けを完全解決
-// ★ミニゲームのupdate呼び出しと、地形判定の動的取得処理を追加
+// ★処理落ち(スパイク)によるすり抜け防止のため Deltaハードクランプを追加
+// ★坂道での姿勢ガタつき・足場ロスト対策として地面判定を最適化
 // =====================================
 
 let mapMesh;
@@ -12,7 +13,6 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
-let lastPerfWarnTime = 0; 
 
 function getTerrainMeshes() {
     let meshes = [];
@@ -102,26 +102,12 @@ window.onWindowResize = function() {
 window.animate = function() {
     requestAnimationFrame(window.animate);
     
-    const rawDelta = clock.getDelta();
-    
-    if (rawDelta > 0.05) {
-        const now = performance.now();
-        if (now - lastPerfWarnTime > 1000) {
-            let msg = `[処理落ち] delta = ${(rawDelta * 1000).toFixed(1)}ms`;
-            console.warn(msg);
-            if (typeof window.addLog === 'function') {
-                window.addLog(`<span style="color:#ff5555; font-weight:bold;">${msg}</span>`, 'sys');
-            }
-            lastPerfWarnTime = now;
-        }
-    }
-
     // =====================================
-    // ★重要修正: すり抜け対策のセーフティガード
-    // rawDeltaが0.1秒(100ms)を超えるような異常なスパイク（初回Render等）が発生した場合、
-    // 物理演算が破綻しないよう、強制的に 0.016秒(60FPS相当) の経過として扱う
+    // ★重要: Delta のハードクランプ（すり抜けの完全防止）
+    // どんなにフリーズしても、1フレームの物理演算は最大 0.05秒(20FPS相当) の移動量に制限する。
+    // これにより、初回レンダー時などの巨大なスパイクによる壁・床抜けが物理的に発生しなくなります。
     // =====================================
-    const delta = rawDelta > 0.1 ? 0.016 : rawDelta; 
+    const delta = Math.min(clock.getDelta(), 0.05); 
     
     updatePlayer(delta);
     
@@ -134,32 +120,20 @@ window.animate = function() {
     }
     
     updateCamera(false);
-    
-    const tRenderStart = performance.now();
     renderer.render(scene, camera);
-    const tRenderEnd = performance.now();
-    const renderTime = tRenderEnd - tRenderStart;
-
-    if (!window._firstRenderDone) {
-        console.log(`[Perf] 初回 renderer.render: ${renderTime.toFixed(2)}ms`);
-        if (typeof window.addLog === 'function') {
-            window.addLog(`<span style="color:#ff55ff; font-weight:bold;">[Perf] 初回Render: ${renderTime.toFixed(2)}ms</span>`, 'sys');
-        }
-        window._firstRenderDone = true;
-    } else if (renderTime > 50) { 
-        console.log(`[Perf] Render Spike: ${renderTime.toFixed(2)}ms`);
-        if (typeof window.addLog === 'function') {
-            window.addLog(`<span style="color:#ffaa00;">[Perf] Render Spike: ${renderTime.toFixed(2)}ms</span>`, 'sys');
-        }
-    }
 };
 
+// =====================================
+// 地面判定関数
+// =====================================
 function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
     let currentGroundY = -100;
     let groundNormal = new THREE.Vector3(0, 1, 0);
 
     if (terrainMeshes.length > 0) {
-        let origin = new THREE.Vector3(playerPosition.x, playerPosition.y + pRadius * 3.0, playerPosition.z);
+        // ★変更: レイの発射位置を固定（上の階の床を突き抜けない安全な高さ = 2.5）
+        let rayHeight = 2.5; 
+        let origin = new THREE.Vector3(playerPosition.x, playerPosition.y + rayHeight, playerPosition.z);
         raycaster.set(origin, downVector);
         let intersects = raycaster.intersectObjects(terrainMeshes, false);
 
@@ -169,7 +143,8 @@ function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
             hitNormal.applyMatrix3(normalMatrix).normalize();
 
             if (hitNormal.y > 0.3) {
-                if (intersects[i].point.y <= playerPosition.y + myStepHeight + 0.5) {
+                // ★変更: 坂に深く進入した際にも足場として捉えられるよう、高さの許容範囲を +1.5 に拡大
+                if (intersects[i].point.y <= playerPosition.y + myStepHeight + 1.5) {
                     currentGroundY = intersects[i].point.y;
                     groundNormal.copy(hitNormal);
                     break;
@@ -186,6 +161,7 @@ window.updatePlayer = function(delta) {
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
     
+    // 1. UI更新
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -196,12 +172,15 @@ window.updatePlayer = function(delta) {
         }
     }
 
+    // 2. terrainMeshes取得
     let terrainMeshes = getTerrainMeshes();
 
+    // ・updatePlayer()開始時の地面Ray取得
     let groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
     let currentGroundY = groundInfo.currentGroundY;
     let groundNormal = groundInfo.groundNormal;
 
+    // 3. 入力から mX,mZ 計算
     let mX = 0, mZ = 0;
 
     if (moveVector.lengthSq() > 0.01) {
@@ -228,6 +207,8 @@ window.updatePlayer = function(delta) {
         }
     }
 
+    // 4. 水平壁判定
+    // 5. XZ移動
     const nextX = player.position.x + mX;
     const nextZ = player.position.z + mZ;
     let margin = pRadius * 0.8; 
@@ -284,10 +265,12 @@ window.updatePlayer = function(delta) {
     }
     if (canMoveZ) player.position.z = nextZ;
 
+    // 6. 移動後の座標で地面Ray再取得
     groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
     currentGroundY = groundInfo.currentGroundY;
     groundNormal = groundInfo.groundNormal;
 
+    // 9. ジャンプ・重力・着地判定
     if (window.isSpectatorMode) {
         const flySpeed = 20.0;
         if (window.specMoveUp) player.position.y += flySpeed * delta;
@@ -324,15 +307,8 @@ window.updatePlayer = function(delta) {
             }
         } else {
             const groundGap = player.position.y - currentGroundY;
-            if (groundGap > 0.8 && verticalVelocity <= 0) { 
-                
-                let dbgMsg = `[Jump] gap:${groundGap.toFixed(2)}, pY:${player.position.y.toFixed(2)}, gY:${currentGroundY.toFixed(2)}`;
-                console.log(dbgMsg, { groundY: currentGroundY, playerY: player.position.y, gap: groundGap, verticalVelocity: verticalVelocity });
-                
-                if (typeof window.addLog === 'function') {
-                    window.addLog(`<span style="color:#ffff55;">${dbgMsg}</span>`, 'sys');
-                }
-
+            // ★変更: 坂を下る際などの微小な浮きで「落下(isJumping)」に誤判定されないよう、閾値を 1.2 に緩和
+            if (groundGap > 1.2 && verticalVelocity <= 0) { 
                 isJumping = true; 
                 verticalVelocity = 0; 
             } else {
@@ -353,11 +329,14 @@ window.updatePlayer = function(delta) {
         }
     }
 
+    // 10. Quaternion更新（最新の groundNormal を使用）
     const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
     const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
     const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 
+
+    // 11. 他プレイヤー押し出し
     let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
 
     if (window.MultiplayerManager && !isFalling && !window.isSpectatorMode) {
