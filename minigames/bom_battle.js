@@ -1,8 +1,9 @@
 // =====================================
 // minigames/bom_battle.js
 // 爆弾バトル プラグイン
-// ★3,2,1のタイミングでUI表示・アイテム書き換え・数増量を実行
-// ★ランキングを残りライフベースに変更
+// ★スコア表記をハート(❤️🖤)に変更し、ランキングもライフベースに
+// ★アイテムをカウントダウン(3)のタイミングで一気出し
+// ★マルチプレイ時、生存者が1人になった時点で早期終了する機能を追加
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -12,11 +13,12 @@ window.MinigamePlugins['bom_battle'] = {
     maxHp: 3,
     invincibleTimer: 0,
     isPlaying: false,
-    isPrepared: false, // ★追加: 3,2,1のタイミングを検知するフラグ
-    settings: null,    // 初期化時の設定を保持
+    isPrepared: false, 
+    settings: null,    
     timeLimit: 3,
     remainTime: 0,
     hpUI: null,
+    totalParticipants: 1, // マルチプレイ判定用
     
     originalPlaceFieldItem: null,
     remoteHPs: {}, // id -> { hp, sprite }
@@ -30,18 +32,33 @@ window.MinigamePlugins['bom_battle'] = {
         this.settings = settings;
         this.timeLimit = settings && settings.time ? parseInt(settings.time, 10) : 3;
         this.remoteHPs = {};
-        
-        // ※この時点(10秒待機)ではまだUIも出さず、ハイジャックもしない
+    },
+
+    // ライフ数からハートの文字列を生成
+    getHeartsString: function(hp) {
+        let hearts = '';
+        for (let i = 0; i < this.maxHp; i++) {
+            if (i < hp) hearts += '❤️';
+            else hearts += '🖤';
+        }
+        return hearts;
+    },
+
+    // 順位ソート用のスコア（HP優先、同点なら長く生きた方が上）
+    getScoreValue: function() {
+        const survivedSec = (this.timeLimit * 60) - this.remainTime;
+        return this.hp * 10000 + survivedSec;
     },
 
     // 3,2,1のカウントダウンが開始された瞬間に1度だけ呼ばれる準備処理
     prepareGame: function() {
-        // アイテムの強制固定とスタック、出現数、アイコンのハイジャック
+        this.totalParticipants = window.MinigameManager && window.MinigameManager.resultData ? window.MinigameManager.resultData.length : 1;
+
         if (window.ItemSystem) {
             window.ItemSystem.forceItemType = 'bomb'; 
             window.ItemSystem.isStackable = true;     
             let baseItems = this.settings && this.settings.items ? parseInt(this.settings.items, 10) : 0; 
-            window.ItemSystem.maxItems = baseItems + 3; // ★指定数 + 3 個出現に確実にする
+            window.ItemSystem.maxItems = baseItems + 3; // 指定数 + 3 個
 
             this.originalPlaceFieldItem = window.ItemSystem.placeFieldItem;
             window.ItemSystem.placeFieldItem = function(id, pos) {
@@ -80,19 +97,34 @@ window.MinigamePlugins['bom_battle'] = {
                 
                 this.fieldItems[id] = group;
             }.bind(window.ItemSystem);
+
+            // ★ 提案者（ホスト役）のみが一気にアイテムを出現させる（二重生成防止）
+            const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
+            let isProposer = true;
+            if (window.MinigameManager && window.MinigameManager.currentProposal) {
+                const pid = window.MinigameManager.currentProposal.proposerId;
+                if (pid !== myId && pid !== 'host_123') isProposer = false;
+            }
+            if (isProposer) {
+                let currentCount = Object.keys(window.ItemSystem.fieldItems).length;
+                let spawnCount = window.ItemSystem.maxItems - currentCount;
+                for(let i=0; i<spawnCount; i++) {
+                    window.ItemSystem.spawnNewItem(true);
+                }
+            }
         }
 
         // UI（自分のハート）を表示
         this.createUI();
         
-        // 初期状態のスコア同期を送信（他プレイヤーに自分の初期HP3を知らせる）
+        // 初期状態のスコア同期を送信
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
                 type: 'mg_update_score',
                 userId: myId,
-                scoreValue: this.hp,  // ★ランキングのソート基準をHPに
-                scoreText: `ライフ: ${this.hp}`,
+                scoreValue: this.getScoreValue(),
+                scoreText: this.getHeartsString(this.hp),
                 statusText: "",
                 isRetired: false
             });
@@ -110,36 +142,63 @@ window.MinigamePlugins['bom_battle'] = {
     },
 
     update: function(delta) {
-        // ★PLAYINGステートに移行（3,2,1が開始）した最初のフレームで準備を行う
         if (!this.isPrepared) {
             this.isPrepared = true;
             this.prepareGame();
         }
 
-        // 他プレイヤーの頭上HP表示を追尾・更新
         this.updateRemoteHPs();
 
         if (!this.isPlaying) return;
 
         this.remainTime -= delta;
+
+        // ★ 生存者1人以下による早期終了判定（マルチプレイ時のみ）
+        if (this.totalParticipants >= 2) {
+            let aliveCount = 0;
+            if (window.MinigameManager && window.MinigameManager.resultData) {
+                window.MinigameManager.resultData.forEach(d => {
+                    if (!d.isRetired) aliveCount++;
+                });
+            }
+            if (aliveCount <= 1) {
+                this.remainTime = 0;
+                this.isPlaying = false;
+                
+                if (window.MinigameManager && window.MinigameManager.resultData) {
+                    const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
+                    const myData = window.MinigameManager.resultData.find(d => d.id === myId);
+                    if (myData && !myData.isRetired) {
+                        myData.scoreValue = this.getScoreValue();
+                        myData.scoreText = this.getHeartsString(this.hp);
+                        myData.statusText = "生存クリア";
+                    }
+
+                    window.MinigameManager.resultData.forEach(data => {
+                        if (!data.isRetired) data.statusText = "生存クリア"; 
+                    });
+                    window.MinigameManager.endGame();
+                }
+                return;
+            }
+        }
+
+        // 時間切れによる終了判定
         if (this.remainTime <= 0) {
             this.remainTime = 0;
             this.isPlaying = false;
             
-            // 終了判定
             if (window.MinigameManager && window.MinigameManager.resultData) {
                 const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
                 const myData = window.MinigameManager.resultData.find(d => d.id === myId);
-                if (myData) {
-                    myData.scoreValue = this.hp;
-                    myData.scoreText = `ライフ: ${this.hp}`;
+                if (myData && !myData.isRetired) {
+                    myData.scoreValue = this.getScoreValue();
+                    myData.scoreText = this.getHeartsString(this.hp);
                     myData.statusText = "生存クリア";
                 }
 
                 window.MinigameManager.resultData.forEach(data => {
-                    if (!data.isRetired) {
-                        data.statusText = "生存クリア"; 
-                    }
+                    if (!data.isRetired) data.statusText = "生存クリア"; 
                 });
                 window.MinigameManager.endGame();
             }
@@ -158,9 +217,7 @@ window.MinigamePlugins['bom_battle'] = {
             if (typeof player !== 'undefined' && player && !window.isSpectatorMode) {
                 const isVisible = Math.floor(this.invincibleTimer * 10) % 2 === 0;
                 player.traverse(child => {
-                    if (child.isMesh) { 
-                        child.visible = isVisible;
-                    }
+                    if (child.isMesh) child.visible = isVisible;
                 });
             }
             
@@ -199,8 +256,8 @@ window.MinigamePlugins['bom_battle'] = {
             window.MultiplayerManager.sendData({
                 type: 'mg_update_score',
                 userId: myId,
-                scoreValue: this.hp,
-                scoreText: `ライフ: ${this.hp}`,
+                scoreValue: this.getScoreValue(),
+                scoreText: this.getHeartsString(this.hp),
                 statusText: "",
                 isRetired: false
             });
@@ -212,9 +269,7 @@ window.MinigamePlugins['bom_battle'] = {
 
         if (this.hp <= 0) {
             this.isPlaying = false; 
-            if (window.MinigameManager) {
-                window.MinigameManager.executeRetire();
-            }
+            if (window.MinigameManager) window.MinigameManager.executeRetire();
         } else {
             this.invincibleTimer = 2.0;
         }
@@ -239,7 +294,7 @@ window.MinigamePlugins['bom_battle'] = {
 
             if (p.mesh && !this.remoteHPs[id]) {
                 const sprite = this.createHPSprite(this.maxHp);
-                sprite.position.y = 2.0; // 名前の少し上に配置
+                sprite.position.y = 2.0; 
                 p.mesh.add(sprite);
                 this.remoteHPs[id] = { hp: this.maxHp, sprite: sprite };
             }
@@ -299,8 +354,8 @@ window.MinigamePlugins['bom_battle'] = {
                 const data = window.MinigameManager.resultData.find(d => d.id === userId);
                 if (data) {
                     data.isRetired = true;
-                    data.scoreValue = this.hp; 
-                    data.scoreText = `ライフ: ${this.hp}`; 
+                    data.scoreValue = this.getScoreValue(); 
+                    data.scoreText = this.getHeartsString(this.hp); 
                 }
             }
             if (this.hpUI) this.hpUI.style.display = 'none';
@@ -327,7 +382,6 @@ window.MinigamePlugins['bom_battle'] = {
             });
         }
 
-        // ★ランキング計算 (HPが多い順にソート)
         if (window.MinigameManager && window.MinigameManager.resultData) {
             let rd = window.MinigameManager.resultData;
             rd.sort((a, b) => b.scoreValue - a.scoreValue);
@@ -379,14 +433,6 @@ window.MinigamePlugins['bom_battle'] = {
 
     updateHPUI: function() {
         if (!this.hpUI) return;
-        let hearts = '';
-        for (let i = 0; i < this.maxHp; i++) {
-            if (i < this.hp) {
-                hearts += '<span style="color:#ff4444; text-shadow:0 0 5px #ff0000;">❤️</span>';
-            } else {
-                hearts += '<span style="color:#555555; filter:grayscale(100%);">🖤</span>';
-            }
-        }
-        this.hpUI.innerHTML = hearts;
+        this.hpUI.innerHTML = this.getHeartsString(this.hp);
     }
 };
