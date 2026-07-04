@@ -1,8 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
-// ★参加者リストの構築を正確な通信データから行うよう修正（リザルト欠損バグ解消）
-// ★リタイア時のログ表示と、所持アイテムの没収機能を追加
+// ★参加表明(true)をしていない観戦者・途中入室者をリザルトに載せないように修正
 // =====================================
 
 window.MinigameManager = {
@@ -189,7 +188,6 @@ window.MinigameManager = {
         } else if (msg.type === 'mg_update_score') {
             const data = this.resultData.find(d => d.id === msg.userId);
             if (data) {
-                // ★追加: 他人がリタイアしたことをログに表示する
                 if (msg.isRetired && !data.isRetired) {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ff3300;">${data.name} がリタイアしました。</span>`, 'sys');
@@ -442,7 +440,6 @@ window.MinigameManager = {
             if (this.myVote === false) mgBtn.classList.add('spectator-mode');
         }
 
-        // ★修正: リザルト用リストを otherPlayers から正確に構築する（欠損バグ対策）
         this.resultData = [];
         let allUsers = [];
         
@@ -469,9 +466,19 @@ window.MinigameManager = {
 
         allUsers.forEach(u => {
             if (!u) return;
-            let isParticipating = true;
+            
+            // ★明確に「参加する(true)」という票がある人のみをリザルト（参加者）として扱う
+            let isParticipating = false;
+            
             if (this.currentProposal && this.currentProposal.votes) {
-                if (this.currentProposal.votes[u.user_id] === false) isParticipating = false;
+                if (this.currentProposal.votes[u.user_id] === true) {
+                    isParticipating = true;
+                }
+            }
+            
+            // ローカルプレイ時や自分がホストの場合のフォールバック
+            if (u.user_id === 'local' && this.myVote !== false) {
+                isParticipating = true;
             }
             
             if (isParticipating) {
@@ -581,7 +588,6 @@ window.MinigameManager = {
             });
         }
 
-        // ★追加: リタイア時に自分のアイテムを没収し、使用不可にする
         if (window.ItemSystem) {
             window.ItemSystem.mySlotItem = null;
             window.ItemSystem.stackedCount = 0;
