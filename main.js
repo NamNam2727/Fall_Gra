@@ -1,129 +1,45 @@
 // =====================================
-// main.js
-// 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★フライ(連続ジャンプ)中の天井衝突判定を追加
-// ★観戦モードのドローン操作（重力無視）を追加
-// ★押し出し処理を安定版（07021000）の構造に戻し、すり抜けを完全解決
-// ★ミニゲームのupdate呼び出しと、地形判定の動的取得処理を追加
+// ★追加: 地面判定を関数化
 // =====================================
+function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
+    let currentGroundY = -100;
+    let groundNormal = new THREE.Vector3(0, 1, 0);
 
-let mapMesh;
-let raycaster = new THREE.Raycaster();
-let downVector = new THREE.Vector3(0, -1, 0);
+    if (terrainMeshes.length > 0) {
+        let origin = new THREE.Vector3(playerPosition.x, playerPosition.y + pRadius * 3.0, playerPosition.z);
+        raycaster.set(origin, downVector);
+        let intersects = raycaster.intersectObjects(terrainMeshes, false);
 
-let currentFacingAngle = 0; 
+        for (let i = 0; i < intersects.length; i++) {
+            let hitNormal = intersects[i].face.normal.clone();
+            // ★変更: 複数のメッシュが対象になるため、当たったオブジェクトの matrixWorld を使用する
+            let normalMatrix = new THREE.Matrix3().getNormalMatrix(intersects[i].object.matrixWorld);
+            hitNormal.applyMatrix3(normalMatrix).normalize();
 
-// ★追加: 現在画面に見えている「地形」タグがついたメッシュをすべて取得する
-function getTerrainMeshes() {
-    let meshes = [];
-    if (typeof scene === 'undefined') return meshes;
-    scene.children.forEach(c => {
-        if (c.visible) {
-            if (c.userData && c.userData.isTerrain) {
-                meshes.push(c);
-            } else if (c.isGroup) {
-                c.children.forEach(child => {
-                    if (child.visible && child.userData && child.userData.isTerrain) {
-                        meshes.push(child);
-                    }
-                });
+            if (hitNormal.y > 0.3) {
+                if (intersects[i].point.y <= playerPosition.y + myStepHeight + 0.5) {
+                    currentGroundY = intersects[i].point.y;
+                    groundNormal.copy(hitNormal);
+                    break;
+                }
             }
         }
-    });
-    return meshes;
+    }
+
+    return { currentGroundY, groundNormal };
 }
 
-window.initThreeJS = function() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB);
-    scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
 
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
-    document.body.appendChild(renderer.domElement);
-
-    clock = new THREE.Clock();
-
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(30, 60, 30);
-    dirLight.castShadow = true;
-    const d = 60;
-    dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d;
-    dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
-    dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
-    scene.add(dirLight);
-
-    if (window.MapGenerator && typeof window.MapGenerator.createMesh === 'function') {
-        mapMesh = window.MapGenerator.createMesh();
-        scene.add(mapMesh);
-    } else {
-        console.error("MapGeneratorが見つかりません。");
-    }
-
-    initPlayer();
-
-    if (window.MultiplayerManager) {
-        window.MultiplayerManager.initExistingPlayers();
-        setTimeout(() => {
-            window.MultiplayerManager.requestPositions();
-            window.MultiplayerManager.forceSendPos(); 
-        }, 1000);
-    }
-
-    // PC用：観戦モードの上下移動をSpaceとShiftにも割り当て
-    window.addEventListener('keydown', (e) => {
-        if (window.isSpectatorMode) {
-            if (e.code === 'Space') window.specMoveUp = true;
-            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') window.specMoveDown = true;
-        }
-    });
-    window.addEventListener('keyup', (e) => {
-        if (window.isSpectatorMode) {
-            if (e.code === 'Space') window.specMoveUp = false;
-            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') window.specMoveDown = false;
-        }
-    });
-
-    updateCamera(true);
-    window.addEventListener('resize', onWindowResize);
-};
-
-window.onWindowResize = function() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-};
-
-window.animate = function() {
-    requestAnimationFrame(window.animate);
-    const delta = Math.min(clock.getDelta(), 0.1); 
-    
-    updatePlayer(delta);
-    
-    if (window.MultiplayerManager) {
-        window.MultiplayerManager.update(delta);
-    }
-
-    // ★追加: ミニゲームマネージャーの更新処理（プラグインの update 呼び出し）
-    if (window.MinigameManager && typeof window.MinigameManager.update === 'function') {
-        window.MinigameManager.update(delta);
-    }
-    
-    updateCamera(false);
-    renderer.render(scene, camera);
-};
-
+// =====================================
+// ★変更: updatePlayer関数
+// 処理順を「移動 → 地面再取得 → 重力・姿勢更新」に変更
+// =====================================
 window.updatePlayer = function(delta) {
     const rotationSpeed = 12; 
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
     
+    // 1. UI更新
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -134,33 +50,16 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    let currentGroundY = -100;
-    let groundNormal = new THREE.Vector3(0, 1, 0);
-    
+    // 2. terrainMeshes取得
     // ★変更: 動的に有効な地形メッシュ群を取得
     let terrainMeshes = getTerrainMeshes();
-    
-    if (terrainMeshes.length > 0) {
-        let origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 3.0, player.position.z);
-        raycaster.set(origin, downVector);
-        let intersects = raycaster.intersectObjects(terrainMeshes, false);
-        
-        for (let i = 0; i < intersects.length; i++) {
-            let hitNormal = intersects[i].face.normal.clone();
-            // ★変更: 複数のメッシュが対象になるため、当たったオブジェクトの matrixWorld を使用する
-            let normalMatrix = new THREE.Matrix3().getNormalMatrix(intersects[i].object.matrixWorld);
-            hitNormal.applyMatrix3(normalMatrix).normalize();
-            
-            if (hitNormal.y > 0.3) {
-                if (intersects[i].point.y <= player.position.y + myStepHeight + 0.5) {
-                    currentGroundY = intersects[i].point.y;
-                    groundNormal.copy(hitNormal);
-                    break;
-                }
-            }
-        }
-    }
 
+    // ・updatePlayer()開始時の地面Ray取得
+    let groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
+    let currentGroundY = groundInfo.currentGroundY;
+    let groundNormal = groundInfo.groundNormal;
+
+    // 3. 入力から mX,mZ 計算
     let mX = 0, mZ = 0;
 
     if (moveVector.lengthSq() > 0.01) {
@@ -178,13 +77,6 @@ window.updatePlayer = function(delta) {
         const targetRotationY = Math.atan2(moveDirection.x, moveDirection.y);
         currentFacingAngle = targetRotationY; 
         
-        const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
-        const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
-        const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
-        
-        const targetQuaternion = tiltQuat.multiply(rotQuat);
-        player.quaternion.slerp(targetQuaternion, rotationSpeed * delta);
-
         if (moveVector.y <= 0.2 && Math.abs(moveVector.x) > 0.05) {
             let targetCameraAngle = targetRotationY + Math.PI;
             let diff = targetCameraAngle - cameraAngle;
@@ -192,14 +84,10 @@ window.updatePlayer = function(delta) {
             while (diff > Math.PI) diff -= Math.PI * 2;
             cameraAngle += diff * 3.0 * delta;
         }
-    } else {
-        const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
-        const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
-        const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
-        
-        player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
     }
 
+    // 4. 水平壁判定
+    // 5. XZ移動
     const nextX = player.position.x + mX;
     const nextZ = player.position.z + mZ;
     let margin = pRadius * 0.8; 
@@ -256,6 +144,14 @@ window.updatePlayer = function(delta) {
     }
     if (canMoveZ) player.position.z = nextZ;
 
+    // 6. 移動後の座標で地面Ray再取得
+    // 7. currentGroundY 更新
+    // 8. groundNormal 更新
+    groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
+    currentGroundY = groundInfo.currentGroundY;
+    groundNormal = groundInfo.groundNormal;
+
+    // 9. ジャンプ・重力・着地判定
     // =====================================
     // ★観戦モード時のドローン化（重力無視）
     // =====================================
@@ -297,7 +193,17 @@ window.updatePlayer = function(delta) {
                 }
             }
         } else {
-            if (player.position.y > currentGroundY + 0.8) { 
+            // ★変更: ジャンプ開始判定の厳密化（上方向へ吸着中＝verticalVelocity > 0 はジャンプしない）
+            const groundGap = player.position.y - currentGroundY;
+            if (groundGap > 0.8 && verticalVelocity <= 0) { 
+                // ★追加: 坂進入時の誤判定調査用デバッグログ
+                console.log({
+                    groundY: currentGroundY,
+                    playerY: player.position.y,
+                    gap: groundGap,
+                    verticalVelocity: verticalVelocity
+                });
+
                 isJumping = true; 
                 verticalVelocity = 0; 
             } else {
@@ -319,6 +225,14 @@ window.updatePlayer = function(delta) {
         }
     }
 
+    // 10. Quaternion更新（最新の groundNormal を使用）
+    const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
+    const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
+    const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
+    player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
+
+
+    // 11. 他プレイヤー押し出し
     // =====================================
     // ★他プレイヤーとの押し出し処理（安定版の構造）
     // レイキャストによる壁判定の【後】に処理することで、すり抜け・トンネリングを完全防止
@@ -359,34 +273,4 @@ window.updatePlayer = function(delta) {
             }
         }
     }
-};
-
-window.updateCamera = function(instant) {
-    let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
-    let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
-    let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
-
-    let cDist = baseDist;
-    let cHeight = baseHeight;
-
-    if (typeof window.cameraSliderValue !== 'undefined') {
-        let diff = window.cameraSliderValue - 0.5; 
-        cHeight = baseHeight + (diff * 35.0); 
-        cDist = baseDist + (diff * 15.0);     
-        cHeight = Math.max(cHeight, 1.0);
-        cDist = Math.max(cDist, 1.0);
-    }
-
-    const targetCamPos = new THREE.Vector3(
-        player.position.x + Math.sin(cAngle) * cDist,
-        player.position.y + cHeight, 
-        player.position.z + Math.cos(cAngle) * cDist
-    );
-    
-    if (instant) camera.position.copy(targetCamPos);
-    else camera.position.lerp(targetCamPos, 0.1);
-    
-    let lookTarget = player.position.clone();
-    lookTarget.y += 1.0;
-    camera.lookAt(lookTarget);
 };
