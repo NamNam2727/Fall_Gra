@@ -83,7 +83,6 @@ window.MapGenerator = {
         let pull_pZ = (h_pZ > myTop) ? 0.5 : ((h_pZ < myTop) ? -0.5 : 0);
         let pull_mZ = (h_mZ > myTop) ? 0.5 : ((h_mZ < myTop) ? -0.5 : 0);
 
-        // 階段の開始・終了をなめらかにする補完
         if (pull_pX > 0 && pull_mX === 0) pull_mX = -0.5;
         if (pull_mX > 0 && pull_pX === 0) pull_pX = -0.5;
         if (pull_pZ > 0 && pull_mZ === 0) pull_mZ = -0.5;
@@ -94,7 +93,6 @@ window.MapGenerator = {
         if (pull_pZ < 0 && pull_mZ === 0) pull_mZ = 0.5;
         if (pull_mZ < 0 && pull_pZ === 0) pull_pZ = 0.5;
 
-        // まっすぐなスロープの判定と横からの干渉無効化
         let isSlopeX = (pull_pX === 0.5 && pull_mX === -0.5) || (pull_pX === -0.5 && pull_mX === 0.5);
         let isSlopeZ = (pull_pZ === 0.5 && pull_mZ === -0.5) || (pull_pZ === -0.5 && pull_mZ === 0.5);
 
@@ -113,7 +111,6 @@ window.MapGenerator = {
         let c_pXmZ = myTop + clamp(pull_pX + pull_mZ, -0.5, 0.5);
         let c_mXmZ = myTop + clamp(pull_mX + pull_mZ, -0.5, 0.5);
 
-        // まだ傾斜がついていない角のみ、斜め方向のマスを参照して角を落とす/上げる
         if (h_pXpZ > myTop && c_pXpZ === myTop) c_pXpZ = myTop + 0.5;
         if (h_pXpZ < myTop && c_pXpZ === myTop) c_pXpZ = myTop - 0.5;
         if (h_mXpZ > myTop && c_mXpZ === myTop) c_mXpZ = myTop + 0.5;
@@ -127,6 +124,8 @@ window.MapGenerator = {
     },
 
     createMesh: function() {
+        const t0 = performance.now(); // ★計測開始
+
         const { parsedMap, mapW, mapD } = this.parseMap();
         
         const vertices = [];
@@ -187,7 +186,6 @@ window.MapGenerator = {
                     const b_pXpZ = [px + 0.5, yB, pz + 0.5];
                     const b_mXpZ = [px - 0.5, yB, pz + 0.5];
 
-                    // 【上面】
                     if (l.isOdd) {
                         addFace(v_mXmZ, v_center, v_pXmZ, col);
                         addFace(v_pXmZ, v_center, v_pXpZ, col);
@@ -197,7 +195,6 @@ window.MapGenerator = {
                         addQuad(v_mXmZ, v_mXpZ, v_pXpZ, v_pXmZ, col);
                     }
 
-                    // 【底面】
                     addQuad(b_mXmZ, b_pXmZ, b_pXpZ, b_mXpZ, col);
 
                     const checkHidden = (nx, nz, myTopCorner1, myTopCorner2) => {
@@ -210,7 +207,6 @@ window.MapGenerator = {
                         return false;
                     };
 
-                    // 【側面】
                     if (!checkHidden(x, z+1, c_mXpZ, c_pXpZ)) addQuad(b_pXpZ, v_pXpZ, v_mXpZ, b_mXpZ, col); 
                     if (!checkHidden(x, z-1, c_mXmZ, c_pXmZ)) addQuad(b_mXmZ, v_mXmZ, v_pXmZ, b_pXmZ, col); 
                     if (!checkHidden(x+1, z, c_pXmZ, c_pXpZ)) addQuad(b_pXmZ, v_pXmZ, v_pXpZ, b_pXpZ, col); 
@@ -224,7 +220,6 @@ window.MapGenerator = {
         geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-        // ★Zファイティングの元凶であった side: THREE.DoubleSide を削除し、元の綺麗な描画に戻します
         const material = new THREE.MeshStandardMaterial({ 
             vertexColors: true, 
             roughness: 0.8
@@ -239,7 +234,11 @@ window.MapGenerator = {
         
         mesh.userData.isTerrain = true;
         
+        const t1 = performance.now(); // ★計測終了
+        const elapsed = (t1 - t0).toFixed(2);
+        console.log(`[Perf] MapGenerator.createMesh: ${elapsed}ms`);
+        if (window.addLog) window.addLog(`<span style="color:#aaffaa;">[Perf] MapMesh: ${elapsed}ms</span>`, 'sys');
+        
         return mesh;
     }
 };
-
