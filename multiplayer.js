@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★メンバーリストを現在の実際の通信データ(otherPlayers)から動的に構築するよう修正
+// ★リストのユーザーをタップするとプロフィール画面へ遷移する機能を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -20,7 +20,11 @@ window.MultiplayerManager = {
             .member-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 2px solid rgba(255,255,255,0.2); font-size: 16px; font-weight: bold; color: white; font-family: sans-serif; }
             .member-close-btn { background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 5px; }
             .member-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
-            .member-item { display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; }
+            
+            /* ★修正: カーソルをポインターにし、タップ時の色変化を追加 */
+            .member-item { display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
+            .member-item:active { background: rgba(255,255,255,0.3); }
+            
             .member-icon { width: 40px; height: 40px; border-radius: 50%; background: #ccc; margin-right: 15px; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); display: flex; justify-content: center; align-items: center; font-size: 20px; }
             .member-name { color: white; font-size: 14px; font-weight: bold; font-family: sans-serif; }
         `;
@@ -51,21 +55,23 @@ window.MultiplayerManager = {
 
             let allUsers = [];
             
-            // ★修正: 1. まず自分自身を追加
+            // 1. まず自分自身を追加 (プロフィールURL用の user_id も保持する)
             if (window.GameState && window.GameState.userInfo) {
                 allUsers.push({
+                    user_id: window.GameState.userInfo.user_id, // ★追加
                     user_name: window.GameState.userInfo.user_name || window.GameState.userInfo.name || "Player",
                     portrait: window.GameState.userInfo.portrait || window.GameState.userInfo.portait || ""
                 });
             } else {
-                allUsers.push({ user_name: "テストプレイヤー (あなた)", portrait: "" });
+                allUsers.push({ user_id: 'local', user_name: "テストプレイヤー (あなた)", portrait: "" });
             }
 
-            // ★修正: 2. リアルタイムに通信している他プレイヤー情報をリストに追加
+            // 2. リアルタイムに通信している他プレイヤー情報をリストに追加
             if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let op = window.MultiplayerManager.otherPlayers[id];
                     allUsers.push({
+                        user_id: op.id, // ★追加
                         user_name: op.name || "Player",
                         portrait: op.icon || ""
                     });
@@ -75,6 +81,14 @@ window.MultiplayerManager = {
             allUsers.forEach(user => {
                 const item = document.createElement('div');
                 item.className = 'member-item';
+                
+                // ★追加: 項目をタップした時の処理
+                item.addEventListener('click', () => {
+                    if (user.user_id && user.user_id !== 'local') {
+                        // 新しいタブでプロフィール画面を開く
+                        window.open(`https://www.gravity.place/user/${user.user_id}`, '_blank');
+                    }
+                });
                 
                 const icon = document.createElement('div');
                 icon.className = 'member-icon';
@@ -117,7 +131,7 @@ window.MultiplayerManager = {
     
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
-        if (window.isSpectatorMode) return; // 観戦モード中は送信しない
+        if (window.isSpectatorMode) return; 
         
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
@@ -157,7 +171,6 @@ window.MultiplayerManager = {
 
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
-            // hasReceivedFirstPos が false の間（初回ワープ前）は lerp による移動を無効化する
             if (p.mesh && p.targetPos && p.hasReceivedFirstPos !== false) {
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
@@ -267,7 +280,6 @@ window.MultiplayerManager = {
         const mesh = this.createPlayerMesh(user);
         scene.add(mesh);
 
-        // ミニゲームのリザルト等で使うため、名前とアイコンをここで保持しておく
         this.otherPlayers[user.user_id] = {
             id: user.user_id,
             name: user.user_name || user.name || "Player",
@@ -276,7 +288,7 @@ window.MultiplayerManager = {
             targetPos: new THREE.Vector3(0, 20, 0),
             targetQuat: new THREE.Quaternion(),
             lastMoveTime: 0,
-            hasReceivedFirstPos: false, // 初回の位置ワープ用フラグ
+            hasReceivedFirstPos: false, 
             isSpectator: false
         };
     },
@@ -298,7 +310,6 @@ window.MultiplayerManager = {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 
-                // 初回の位置データを受信した時だけ即座にワープ
                 if (!p.hasReceivedFirstPos) {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);
@@ -337,7 +348,7 @@ window.MultiplayerManager = {
             loader.load(avatarUrl, (loadedTexture) => {
                 loadedTexture.center.set(0.5, 0.5);
                 loadedTexture.rotation = -Math.PI / 2;
-                if (window.renderer) loadedTexture.anisotropy = window.renderer.capabilities.getMaxAnisotropy();
+                if (typeof renderer !== 'undefined' && renderer) loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
                 loadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
                 loadedTexture.magFilter = THREE.LinearFilter;
                 topMesh.material[1].map = loadedTexture;
