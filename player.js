@@ -4,8 +4,6 @@
 // =====================================
 
 function createIconTexture() {
-    const t0 = performance.now(); // ★計測開始
-
     const canvas = document.createElement('canvas');
     canvas.width = 512; canvas.height = 512;
     const ctx = canvas.getContext('2d');
@@ -28,21 +26,13 @@ function createIconTexture() {
     texture.center.set(0.5, 0.5);
     texture.rotation = -Math.PI / 2; 
     
-    if (typeof renderer !== 'undefined' && renderer) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    if (renderer) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
-    
-    const t1 = performance.now(); // ★計測終了
-    const elapsed = (t1 - t0).toFixed(2);
-    console.log(`[Perf] createIconTexture: ${elapsed}ms`);
-    if (window.addLog) window.addLog(`<span style="color:#aaffaa;">[Perf] IconTex: ${elapsed}ms</span>`, 'sys');
-
     return texture;
 }
 
 function createNameSprite(name) {
-    const t0 = performance.now(); // ★計測開始
-
     const canvas = document.createElement('canvas');
     canvas.width = 512; canvas.height = 128;
     const ctx = canvas.getContext('2d');
@@ -60,16 +50,12 @@ function createNameSprite(name) {
     sprite.scale.set(4, 1, 1);
     sprite.position.y = 1.8; 
     
-    const t1 = performance.now(); // ★計測終了
-    const elapsed = (t1 - t0).toFixed(2);
-    console.log(`[Perf] createNameSprite(${name}): ${elapsed}ms`);
-    if (window.addLog) window.addLog(`<span style="color:#aaffaa;">[Perf] NameSprite(${name}): ${elapsed}ms</span>`, 'sys');
-
     return sprite;
 }
 
 // ★ チャットの吹き出し(Sprite)を生成・管理する関数
 window.showChatBubble = function(targetMesh, text) {
+    // 既に吹き出しがあれば削除
     if (targetMesh.chatSprite) {
         targetMesh.remove(targetMesh.chatSprite);
         if (targetMesh.chatSprite.material.map) targetMesh.chatSprite.material.map.dispose();
@@ -81,6 +67,7 @@ window.showChatBubble = function(targetMesh, text) {
     canvas.width = 512; canvas.height = 256; 
     const ctx = canvas.getContext('2d');
     
+    // 吹き出しの背景（角丸＋しっぽ）
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 6;
@@ -104,6 +91,7 @@ window.showChatBubble = function(targetMesh, text) {
     ctx.closePath();
     ctx.fill(); ctx.stroke();
 
+    // 文字の描画
     ctx.fillStyle = '#000000';
     ctx.font = 'bold 44px sans-serif';
     ctx.textAlign = 'center';
@@ -116,15 +104,15 @@ window.showChatBubble = function(targetMesh, text) {
     const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter;
     
-    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false }); 
+    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false }); // 壁に埋まらないようにする
     const sprite = new THREE.Sprite(material);
     
     sprite.scale.set(5, 2.5, 1);
-    sprite.position.y = 3.5; 
+    sprite.position.y = 3.5; // ネームプレートより上に配置
     
     targetMesh.add(sprite);
     targetMesh.chatSprite = sprite;
-    targetMesh.chatTimer = 5.0; 
+    targetMesh.chatTimer = 5.0; // 5秒表示
 };
 
 function initPlayer() {
@@ -160,31 +148,20 @@ function initPlayer() {
         const imageUrl = window.GameState.userInfo.portrait;
         const loader = new THREE.TextureLoader();
         loader.setCrossOrigin('anonymous');
-        
-        const t0 = performance.now(); // ★計測開始 (TextureLoader同期的セットアップ)
         loader.load(
             imageUrl,
             function (loadedTexture) {
-                const cb0 = performance.now(); // ★計測開始 (コールバック処理)
-                
                 loadedTexture.center.set(0.5, 0.5);
                 loadedTexture.rotation = -Math.PI / 2;
-                if (typeof renderer !== 'undefined' && renderer) loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+                if (renderer) loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
                 loadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
                 loadedTexture.magFilter = THREE.LinearFilter;
                 
                 topMesh.material[1].map = loadedTexture;
                 topMesh.material[1].needsUpdate = true;
-                
-                const cb1 = performance.now(); // ★計測終了
-                const cbElapsed = (cb1 - cb0).toFixed(2);
-                console.log(`[Perf] TexLoad Callback (MyPlayer): ${cbElapsed}ms`);
-                if (window.addLog && (cb1 - cb0) > 5) window.addLog(`<span style="color:#ffaa00;">[Perf] MyTexCB: ${cbElapsed}ms</span>`, 'sys');
             },
             undefined, function (err) {}
         );
-        const t1 = performance.now(); // ★計測終了
-        const elapsed = (t1 - t0).toFixed(2);
-        console.log(`[Perf] TextureLoader.load Trigger: ${elapsed}ms`);
     }
 }
+
