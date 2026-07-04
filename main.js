@@ -6,6 +6,7 @@
 // ★押し出し処理を安定版（07021000）の構造に戻し、すり抜けを完全解決
 // ★処理落ち(スパイク)によるすり抜け防止のため Deltaハードクランプを追加
 // ★坂道での姿勢ガタつき・足場ロスト対策として地面判定を最適化
+// ★他プレイヤーからの押し出しを壁判定の前に処理し、壁抜けを完全防止
 // =====================================
 
 let mapMesh;
@@ -13,6 +14,7 @@ let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 let currentFacingAngle = 0; 
+let lastPerfWarnTime = 0; 
 
 function getTerrainMeshes() {
     let meshes = [];
@@ -107,8 +109,21 @@ window.animate = function() {
     // どんなにフリーズしても、1フレームの物理演算は最大 0.05秒(20FPS相当) の移動量に制限する。
     // これにより、初回レンダー時などの巨大なスパイクによる壁・床抜けが物理的に発生しなくなります。
     // =====================================
-    const delta = Math.min(clock.getDelta(), 0.05); 
+    const rawDelta = clock.getDelta();
+    const delta = Math.min(rawDelta, 0.05); 
     
+    if (rawDelta > 0.05) {
+        const now = performance.now();
+        if (now - lastPerfWarnTime > 1000) {
+            let msg = `[処理落ち] delta = ${(rawDelta * 1000).toFixed(1)}ms`;
+            console.warn(msg);
+            if (typeof window.addLog === 'function') {
+                window.addLog(`<span style="color:#ff5555; font-weight:bold;">${msg}</span>`, 'sys');
+            }
+            lastPerfWarnTime = now;
+        }
+    }
+
     updatePlayer(delta);
     
     if (window.MultiplayerManager) {
@@ -120,18 +135,31 @@ window.animate = function() {
     }
     
     updateCamera(false);
+    
+    const tRenderStart = performance.now();
     renderer.render(scene, camera);
+    const tRenderEnd = performance.now();
+    const renderTime = tRenderEnd - tRenderStart;
+
+    if (!window._firstRenderDone) {
+        console.log(`[Perf] 初回 renderer.render: ${renderTime.toFixed(2)}ms`);
+        if (typeof window.addLog === 'function') {
+            window.addLog(`<span style="color:#ff55ff; font-weight:bold;">[Perf] 初回Render: ${renderTime.toFixed(2)}ms</span>`, 'sys');
+        }
+        window._firstRenderDone = true;
+    } else if (renderTime > 50) { 
+        console.log(`[Perf] Render Spike: ${renderTime.toFixed(2)}ms`);
+        if (typeof window.addLog === 'function') {
+            window.addLog(`<span style="color:#ffaa00;">[Perf] Render Spike: ${renderTime.toFixed(2)}ms</span>`, 'sys');
+        }
+    }
 };
 
-// =====================================
-// 地面判定関数
-// =====================================
 function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
     let currentGroundY = -100;
     let groundNormal = new THREE.Vector3(0, 1, 0);
 
     if (terrainMeshes.length > 0) {
-        // ★変更: レイの発射位置を固定（上の階の床を突き抜けない安全な高さ = 2.5）
         let rayHeight = 2.5; 
         let origin = new THREE.Vector3(playerPosition.x, playerPosition.y + rayHeight, playerPosition.z);
         raycaster.set(origin, downVector);
@@ -143,7 +171,6 @@ function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
             hitNormal.applyMatrix3(normalMatrix).normalize();
 
             if (hitNormal.y > 0.3) {
-                // ★変更: 坂に深く進入した際にも足場として捉えられるよう、高さの許容範囲を +1.5 に拡大
                 if (intersects[i].point.y <= playerPosition.y + myStepHeight + 1.5) {
                     currentGroundY = intersects[i].point.y;
                     groundNormal.copy(hitNormal);
@@ -204,6 +231,46 @@ window.updatePlayer = function(delta) {
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
             cameraAngle += diff * 3.0 * delta;
+        }
+    }
+
+    // =====================================
+    // ★他プレイヤーとの押し出し処理（壁判定の【前】に移動）
+    // 押し出しによる移動量ベクトルを mX, mZ に加算し、その合算ベクトルで壁判定を行うことで壁抜けを完全防止
+    // =====================================
+    let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
+
+    if (window.MultiplayerManager && !isFalling && !window.isSpectatorMode) {
+        const others = window.MultiplayerManager.otherPlayers;
+        for (let id in others) {
+            let other = others[id];
+            if (other.mesh && other.hasReceivedFirstPos !== false && !other.isSpectator) {
+                let dx = player.position.x - other.mesh.position.x;
+                let dz = player.position.z - other.mesh.position.z;
+                let dy = player.position.y - other.mesh.position.y;
+                
+                let distXZ = Math.hypot(dx, dz);
+                let combinedRadius = pRadius * 1.8; 
+                
+                if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
+                    if (distXZ === 0) { 
+                        dx = (Math.random() - 0.5) * 0.1;
+                        dz = (Math.random() - 0.5) * 0.1;
+                        distXZ = Math.hypot(dx, dz);
+                    }
+                    
+                    let overlap = combinedRadius - distXZ;
+                    
+                    if (Math.abs(dy) < 0.4) {
+                        mX += (dx / distXZ) * overlap * 0.5;
+                        mZ += (dz / distXZ) * overlap * 0.5;
+                    } else if (dy >= 0.4) {
+                        let slideForce = overlap * 0.15; 
+                        mX += (dx / distXZ) * slideForce;
+                        mZ += (dz / distXZ) * slideForce;
+                    }
+                }
+            }
         }
     }
 
@@ -307,7 +374,6 @@ window.updatePlayer = function(delta) {
             }
         } else {
             const groundGap = player.position.y - currentGroundY;
-            // ★変更: 坂を下る際などの微小な浮きで「落下(isJumping)」に誤判定されないよう、閾値を 1.2 に緩和
             if (groundGap > 1.2 && verticalVelocity <= 0) { 
                 isJumping = true; 
                 verticalVelocity = 0; 
@@ -334,44 +400,6 @@ window.updatePlayer = function(delta) {
     const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
     const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
-
-
-    // 11. 他プレイヤー押し出し
-    let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
-
-    if (window.MultiplayerManager && !isFalling && !window.isSpectatorMode) {
-        const others = window.MultiplayerManager.otherPlayers;
-        for (let id in others) {
-            let other = others[id];
-            if (other.mesh && other.hasReceivedFirstPos !== false && !other.isSpectator) {
-                let dx = player.position.x - other.mesh.position.x;
-                let dz = player.position.z - other.mesh.position.z;
-                let dy = player.position.y - other.mesh.position.y;
-                
-                let distXZ = Math.hypot(dx, dz);
-                let combinedRadius = pRadius * 1.8; 
-                
-                if (distXZ < combinedRadius && dy > -0.2 && dy < 0.8) {
-                    if (distXZ === 0) { 
-                        dx = (Math.random() - 0.5) * 0.1;
-                        dz = (Math.random() - 0.5) * 0.1;
-                        distXZ = Math.hypot(dx, dz);
-                    }
-                    
-                    let overlap = combinedRadius - distXZ;
-                    
-                    if (Math.abs(dy) < 0.4) {
-                        player.position.x += (dx / distXZ) * overlap * 0.5;
-                        player.position.z += (dz / distXZ) * overlap * 0.5;
-                    } else if (dy >= 0.4) {
-                        let slideForce = overlap * 0.15; 
-                        player.position.x += (dx / distXZ) * slideForce;
-                        player.position.z += (dz / distXZ) * slideForce;
-                    }
-                }
-            }
-        }
-    }
 };
 
 window.updateCamera = function(instant) {
