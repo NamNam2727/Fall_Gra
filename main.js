@@ -104,7 +104,6 @@ window.animate = function() {
     
     const rawDelta = clock.getDelta();
     
-    // 0.05秒 (20FPS相当) 以上かかったフレームを処理落ちとして検知
     if (rawDelta > 0.05) {
         const now = performance.now();
         if (now - lastPerfWarnTime > 1000) {
@@ -117,7 +116,12 @@ window.animate = function() {
         }
     }
 
-    const delta = Math.min(rawDelta, 0.1); 
+    // =====================================
+    // ★重要修正: すり抜け対策のセーフティガード
+    // rawDeltaが0.1秒(100ms)を超えるような異常なスパイク（初回Render等）が発生した場合、
+    // 物理演算が破綻しないよう、強制的に 0.016秒(60FPS相当) の経過として扱う
+    // =====================================
+    const delta = rawDelta > 0.1 ? 0.016 : rawDelta; 
     
     updatePlayer(delta);
     
@@ -131,18 +135,11 @@ window.animate = function() {
     
     updateCamera(false);
     
-    // =====================================
-    // ★追加: renderer.render 自体の実行時間を計測
-    // （ここで数百msかかる場合、シェーダーコンパイルが原因）
-    // =====================================
     const tRenderStart = performance.now();
-    
     renderer.render(scene, camera);
-    
     const tRenderEnd = performance.now();
     const renderTime = tRenderEnd - tRenderStart;
 
-    // 初回レンダリングのみ確定でログ出力
     if (!window._firstRenderDone) {
         console.log(`[Perf] 初回 renderer.render: ${renderTime.toFixed(2)}ms`);
         if (typeof window.addLog === 'function') {
@@ -150,7 +147,6 @@ window.animate = function() {
         }
         window._firstRenderDone = true;
     } else if (renderTime > 50) { 
-        // 2回目以降でも 50ms 以上かかったらスパイクとしてログ出力
         console.log(`[Perf] Render Spike: ${renderTime.toFixed(2)}ms`);
         if (typeof window.addLog === 'function') {
             window.addLog(`<span style="color:#ffaa00;">[Perf] Render Spike: ${renderTime.toFixed(2)}ms</span>`, 'sys');
