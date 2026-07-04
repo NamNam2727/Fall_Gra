@@ -1,9 +1,8 @@
 // =====================================
 // minigames/coin_rush.js
 // コインラッシュ プラグイン
-// フィールドに大量のコインを配置し、獲得数を競う
-// ★コインの出現タイミングを 3,2,1 のカウントダウン中に修正
-// ★落下によるリタイアを阻止し、先回りでデスペナルティ(コイン半減)に変更
+// ★コインUIの表示タイミングを「3」のタイミングに修正
+// ★UIのアイコンを実際のコインと同じ画像(Canvasからの生成)に変更
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -14,6 +13,7 @@ window.MinigamePlugins['coin_rush'] = {
     coinGroup: null,
     effectGroup: null,
     isPlaying: false,
+    isPrepared: false, // ★追加: 3のタイミングを検知するフラグ
     canGet: false,
     timeLimit: 3,     
     remainTime: 0,    
@@ -22,23 +22,33 @@ window.MinigamePlugins['coin_rush'] = {
     coinTexture: null,
     coinMaterial: null,
     coinGeometry: null,
+    coinDataUrl: null, // ★追加: UI表示用のコイン画像データ
     
     coinUI: null,
 
     init: function(settings) {
         console.log("[Coin Rush] Initializing...");
         this.isPlaying = false;
+        this.isPrepared = false;
         this.canGet = false;
         this.coins = {};
         this.effects = [];
         this.myScore = 0;
         this.timeLimit = settings && settings.time ? parseInt(settings.time, 10) : 3;
 
+        this.originalExecuteRetire = window.MinigameManager.executeRetire;
+        window.MinigameManager.executeRetire = () => {
+            if (typeof player !== 'undefined' && player.position.y < -20) {
+                this.handleFallPenalty();
+            } else {
+                this.originalExecuteRetire.call(window.MinigameManager);
+            }
+        };
+
         this.createMaterials();
         
         this.coinGroup = new THREE.Group();
-        // ★初期化時は非表示（10秒待機中は見せない）
-        this.coinGroup.visible = false; 
+        this.coinGroup.visible = false; // 待機中は非表示
         
         this.effectGroup = new THREE.Group();
         if (typeof scene !== 'undefined') {
@@ -47,29 +57,29 @@ window.MinigamePlugins['coin_rush'] = {
         }
 
         this.placeCoins();
-        this.createUI();
+        // ★修正: ここではUIを生成せず、prepare時に生成する
     },
 
     start: function() {
         console.log("[Coin Rush] Game Started!");
         this.isPlaying = true;
-        this.canGet = true; // START!!が表示されてから取得可能に
+        this.canGet = true; 
         this.remainTime = this.timeLimit * 60; 
     },
 
     update: function(delta) {
-        // ★PLAYINGステートに移行しupdateが呼ばれ始めた（3,2,1のカウントダウン中）らコインを表示
-        if (this.coinGroup && !this.coinGroup.visible) {
-            this.coinGroup.visible = true;
+        // ★PLAYINGステートに移行しupdateが呼ばれ始めた（3,2,1のカウントダウンが開始）最初のフレームで準備を行う
+        if (!this.isPrepared) {
+            this.isPrepared = true;
+            if (this.coinGroup) this.coinGroup.visible = true; // コインを表示
+            this.createUI(); // スコアUIを表示
         }
 
         const elapsedTime = performance.now() / 1000;
 
-        // ゲームプレイ中の処理
         if (this.isPlaying) {
             this.remainTime -= delta;
             
-            // 終了判定（時間切れ or 全コイン取得）
             if (this.remainTime <= 0) {
                 this.remainTime = 0;
                 this.finishGame();
@@ -79,13 +89,11 @@ window.MinigamePlugins['coin_rush'] = {
                 return;
             }
 
-            // タイマーの更新
             let m = Math.floor(this.remainTime / 60);
             let s = Math.floor(this.remainTime % 60);
             let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
             if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
 
-            // ★落下ペナルティの先回りチェック（main.jsの-30到達前に-25で捕まえる）
             if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
                 if (player.position.y < -25) {
                     this.handleFallPenalty();
@@ -93,11 +101,9 @@ window.MinigamePlugins['coin_rush'] = {
             }
         }
 
-        // コインのプカプカ＆回転アニメーション（待機中も動かす）
         const cycle = elapsedTime % 4.0;
         let rotY = 0;
         if (cycle >= 3.0) {
-            // 3秒経過〜4秒の間の1秒間で1回転するイーズアニメーション
             const p = cycle - 3.0; 
             const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
             rotY = ease * Math.PI * 2;
@@ -108,7 +114,6 @@ window.MinigamePlugins['coin_rush'] = {
             coin.position.y = coin.userData.baseY + Math.sin(elapsedTime * 2 + coin.userData.randomOffset) * 0.5;
             coin.rotation.y = rotY;
 
-            // 取得判定
             if (this.canGet && !window.isSpectatorMode && typeof player !== 'undefined' && player) {
                 const dist = player.position.distanceTo(coin.position);
                 if (dist < 3.0) { 
@@ -117,7 +122,6 @@ window.MinigamePlugins['coin_rush'] = {
             }
         }
 
-        // 獲得エフェクトの更新（マリオ風）
         for (let i = this.effects.length - 1; i >= 0; i--) {
             let eff = this.effects[i];
             eff.timer -= delta;
@@ -126,8 +130,7 @@ window.MinigamePlugins['coin_rush'] = {
                 this.effectGroup.remove(eff.mesh);
                 this.effects.splice(i, 1);
             } else {
-                const progress = 1.0 - eff.timer; // 0.0 -> 1.0
-                // 頭上に跳ね上がるイーズアウト
+                const progress = 1.0 - eff.timer; 
                 const currentOffset = eff.startOffset + (eff.endOffset - eff.startOffset) * Math.sin(progress * Math.PI / 2); 
                 
                 if (eff.target) {
@@ -138,9 +141,8 @@ window.MinigamePlugins['coin_rush'] = {
                     eff.mesh.position.y += delta * 5.0; 
                 }
                 
-                eff.mesh.rotation.y += delta * 20; // 高速回転
+                eff.mesh.rotation.y += delta * 20; 
                 
-                // 透明化
                 eff.mesh.material.forEach(m => {
                     m.opacity = eff.timer; 
                 });
@@ -148,7 +150,6 @@ window.MinigamePlugins['coin_rush'] = {
         }
     },
 
-    // 自分でコインを取った時の処理
     pickupCoin: function(id) {
         if (this.coins[id]) {
             let coin = this.coins[id];
@@ -160,7 +161,6 @@ window.MinigamePlugins['coin_rush'] = {
             
             const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
             
-            // スコアとコイン消失の同期
             if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
                 window.MultiplayerManager.sendData({
                     type: 'mg_plugin_sync',
@@ -179,7 +179,6 @@ window.MinigamePlugins['coin_rush'] = {
         }
     },
 
-    // 他人がコインを取った時の通信処理
     handleNetwork: function(data) {
         if (data.action === 'get_coin') {
             if (this.coins[data.id]) {
@@ -194,11 +193,9 @@ window.MinigamePlugins['coin_rush'] = {
         }
     },
 
-    // マリオ風の獲得エフェクト開始
     startGetEffect: function(mesh, targetPlayerMesh) {
         this.coinGroup.remove(mesh);
         
-        // エフェクト用にマテリアルをクローンして独立して透明化できるようにする
         mesh.material = mesh.material.map(m => m.clone());
         mesh.material.forEach(m => { m.transparent = true; });
 
@@ -213,24 +210,20 @@ window.MinigamePlugins['coin_rush'] = {
         });
     },
 
-    // 落下時のデスペナルティ
     handleFallPenalty: function() {
         if (typeof window.addLog === 'function') {
             window.addLog('<span style="color:#ffaa00;">落下ペナルティ！コインが半分になった！</span>', 'sys');
         }
         
-        // デスペナルティ: 所持コイン数を半分にして切り上げ (5枚なら3枚になる)
         this.myScore = Math.ceil(this.myScore / 2);
         this.updateScoreUI();
 
-        // 復帰処理 (main.jsの落下処理より先にワープさせる)
         if (typeof player !== 'undefined' && player) {
             player.position.set(0, 20, 0); 
         }
         window.isJumping = true; 
         window.verticalVelocity = 0;
         
-        // 減ったスコアの同期
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
@@ -248,7 +241,6 @@ window.MinigamePlugins['coin_rush'] = {
         if (!this.isPlaying) return;
         this.isPlaying = false;
 
-        // 自身の最終結果を登録
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         if (window.MinigameManager && window.MinigameManager.resultData) {
             const myData = window.MinigameManager.resultData.find(d => d.id === myId);
@@ -264,12 +256,11 @@ window.MinigamePlugins['coin_rush'] = {
     },
 
     onRetire: function(userId) {
-        // 通常のリタイア処理が呼ばれた際のスコア固定
         if (window.MinigameManager && window.MinigameManager.resultData) {
             const data = window.MinigameManager.resultData.find(d => d.id === userId);
             if (data) {
                 data.isRetired = true;
-                data.scoreValue = -1; // 最下位扱い
+                data.scoreValue = -1; 
                 data.scoreText = "";
             }
         }
@@ -278,8 +269,8 @@ window.MinigamePlugins['coin_rush'] = {
     end: function() {
         console.log("[Coin Rush] Game Ended.");
         this.isPlaying = false;
+        this.isPrepared = false;
 
-        // ランキングの計算
         if (window.MinigameManager && window.MinigameManager.resultData) {
             let rd = window.MinigameManager.resultData;
             rd.sort((a, b) => b.scoreValue - a.scoreValue);
@@ -293,7 +284,11 @@ window.MinigamePlugins['coin_rush'] = {
             }
         }
 
-        // オブジェクトの破棄
+        if (this.originalExecuteRetire) {
+            window.MinigameManager.executeRetire = this.originalExecuteRetire;
+            this.originalExecuteRetire = null;
+        }
+
         if (this.coinGroup && typeof scene !== 'undefined') {
             scene.remove(this.coinGroup);
             this.coinGroup.children.forEach(child => {
@@ -311,16 +306,12 @@ window.MinigamePlugins['coin_rush'] = {
         this.coins = {};
         this.effects = [];
 
-        // UIの破棄
         if (this.coinUI) {
             this.coinUI.remove();
             this.coinUI = null;
         }
     },
 
-    // ---------------------------------
-    // 初期生成関連の処理
-    // ---------------------------------
     createUI: function() {
         this.coinUI = document.createElement('div');
         this.coinUI.id = 'coin-rush-ui';
@@ -329,7 +320,9 @@ window.MinigamePlugins['coin_rush'] = {
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
         
         this.coinUI.style.cssText = `position: absolute; left: 10px; top: ${topExclusionHeight + 15}px; background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 12px; padding: 5px 15px; color: white; font-size: 20px; font-weight: bold; font-family: monospace; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; display: flex; align-items: center; gap: 5px;`;
-        this.coinUI.innerHTML = `<span style="color:#FFD700; font-size:24px;">⭐</span> <span id="coin-rush-count">0</span>`;
+        
+        // ★修正: 星の絵文字ではなく、作成したCanvasTextureの画像(base64)を表示する
+        this.coinUI.innerHTML = `<img src="${this.coinDataUrl}" style="width:28px; height:28px; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));"> <span id="coin-rush-count">0</span>`;
         
         const uiLayer = document.getElementById('ui-layer');
         if (uiLayer) uiLayer.appendChild(this.coinUI);
@@ -341,23 +334,19 @@ window.MinigamePlugins['coin_rush'] = {
     },
 
     createMaterials: function() {
-        // Canvasによる黄色いコインと白い星形のテクスチャ生成
         const canvas = document.createElement('canvas');
         canvas.width = 256; canvas.height = 256;
         const ctx = canvas.getContext('2d');
         
-        // ベースの円盤（黄色）
         ctx.fillStyle = '#FFD700'; 
         ctx.beginPath();
         ctx.arc(128, 128, 120, 0, Math.PI * 2);
         ctx.fill();
         
-        // 厚みの縁取り
         ctx.lineWidth = 15;
         ctx.strokeStyle = '#DAA520';
         ctx.stroke();
 
-        // 中央の星型（白）
         ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();
         const cx = 128, cy = 128, spikes = 5, outerRadius = 60, innerRadius = 30;
@@ -381,20 +370,20 @@ window.MinigamePlugins['coin_rush'] = {
         ctx.closePath();
         ctx.fill();
         
-        // 星の窪みの影
         ctx.lineWidth = 4;
         ctx.strokeStyle = '#DDDDDD';
         ctx.stroke();
 
+        // ★追加: 描画したCanvasから画像URL（base64）を生成し、UI用に保存
+        this.coinDataUrl = canvas.toDataURL('image/png');
+
         this.coinTexture = new THREE.CanvasTexture(canvas);
         
-        // 側面は単色のゴールド、表裏にテクスチャ
         const sideMat = new THREE.MeshStandardMaterial({ color: 0xDAA520, roughness: 0.5, metalness: 0.5 });
         const faceMat = new THREE.MeshStandardMaterial({ map: this.coinTexture, roughness: 0.5, metalness: 0.5 });
         
         this.coinMaterial = [sideMat, faceMat, faceMat];
         
-        // 初期状態から立てておく（ワールドY軸で綺麗に回るようにする）
         this.coinGeometry = new THREE.CylinderGeometry(1.5, 1.5, 0.4, 32);
         this.coinGeometry.rotateX(Math.PI / 2);
     },
@@ -408,7 +397,7 @@ window.MinigamePlugins['coin_rush'] = {
             for (let z = 0; z < mapD; z++) {
                 let layers = parsedMap[x][z];
                 layers.forEach((l, layerIndex) => {
-                    if (l.val === 0) return; // 空間はスキップ
+                    if (l.val === 0) return; 
 
                     let yT = l.top;
                     if (l.isOdd) {
@@ -416,7 +405,6 @@ window.MinigamePlugins['coin_rush'] = {
                         yT = corners.center;
                     }
 
-                    // ブロックの上面の高さから浮かせる
                     let py = yT * bs + 2.0; 
                     let px = (x - mapW / 2 + 0.5) * bs;
                     let pz = (z - mapD / 2 + 0.5) * bs;
