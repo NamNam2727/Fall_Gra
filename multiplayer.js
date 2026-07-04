@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★他プレイヤーのアイコンと名前を内部で確実に保持するよう修正
+// ★メンバーリストを現在の実際の通信データ(otherPlayers)から動的に構築するよう修正
 // =========================================================
 
 window.MultiplayerManager = {
@@ -50,19 +50,25 @@ window.MultiplayerManager = {
             listEl.innerHTML = '';
 
             let allUsers = [];
-            if (window.GameState && window.GameState.roomUsers) {
-                allUsers = [...window.GameState.roomUsers];
-            }
             
+            // ★修正: 1. まず自分自身を追加
             if (window.GameState && window.GameState.userInfo) {
-                const myId = window.GameState.userInfo.user_id;
-                const hasMe = allUsers.some(u => u.user_id === myId);
-                if (!hasMe) {
-                    allUsers.unshift(window.GameState.userInfo);
-                }
+                allUsers.push({
+                    user_name: window.GameState.userInfo.user_name || window.GameState.userInfo.name || "Player",
+                    portrait: window.GameState.userInfo.portrait || window.GameState.userInfo.portait || ""
+                });
             } else {
-                if (allUsers.length === 0) {
-                    allUsers.push({ name: "テストプレイヤー (あなた)", portrait: "" });
+                allUsers.push({ user_name: "テストプレイヤー (あなた)", portrait: "" });
+            }
+
+            // ★修正: 2. リアルタイムに通信している他プレイヤー情報をリストに追加
+            if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
+                for (let id in window.MultiplayerManager.otherPlayers) {
+                    let op = window.MultiplayerManager.otherPlayers[id];
+                    allUsers.push({
+                        user_name: op.name || "Player",
+                        portrait: op.icon || ""
+                    });
                 }
             }
 
@@ -261,7 +267,7 @@ window.MultiplayerManager = {
         const mesh = this.createPlayerMesh(user);
         scene.add(mesh);
 
-        // ★追加: ミニゲームのリザルト等で使うため、名前とアイコンをここで保持しておく
+        // ミニゲームのリザルト等で使うため、名前とアイコンをここで保持しておく
         this.otherPlayers[user.user_id] = {
             id: user.user_id,
             name: user.user_name || user.name || "Player",
