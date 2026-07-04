@@ -1,6 +1,7 @@
 // =====================================
 // player.js
 // プレイヤーキャラクターの生成とテクスチャ、吹き出し処理
+// ★チャットの吹き出しを文字数に合わせて自動リサイズ＆折り返し表示に対応
 // =====================================
 
 function createIconTexture() {
@@ -26,7 +27,7 @@ function createIconTexture() {
     texture.center.set(0.5, 0.5);
     texture.rotation = -Math.PI / 2; 
     
-    if (renderer) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    if (typeof renderer !== 'undefined' && renderer) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
     return texture;
@@ -53,7 +54,7 @@ function createNameSprite(name) {
     return sprite;
 }
 
-// ★ チャットの吹き出し(Sprite)を生成・管理する関数
+// ★ チャットの吹き出しを自動リサイズ＆折り返し表示する関数
 window.showChatBubble = function(targetMesh, text) {
     // 既に吹き出しがあれば削除
     if (targetMesh.chatSprite) {
@@ -63,33 +64,85 @@ window.showChatBubble = function(targetMesh, text) {
         targetMesh.chatSprite = null;
     }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 512; canvas.height = 256; 
-    const ctx = canvas.getContext('2d');
+    // まずテキストを計測するための見えないCanvasを用意
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.font = 'bold 44px sans-serif';
     
-    // 吹き出しの背景（角丸＋しっぽ）
+    const MAX_TEXT_WIDTH = 400; // 1行の最大幅
+    const lines = [];
+    let currentLine = "";
+    
+    // 文字の長さに合わせて自動で改行を挿入
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char === '\n') {
+            lines.push(currentLine);
+            currentLine = "";
+            continue;
+        }
+        const testLine = currentLine + char;
+        const metrics = tempCtx.measureText(testLine);
+        if (metrics.width > MAX_TEXT_WIDTH && i > 0) {
+            lines.push(currentLine);
+            currentLine = char;
+        } else {
+            currentLine = testLine;
+        }
+    }
+    if (currentLine) {
+        lines.push(currentLine);
+    }
+
+    // すべての行の中で最も長い幅を特定
+    let maxLineWidth = 0;
+    for (let line of lines) {
+        const w = tempCtx.measureText(line).width;
+        if (w > maxLineWidth) maxLineWidth = w;
+    }
+
+    // 吹き出しの余白とサイズを計算
+    const paddingX = 30;
+    const paddingY = 20;
+    const lineHeight = 50;
+    
+    const bubbleWidth = Math.max(maxLineWidth + paddingX * 2, 80);
+    const bubbleHeight = lines.length * lineHeight + paddingY * 2;
+    const tailHeight = 30;
+    
+    // 実際のCanvasを生成
+    const canvas = document.createElement('canvas');
+    canvas.width = bubbleWidth + 20;  // 左右の影や線の余白
+    canvas.height = bubbleHeight + tailHeight + 20; // 上下の余白
+    const ctx = canvas.getContext('2d');
+
+    // 吹き出しの背景（角丸＋しっぽ）を描画
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 6;
     
-    const x = 10, y = 10, width = 492, height = 150, radius = 20;
+    const x = 10, y = 10, radius = 20;
+    
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + bubbleWidth - radius, y);
+    ctx.quadraticCurveTo(x + bubbleWidth, y, x + bubbleWidth, y + radius);
+    ctx.lineTo(x + bubbleWidth, y + bubbleHeight - radius);
+    ctx.quadraticCurveTo(x + bubbleWidth, y + bubbleHeight, x + bubbleWidth - radius, y + bubbleHeight);
     
-    ctx.lineTo(276, y + height);
-    ctx.lineTo(256, y + height + 30); 
-    ctx.lineTo(236, y + height);
+    // しっぽの描画（常に中央に配置）
+    const tailCenter = x + bubbleWidth / 2;
+    ctx.lineTo(tailCenter + 20, y + bubbleHeight);
+    ctx.lineTo(tailCenter, y + bubbleHeight + tailHeight);
+    ctx.lineTo(tailCenter - 20, y + bubbleHeight);
     
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x + radius, y + bubbleHeight);
+    ctx.quadraticCurveTo(x, y + bubbleHeight, x, y + bubbleHeight - radius);
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-    ctx.fill(); ctx.stroke();
+    ctx.fill(); 
+    ctx.stroke();
 
     // 文字の描画
     ctx.fillStyle = '#000000';
@@ -97,18 +150,23 @@ window.showChatBubble = function(targetMesh, text) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
-    let displayText = text;
-    if (displayText.length > 15) displayText = displayText.substring(0, 15) + '...';
-    ctx.fillText(displayText, 256, y + height / 2);
+    const startY = y + paddingY + lineHeight / 2;
+    for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], x + bubbleWidth / 2, startY + i * lineHeight);
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter;
     
-    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false }); // 壁に埋まらないようにする
+    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false }); 
     const sprite = new THREE.Sprite(material);
     
-    sprite.scale.set(5, 2.5, 1);
-    sprite.position.y = 3.5; // ネームプレートより上に配置
+    // Canvasの解像度に合わせて、3D空間上のスケールを自動調整
+    const scaleFactor = 102.4;
+    sprite.scale.set(canvas.width / scaleFactor, canvas.height / scaleFactor, 1);
+    
+    // 吹き出しが大きくなっても、しっぽの先端がネームプレートの真上に来るようにY座標を調整
+    sprite.position.y = 2.2 + (canvas.height / scaleFactor) / 2;
     
     targetMesh.add(sprite);
     targetMesh.chatSprite = sprite;
@@ -153,7 +211,7 @@ function initPlayer() {
             function (loadedTexture) {
                 loadedTexture.center.set(0.5, 0.5);
                 loadedTexture.rotation = -Math.PI / 2;
-                if (renderer) loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+                if (typeof renderer !== 'undefined' && renderer) loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
                 loadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
                 loadedTexture.magFilter = THREE.LinearFilter;
                 
@@ -164,4 +222,3 @@ function initPlayer() {
         );
     }
 }
-
