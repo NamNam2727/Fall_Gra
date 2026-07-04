@@ -1,7 +1,7 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
-// ★プラグイン側でソートされた順番通りに表示し、リタイアバッジを追加
+// ★リザルト表示を2行（スコアとステータス）に分け、名前の表示幅を確保
 // =====================================
 
 window.MinigameUI = {
@@ -52,7 +52,6 @@ window.MinigameUI = {
             .mg-cd-label { font-size: 24px; color: white; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
             #mg-countdown-text { font-size: 60px; color: #ffaa00; font-weight: bold; text-shadow: 0 4px 10px rgba(0,0,0,0.9); }
 
-            /* ゲーム中のタイマー表示 */
             #mg-timer-ui { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 20px; padding: 5px 20px; color: white; font-size: 24px; font-weight: bold; font-family: monospace; display: none; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; }
             
             /* リザルト画面 */
@@ -71,13 +70,16 @@ window.MinigameUI = {
             .result-rank { width: 30px; font-size: 18px; font-weight: bold; text-align: center; color: white; margin-right: 10px; }
             .result-icon { width: 40px; height: 40px; border-radius: 50%; background-color: #555; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); margin-right: 15px; flex-shrink: 0; }
             .result-name { flex: 1; color: white; font-size: 16px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .result-score { font-size: 16px; font-weight: bold; color: #ffaa00; text-align: right; margin-left: 10px; white-space: nowrap; }
+            
+            /* ★修正: スコア表示部分を2行レイアウト用に変更 */
+            .result-score-container { display: flex; flex-direction: column; align-items: flex-end; margin-left: 10px; min-width: 60px; }
+            .result-score { font-size: 16px; font-weight: bold; color: #ffaa00; white-space: nowrap; }
+            .result-status { font-size: 11px; font-weight: bold; margin-top: 2px; white-space: nowrap; }
             
             .result-footer { padding: 15px; text-align: center; }
             #btn-close-result { background: #4CAF50; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
             #btn-close-result:active { transform: scale(0.95); }
 
-            /* リタイア確認ポップアップ */
             #mg-retire-popup { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 300px; background: rgba(30, 20, 20, 0.95); border: 3px solid #ffaa00; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 3000; pointer-events: auto; padding: 20px; font-family: sans-serif; text-align: center; }
         `;
         document.head.appendChild(style);
@@ -89,14 +91,12 @@ window.MinigameUI = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-        // タイマーUI
         const timerUI = document.createElement('div');
         timerUI.id = 'mg-timer-ui';
         timerUI.innerText = '03:00';
         timerUI.style.top = (topExclusionHeight + 15) + 'px';
         uiLayer.appendChild(timerUI);
 
-        // ミニゲームボタン
         const minigameBtn = document.createElement('div');
         minigameBtn.id = 'minigame-btn';
         minigameBtn.innerText = 'ミニゲーム';
@@ -124,7 +124,6 @@ window.MinigameUI = {
         minigameBtn.addEventListener('touchstart', (e) => { preventTouch(e); onMinigameClick(e); }, {passive: false});
         uiLayer.appendChild(minigameBtn);
 
-        // リストウィンドウ
         const mgListWindow = document.createElement('div');
         mgListWindow.id = 'mg-list-window';
         mgListWindow.className = 'mg-window-base';
@@ -134,7 +133,6 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgListWindow);
 
-        // 詳細ウィンドウ
         const mgDetailWindow = document.createElement('div');
         mgDetailWindow.id = 'mg-detail-window';
         mgDetailWindow.className = 'mg-window-base';
@@ -155,7 +153,6 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgDetailWindow);
 
-        // 多数決ポップアップ
         const mgPopup = document.createElement('div');
         mgPopup.id = 'mg-proposal-popup';
         mgPopup.innerHTML = `
@@ -167,13 +164,11 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgPopup);
 
-        // カウントダウン
         const mgCountdown = document.createElement('div');
         mgCountdown.id = 'mg-countdown-overlay';
         mgCountdown.innerHTML = `<div class="mg-cd-label">ゲーム開始まで</div><div id="mg-countdown-text">10</div>`;
         uiLayer.appendChild(mgCountdown);
 
-        // リタイア確認ポップアップ
         const mgRetirePopup = document.createElement('div');
         mgRetirePopup.id = 'mg-retire-popup';
         mgRetirePopup.innerHTML = `
@@ -186,7 +181,6 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgRetirePopup);
 
-        // リザルト画面
         const mgResultWindow = document.createElement('div');
         mgResultWindow.id = 'mg-result-window';
         mgResultWindow.innerHTML = `
@@ -220,7 +214,12 @@ window.MinigameUI = {
         if (!win || !container) return;
         container.innerHTML = '';
 
-        // ★プラグイン側でソート済みのまま（あるいはマネージャーが渡した順）に描画する
+        dataArray.sort((a, b) => {
+            if (a.isRetired && !b.isRetired) return 1;
+            if (!a.isRetired && b.isRetired) return -1;
+            return a.rank - b.rank; 
+        });
+
         dataArray.forEach(data => {
             const item = document.createElement('div');
             item.className = 'result-item';
@@ -230,10 +229,11 @@ window.MinigameUI = {
             else if (data.rank === 2) item.classList.add('rank-2');
             else if (data.rank === 3) item.classList.add('rank-3');
 
-            // ランク表記（リタイアでも順位は表示する）
             const rankEl = document.createElement('div');
             rankEl.className = 'result-rank';
-            rankEl.innerText = data.rank || '-';
+            if (data.isRetired) rankEl.innerText = '-';
+            else if (data.rank === 1) rankEl.innerText = '👑';
+            else rankEl.innerText = data.rank;
 
             const iconEl = document.createElement('div');
             iconEl.className = 'result-icon';
@@ -244,21 +244,35 @@ window.MinigameUI = {
             nameEl.className = 'result-name';
             nameEl.innerText = data.name;
 
+            // ★修正: スコアとステータスを縦2行に分けて配置するコンテナ
+            const scoreContainer = document.createElement('div');
+            scoreContainer.className = 'result-score-container';
+
             const scoreEl = document.createElement('div');
             scoreEl.className = 'result-score';
+            scoreEl.innerText = data.scoreText || '';
+            if (data.isRetired) scoreEl.style.color = '#ffaa00';
+
+            const statusEl = document.createElement('div');
+            statusEl.className = 'result-status';
             
-            // ★リタイア表記の追加
             if (data.isRetired) {
-                scoreEl.innerHTML = `<span style="font-size:12px; border:1px solid #ff4444; border-radius:4px; padding:2px 4px; margin-right:5px; color:#ff4444; background:rgba(255,0,0,0.1);">リタイア</span>${data.scoreText || ''}`;
-                scoreEl.style.color = '#ffaa00';
-            } else {
-                scoreEl.innerText = data.scoreText || '';
+                statusEl.innerText = 'リタイア';
+                statusEl.style.color = '#ff4444';
+            } else if (data.statusText) {
+                statusEl.innerText = data.statusText;
+                statusEl.style.color = '#00ff00';
+            }
+
+            scoreContainer.appendChild(scoreEl);
+            if (statusEl.innerText !== '') {
+                scoreContainer.appendChild(statusEl);
             }
 
             item.appendChild(rankEl);
             item.appendChild(iconEl);
             item.appendChild(nameEl);
-            item.appendChild(scoreEl);
+            item.appendChild(scoreContainer); // nameElの隣にスコアコンテナを配置
             
             container.appendChild(item);
         });

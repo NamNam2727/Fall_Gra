@@ -1,7 +1,7 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
-// ★ゲーム開始待機(3,2,1)の時点で、設定された制限時間の初期値をタイマーUIに表示するよう修正
+// ★リザルトデータに2行目表示用の statusText を追加
 // =====================================
 
 window.MinigameManager = {
@@ -190,6 +190,7 @@ window.MinigameManager = {
             if (data) {
                 data.scoreValue = msg.scoreValue;
                 data.scoreText = msg.scoreText;
+                data.statusText = msg.statusText; // ★追加
                 data.isRetired = msg.isRetired;
             }
         }
@@ -420,7 +421,6 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
-        // ★UIを表示した瞬間に、提案された制限時間(分)を初期値として表示させる
         const timerUI = document.getElementById('mg-timer-ui');
         if (timerUI) {
             timerUI.style.display = 'block';
@@ -465,6 +465,7 @@ window.MinigameManager = {
                     icon: u.portrait || u.portait || "",
                     scoreText: "", 
                     scoreValue: 0,
+                    statusText: "", // ★追加
                     isRetired: false,
                     rank: 0
                 });
@@ -546,7 +547,8 @@ window.MinigameManager = {
             const myData = this.resultData.find(d => d.id === myId);
             if (myData) {
                 myData.isRetired = true;
-                myData.scoreText = "リタイア";
+                myData.scoreText = "";
+                myData.statusText = "";
                 myData.scoreValue = -1;
             }
         }
@@ -558,6 +560,7 @@ window.MinigameManager = {
                 userId: myId, 
                 scoreValue: updatedData.scoreValue, 
                 scoreText: updatedData.scoreText,
+                statusText: updatedData.statusText,
                 isRetired: updatedData.isRetired
             });
         }
