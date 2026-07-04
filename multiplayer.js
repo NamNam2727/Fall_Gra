@@ -4,10 +4,6 @@
 // ★他プレイヤーのアイコンと名前を内部で確実に保持するよう修正
 // =========================================================
 
-// 計測ログ出力の頻度を抑えるための変数
-let stat_forceSendCount = 0;
-let stat_updateCount = 0;
-
 window.MultiplayerManager = {
     otherPlayers: {}, 
     lastSentPos: { x: 0, y: 0, z: 0 },
@@ -110,21 +106,12 @@ window.MultiplayerManager = {
     },
     
     requestPositions: function() {
-        const t0 = performance.now(); // ★計測開始
-
         this.sendData({ type: 'pos_req' });
-
-        const t1 = performance.now(); // ★計測終了
-        const elapsed = (t1 - t0).toFixed(2);
-        console.log(`[Perf] requestPositions: ${elapsed}ms`);
-        if (window.addLog) window.addLog(`<span style="color:#aaffaa;">[Perf] reqPos: ${elapsed}ms</span>`, 'sys');
     },
     
     forceSendPos: function() {
-        const t0 = performance.now(); // ★計測開始
-
         if (typeof player === 'undefined' || !player) return;
-        if (window.isSpectatorMode) return; 
+        if (window.isSpectatorMode) return; // 観戦モード中は送信しない
         
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
@@ -145,21 +132,9 @@ window.MultiplayerManager = {
         this.lastSentPos.y = player.position.y;
         this.lastSentPos.z = player.position.z;
         this.lastSendTime = performance.now();
-
-        const t1 = performance.now(); // ★計測終了
-        const elapsed = t1 - t0;
-        
-        // 頻出するため、5ms以上かかった場合か、最初の5回のみログ出力
-        if (elapsed > 5 || stat_forceSendCount < 5) {
-            console.log(`[Perf] forceSendPos: ${elapsed.toFixed(2)}ms`);
-            if (window.addLog && elapsed > 5) window.addLog(`<span style="color:#ffaa00;">[Perf] forceSend: ${elapsed.toFixed(2)}ms</span>`, 'sys');
-            stat_forceSendCount++;
-        }
     },
 
     update: function(delta) {
-        const t0 = performance.now(); // ★計測開始
-
         if (typeof player === 'undefined' || !player) return;
 
         if (!window.isSpectatorMode) {
@@ -176,6 +151,7 @@ window.MultiplayerManager = {
 
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
+            // hasReceivedFirstPos が false の間（初回ワープ前）は lerp による移動を無効化する
             if (p.mesh && p.targetPos && p.hasReceivedFirstPos !== false) {
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
@@ -192,16 +168,6 @@ window.MultiplayerManager = {
                     }
                 }
             }
-        }
-
-        const t1 = performance.now(); // ★計測終了
-        const elapsed = t1 - t0;
-        
-        // 毎フレーム呼ばれるため、異常に重い場合のみログ出力
-        if (elapsed > 10 || stat_updateCount < 3) {
-            console.log(`[Perf] MP.update: ${elapsed.toFixed(2)}ms`);
-            if (window.addLog && elapsed > 10) window.addLog(`<span style="color:#ff5555;">[Perf] MP.update: ${elapsed.toFixed(2)}ms</span>`, 'sys');
-            stat_updateCount++;
         }
     },
     
@@ -295,6 +261,7 @@ window.MultiplayerManager = {
         const mesh = this.createPlayerMesh(user);
         scene.add(mesh);
 
+        // ★追加: ミニゲームのリザルト等で使うため、名前とアイコンをここで保持しておく
         this.otherPlayers[user.user_id] = {
             id: user.user_id,
             name: user.user_name || user.name || "Player",
@@ -303,7 +270,7 @@ window.MultiplayerManager = {
             targetPos: new THREE.Vector3(0, 20, 0),
             targetQuat: new THREE.Quaternion(),
             lastMoveTime: 0,
-            hasReceivedFirstPos: false,
+            hasReceivedFirstPos: false, // 初回の位置ワープ用フラグ
             isSpectator: false
         };
     },
@@ -325,6 +292,7 @@ window.MultiplayerManager = {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 
+                // 初回の位置データを受信した時だけ即座にワープ
                 if (!p.hasReceivedFirstPos) {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);
@@ -360,10 +328,7 @@ window.MultiplayerManager = {
         if (avatarUrl) {
             const loader = new THREE.TextureLoader();
             loader.setCrossOrigin('anonymous');
-            
-            const t0 = performance.now(); // ★計測開始
             loader.load(avatarUrl, (loadedTexture) => {
-                const cb0 = performance.now(); // ★計測開始
                 loadedTexture.center.set(0.5, 0.5);
                 loadedTexture.rotation = -Math.PI / 2;
                 if (window.renderer) loadedTexture.anisotropy = window.renderer.capabilities.getMaxAnisotropy();
@@ -371,14 +336,7 @@ window.MultiplayerManager = {
                 loadedTexture.magFilter = THREE.LinearFilter;
                 topMesh.material[1].map = loadedTexture;
                 topMesh.material[1].needsUpdate = true;
-                
-                const cb1 = performance.now(); // ★計測終了
-                const cbElapsed = (cb1 - cb0).toFixed(2);
-                console.log(`[Perf] TexLoad Callback (Other): ${cbElapsed}ms`);
-                if (window.addLog && (cb1 - cb0) > 5) window.addLog(`<span style="color:#ffaa00;">[Perf] OtherTexCB: ${cbElapsed}ms</span>`, 'sys');
             });
-            const t1 = performance.now(); // ★計測終了
-            console.log(`[Perf] TexLoader Trigger(Other): ${(t1 - t0).toFixed(2)}ms`);
         }
 
         if (typeof window.createNameSprite === 'function') {
@@ -392,18 +350,11 @@ window.MultiplayerManager = {
     },
 
     initExistingPlayers: function() {
-        const t0 = performance.now(); // ★計測開始
-
         if (window.GameState && window.GameState.roomUsers) {
             window.GameState.roomUsers.forEach(user => {
                 this.addPlayer(user);
             });
         }
-
-        const t1 = performance.now(); // ★計測終了
-        const elapsed = (t1 - t0).toFixed(2);
-        console.log(`[Perf] initExistingPlayers: ${elapsed}ms`);
-        if (window.addLog) window.addLog(`<span style="color:#aaffaa;">[Perf] initPlayers: ${elapsed}ms</span>`, 'sys');
     }
 };
 
