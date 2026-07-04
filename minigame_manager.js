@@ -1,7 +1,8 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
-// ★リザルトデータに2行目表示用の statusText を追加
+// ★参加者リストの構築を正確な通信データから行うよう修正（リザルト欠損バグ解消）
+// ★リタイア時のログ表示と、所持アイテムの没収機能を追加
 // =====================================
 
 window.MinigameManager = {
@@ -188,9 +189,15 @@ window.MinigameManager = {
         } else if (msg.type === 'mg_update_score') {
             const data = this.resultData.find(d => d.id === msg.userId);
             if (data) {
+                // ★追加: 他人がリタイアしたことをログに表示する
+                if (msg.isRetired && !data.isRetired) {
+                    if (typeof window.addLog === 'function') {
+                        window.addLog(`<span style="color:#ff3300;">${data.name} がリタイアしました。</span>`, 'sys');
+                    }
+                }
                 data.scoreValue = msg.scoreValue;
                 data.scoreText = msg.scoreText;
-                data.statusText = msg.statusText; // ★追加
+                data.statusText = msg.statusText; 
                 data.isRetired = msg.isRetired;
             }
         }
@@ -435,20 +442,29 @@ window.MinigameManager = {
             if (this.myVote === false) mgBtn.classList.add('spectator-mode');
         }
 
+        // ★修正: リザルト用リストを otherPlayers から正確に構築する（欠損バグ対策）
         this.resultData = [];
         let allUsers = [];
-        if (window.GameState && window.GameState.roomUsers) {
-            allUsers = [...window.GameState.roomUsers];
-        }
+        
         if (window.GameState && window.GameState.userInfo) {
-            const myId = window.GameState.userInfo.user_id;
-            const hasMe = allUsers.some(u => u.user_id === myId);
-            if (!hasMe) {
-                allUsers.unshift(window.GameState.userInfo);
-            }
+            allUsers.push({
+                user_id: window.GameState.userInfo.user_id,
+                name: window.GameState.userInfo.name || window.GameState.userInfo.user_name || "Player",
+                portrait: window.GameState.userInfo.portrait || window.GameState.userInfo.portait || ""
+            });
+        } else {
+            allUsers.push({ user_id: 'local', name: 'Player', portrait: '' });
         }
-        if (allUsers.length === 0) {
-            allUsers.push({ user_id: 'local', name: 'Player' });
+
+        if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
+            for (let id in window.MultiplayerManager.otherPlayers) {
+                let op = window.MultiplayerManager.otherPlayers[id];
+                allUsers.push({
+                    user_id: op.id,
+                    name: op.name || "Player",
+                    portrait: op.icon || ""
+                });
+            }
         }
 
         allUsers.forEach(u => {
@@ -461,11 +477,11 @@ window.MinigameManager = {
             if (isParticipating) {
                 this.resultData.push({
                     id: u.user_id,
-                    name: u.name || u.user_name || "Player",
-                    icon: u.portrait || u.portait || "",
+                    name: u.name,
+                    icon: u.portrait,
                     scoreText: "", 
                     scoreValue: 0,
-                    statusText: "", // ★追加
+                    statusText: "", 
                     isRetired: false,
                     rank: 0
                 });
@@ -563,6 +579,16 @@ window.MinigameManager = {
                 statusText: updatedData.statusText,
                 isRetired: updatedData.isRetired
             });
+        }
+
+        // ★追加: リタイア時に自分のアイテムを没収し、使用不可にする
+        if (window.ItemSystem) {
+            window.ItemSystem.mySlotItem = null;
+            window.ItemSystem.stackedCount = 0;
+            window.ItemSystem.isFlyMode = false;
+            window.ItemSystem.isCoolingDown = false;
+            if (window.ItemSystem.slotUI) window.ItemSystem.slotUI.classList.remove('cooling');
+            window.ItemSystem.updateSlotUI();
         }
 
         this.enterSpectatorMode();

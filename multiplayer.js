@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★途中入室時の初回ワープ（すり抜け防止）と観戦者フラグの同期
+// ★他プレイヤーのアイコンと名前を内部で確実に保持するよう修正
 // =========================================================
 
 window.MultiplayerManager = {
@@ -151,7 +151,7 @@ window.MultiplayerManager = {
 
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
-            // ★hasReceivedFirstPos が false の間（初回ワープ前）は lerp による移動を無効化する
+            // hasReceivedFirstPos が false の間（初回ワープ前）は lerp による移動を無効化する
             if (p.mesh && p.targetPos && p.hasReceivedFirstPos !== false) {
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
@@ -225,18 +225,14 @@ window.MultiplayerManager = {
                         }
                     }
                 } else if (msgData.type === 'mg_spectator') {
-                    // 他プレイヤーが観戦モードに入った（または出た）情報の同期
                     const p = this.otherPlayers[data.user_id];
                     if (p) {
                         p.isSpectator = msgData.isSpectator;
-                        if (p.mesh) p.mesh.visible = !msgData.isSpectator; // 画面から消す
+                        if (p.mesh) p.mesh.visible = !msgData.isSpectator; 
                     }
-                    
-                    // 誰かが観戦モードになったら生存者チェックを呼ぶ
                     if (window.MinigameManager && typeof window.MinigameManager.checkAllSpectators === 'function') {
                         window.MinigameManager.checkAllSpectators();
                     }
-
                 } else if (msgData.type === 'chat') {
                     if (typeof window.addLog === 'function') {
                         window.addLog(`<span style="color:#ffaa00;">${msgData.senderName}:</span> ${msgData.text}`, 'chat');
@@ -265,13 +261,16 @@ window.MultiplayerManager = {
         const mesh = this.createPlayerMesh(user);
         scene.add(mesh);
 
+        // ★追加: ミニゲームのリザルト等で使うため、名前とアイコンをここで保持しておく
         this.otherPlayers[user.user_id] = {
             id: user.user_id,
+            name: user.user_name || user.name || "Player",
+            icon: user.portrait || user.portait || "",
             mesh: mesh,
             targetPos: new THREE.Vector3(0, 20, 0),
             targetQuat: new THREE.Quaternion(),
             lastMoveTime: 0,
-            hasReceivedFirstPos: false, // ★初回の位置ワープ用フラグ
+            hasReceivedFirstPos: false, // 初回の位置ワープ用フラグ
             isSpectator: false
         };
     },
@@ -293,7 +292,7 @@ window.MultiplayerManager = {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 
-                // ★初回の位置データを受信した時だけ即座にワープ（すり抜け・処理落ちバグ防止）
+                // 初回の位置データを受信した時だけ即座にワープ
                 if (!p.hasReceivedFirstPos) {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);
