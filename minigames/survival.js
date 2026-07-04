@@ -1,7 +1,8 @@
 // =====================================
 // minigames/survival.js
 // 崩壊サバイバル プラグイン
-// ★坂道を歩いて登る際のY座標の追従遅れ（lerp）を考慮し、着地判定の遊びを調整
+// ★スコア表記から文字を省き、純粋な時間のみを返すように変更
+// ★2行目表示用の statusText ('生存クリア') を渡すように変更
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -115,7 +116,8 @@ window.MinigamePlugins['survival'] = {
                 window.MinigameManager.resultData.forEach(data => {
                     if (!data.isRetired) {
                         data.scoreValue = limitSec; 
-                        data.scoreText = `生存クリア! (${timeStr})`;
+                        data.scoreText = timeStr; // ★純粋な時間のみ
+                        data.statusText = "生存クリア"; // ★ステータス（2行目）
                     }
                 });
                 window.MinigameManager.endGame();
@@ -154,7 +156,6 @@ window.MinigamePlugins['survival'] = {
     },
 
     checkPlayerStep: function(nowTime) {
-        // ジャンプ中や落下中などの「明らかに空中にいる状態」は判定しない
         if (typeof isJumping !== 'undefined' && isJumping) return;
 
         let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
@@ -169,7 +170,6 @@ window.MinigamePlugins['survival'] = {
             let hit = intersects[0];
             let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 0.5;
             
-            // ★坂道や段差を歩く際の「Y座標の滑らかな追従遅れ」を考慮し、判定の遊びを段差分(stepHeight)まで許容する
             if (hit.point.y <= player.position.y + myStepHeight + 0.2 && hit.point.y >= player.position.y - myStepHeight - 0.5) {
                 let blockId = hit.object.userData.id;
                 let b = this.blocks[blockId];
@@ -217,7 +217,7 @@ window.MinigamePlugins['survival'] = {
 
                 data.isRetired = true;
                 data.scoreValue = survivedSeconds; 
-                data.scoreText = timeStr;
+                data.scoreText = timeStr; // ★時間のみを渡す。ステータスはUI側で「リタイア」になる
             }
         }
     },
