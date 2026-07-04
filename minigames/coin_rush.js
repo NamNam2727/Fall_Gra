@@ -2,7 +2,8 @@
 // minigames/coin_rush.js
 // コインラッシュ プラグイン
 // フィールドに大量のコインを配置し、獲得数を競う
-// ★落下によるリタイアを阻止し、デスペナルティ(コイン半減)に変更
+// ★コインの出現タイミングを 3,2,1 のカウントダウン中に修正
+// ★落下によるリタイアを阻止し、先回りでデスペナルティ(コイン半減)に変更
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -16,14 +17,12 @@ window.MinigamePlugins['coin_rush'] = {
     canGet: false,
     timeLimit: 3,     
     remainTime: 0,    
-    startTime: 0,
     myScore: 0,
     
     coinTexture: null,
     coinMaterial: null,
     coinGeometry: null,
     
-    originalExecuteRetire: null,
     coinUI: null,
 
     init: function(settings) {
@@ -35,21 +34,12 @@ window.MinigamePlugins['coin_rush'] = {
         this.myScore = 0;
         this.timeLimit = settings && settings.time ? parseInt(settings.time, 10) : 3;
 
-        // ★落下によるリタイアを阻止し、独自のペナルティ処理にハイジャックする
-        this.originalExecuteRetire = window.MinigameManager.executeRetire;
-        window.MinigameManager.executeRetire = () => {
-            // Y座標が-20以下の場合は落下判定
-            if (typeof player !== 'undefined' && player.position.y < -20) {
-                this.handleFallPenalty();
-            } else {
-                // UIから明示的に「リタイア」を押した場合は本来の処理を実行
-                this.originalExecuteRetire.call(window.MinigameManager);
-            }
-        };
-
         this.createMaterials();
         
         this.coinGroup = new THREE.Group();
+        // ★初期化時は非表示（10秒待機中は見せない）
+        this.coinGroup.visible = false; 
+        
         this.effectGroup = new THREE.Group();
         if (typeof scene !== 'undefined') {
             scene.add(this.coinGroup);
@@ -63,15 +53,19 @@ window.MinigamePlugins['coin_rush'] = {
     start: function() {
         console.log("[Coin Rush] Game Started!");
         this.isPlaying = true;
-        this.canGet = true;
+        this.canGet = true; // START!!が表示されてから取得可能に
         this.remainTime = this.timeLimit * 60; 
-        this.startTime = Date.now(); 
     },
 
     update: function(delta) {
-        const now = Date.now();
-        const elapsedTime = (now - this.startTime) / 1000;
+        // ★PLAYINGステートに移行しupdateが呼ばれ始めた（3,2,1のカウントダウン中）らコインを表示
+        if (this.coinGroup && !this.coinGroup.visible) {
+            this.coinGroup.visible = true;
+        }
 
+        const elapsedTime = performance.now() / 1000;
+
+        // ゲームプレイ中の処理
         if (this.isPlaying) {
             this.remainTime -= delta;
             
@@ -90,9 +84,16 @@ window.MinigamePlugins['coin_rush'] = {
             let s = Math.floor(this.remainTime % 60);
             let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
             if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
+
+            // ★落下ペナルティの先回りチェック（main.jsの-30到達前に-25で捕まえる）
+            if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
+                if (player.position.y < -25) {
+                    this.handleFallPenalty();
+                }
+            }
         }
 
-        // コインのプカプカ＆回転アニメーション
+        // コインのプカプカ＆回転アニメーション（待機中も動かす）
         const cycle = elapsedTime % 4.0;
         let rotY = 0;
         if (cycle >= 3.0) {
@@ -215,14 +216,14 @@ window.MinigamePlugins['coin_rush'] = {
     // 落下時のデスペナルティ
     handleFallPenalty: function() {
         if (typeof window.addLog === 'function') {
-            window.addLog('<span style="color:#ff3300;">落下ペナルティ！コインが半分になった！</span>', 'sys');
+            window.addLog('<span style="color:#ffaa00;">落下ペナルティ！コインが半分になった！</span>', 'sys');
         }
         
         // デスペナルティ: 所持コイン数を半分にして切り上げ (5枚なら3枚になる)
         this.myScore = Math.ceil(this.myScore / 2);
         this.updateScoreUI();
 
-        // 復帰処理
+        // 復帰処理 (main.jsの落下処理より先にワープさせる)
         if (typeof player !== 'undefined' && player) {
             player.position.set(0, 20, 0); 
         }
@@ -251,7 +252,7 @@ window.MinigamePlugins['coin_rush'] = {
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         if (window.MinigameManager && window.MinigameManager.resultData) {
             const myData = window.MinigameManager.resultData.find(d => d.id === myId);
-            if (myData) {
+            if (myData && !myData.isRetired) {
                 myData.scoreValue = this.myScore;
                 myData.scoreText = `${this.myScore}枚`;
             }
@@ -290,12 +291,6 @@ window.MinigamePlugins['coin_rush'] = {
                 }
                 rd[i].rank = currentRank;
             }
-        }
-
-        // ハイジャックの解除
-        if (this.originalExecuteRetire) {
-            window.MinigameManager.executeRetire = this.originalExecuteRetire;
-            this.originalExecuteRetire = null;
         }
 
         // オブジェクトの破棄
