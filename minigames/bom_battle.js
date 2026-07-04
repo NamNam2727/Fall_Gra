@@ -1,10 +1,8 @@
 // =====================================
 // minigames/bom_battle.js
 // 爆弾バトル プラグイン
-// ★自分の残りライフをカウントダウン時から表示
-// ★他プレイヤーの頭上に残りライフを表示
-// ★アイテム表示を💣に変更し、指定数+3で出現
-// ★ランキングを残りライフで表示
+// ★3,2,1のタイミングでUI表示・アイテム書き換え・数増量を実行
+// ★ランキングを残りライフベースに変更
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -14,6 +12,8 @@ window.MinigamePlugins['bom_battle'] = {
     maxHp: 3,
     invincibleTimer: 0,
     isPlaying: false,
+    isPrepared: false, // ★追加: 3,2,1のタイミングを検知するフラグ
+    settings: null,    // 初期化時の設定を保持
     timeLimit: 3,
     remainTime: 0,
     hpUI: null,
@@ -24,17 +24,24 @@ window.MinigamePlugins['bom_battle'] = {
     init: function(settings) {
         console.log("[Bom Battle] Initializing...");
         this.isPlaying = false;
+        this.isPrepared = false;
         this.hp = this.maxHp;
         this.invincibleTimer = 0;
+        this.settings = settings;
         this.timeLimit = settings && settings.time ? parseInt(settings.time, 10) : 3;
         this.remoteHPs = {};
+        
+        // ※この時点(10秒待機)ではまだUIも出さず、ハイジャックもしない
+    },
 
-        // ★アイテムの強制固定とスタック、出現数、アイコンのハイジャック
+    // 3,2,1のカウントダウンが開始された瞬間に1度だけ呼ばれる準備処理
+    prepareGame: function() {
+        // アイテムの強制固定とスタック、出現数、アイコンのハイジャック
         if (window.ItemSystem) {
             window.ItemSystem.forceItemType = 'bomb'; 
             window.ItemSystem.isStackable = true;     
-            let baseItems = settings && settings.items ? parseInt(settings.items, 10) : 0; 
-            window.ItemSystem.maxItems = baseItems + 3; // ★指定数 + 3 個出現
+            let baseItems = this.settings && this.settings.items ? parseInt(this.settings.items, 10) : 0; 
+            window.ItemSystem.maxItems = baseItems + 3; // ★指定数 + 3 個出現に確実にする
 
             this.originalPlaceFieldItem = window.ItemSystem.placeFieldItem;
             window.ItemSystem.placeFieldItem = function(id, pos) {
@@ -58,7 +65,7 @@ window.MinigamePlugins['bom_battle'] = {
                 ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
                 ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
                 ctx.fillStyle = '#ffcc00'; 
-                ctx.fillText('💣', 64, 64); // ★ ❓から💣に変更
+                ctx.fillText('💣', 64, 64); // ❓から💣に変更
                 
                 const tex = new THREE.CanvasTexture(canvas);
                 tex.needsUpdate = true;
@@ -75,16 +82,16 @@ window.MinigamePlugins['bom_battle'] = {
             }.bind(window.ItemSystem);
         }
 
-        // ★カウントダウン時から自分のHPを表示する
+        // UI（自分のハート）を表示
         this.createUI();
         
-        // ★初期状態のスコア同期を送信しておく（全員に自分の初期HP3を知らせる）
+        // 初期状態のスコア同期を送信（他プレイヤーに自分の初期HP3を知らせる）
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
                 type: 'mg_update_score',
                 userId: myId,
-                scoreValue: this.hp,
+                scoreValue: this.hp,  // ★ランキングのソート基準をHPに
                 scoreText: `ライフ: ${this.hp}`,
                 statusText: "",
                 isRetired: false
@@ -103,7 +110,13 @@ window.MinigamePlugins['bom_battle'] = {
     },
 
     update: function(delta) {
-        // ★他プレイヤーの頭上HP表示を追尾・更新（待機中から動かす）
+        // ★PLAYINGステートに移行（3,2,1が開始）した最初のフレームで準備を行う
+        if (!this.isPrepared) {
+            this.isPrepared = true;
+            this.prepareGame();
+        }
+
+        // 他プレイヤーの頭上HP表示を追尾・更新
         this.updateRemoteHPs();
 
         if (!this.isPlaying) return;
@@ -113,8 +126,8 @@ window.MinigamePlugins['bom_battle'] = {
             this.remainTime = 0;
             this.isPlaying = false;
             
+            // 終了判定
             if (window.MinigameManager && window.MinigameManager.resultData) {
-                // 自分のスコアを確定
                 const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
                 const myData = window.MinigameManager.resultData.find(d => d.id === myId);
                 if (myData) {
@@ -123,7 +136,6 @@ window.MinigamePlugins['bom_battle'] = {
                     myData.statusText = "生存クリア";
                 }
 
-                // 生存者全員にクリアステータス付与
                 window.MinigameManager.resultData.forEach(data => {
                     if (!data.isRetired) {
                         data.statusText = "生存クリア"; 
@@ -139,6 +151,7 @@ window.MinigamePlugins['bom_battle'] = {
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
 
+        // 無敵時間と点滅
         if (this.invincibleTimer > 0) {
             this.invincibleTimer -= delta;
             
@@ -155,14 +168,13 @@ window.MinigamePlugins['bom_battle'] = {
                 this.invincibleTimer = 0;
                 if (typeof player !== 'undefined' && player) {
                     player.traverse(child => {
-                        if (child.isMesh) {
-                            child.visible = true;
-                        }
+                        if (child.isMesh) child.visible = true;
                     });
                 }
             }
         }
 
+        // 爆風によるダメージ
         if (!window.isSpectatorMode && this.invincibleTimer <= 0) {
             let kb = null;
             if (window.ItemEffects && window.ItemEffects.knockback) kb = window.ItemEffects.knockback;
@@ -184,7 +196,6 @@ window.MinigamePlugins['bom_battle'] = {
 
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
-            // スコア（リザルト用）と頭上HP（ゲーム中用）の両方を同期
             window.MultiplayerManager.sendData({
                 type: 'mg_update_score',
                 userId: myId,
@@ -209,7 +220,6 @@ window.MinigamePlugins['bom_battle'] = {
         }
     },
 
-    // ★他人の頭上HPスプライトを作成・更新・追従
     updateRemoteHPs: function() {
         if (!window.MultiplayerManager) return;
         const others = window.MultiplayerManager.otherPlayers;
@@ -217,7 +227,6 @@ window.MinigamePlugins['bom_battle'] = {
         for (let id in others) {
             let p = others[id];
             
-            // 観戦モードまたはメッシュがない場合は削除
             if (p.isSpectator || !p.mesh) {
                 if (this.remoteHPs[id]) {
                     if (this.remoteHPs[id].sprite && this.remoteHPs[id].sprite.parent) {
@@ -228,7 +237,6 @@ window.MinigamePlugins['bom_battle'] = {
                 continue;
             }
 
-            // 新規スプライトの追加
             if (p.mesh && !this.remoteHPs[id]) {
                 const sprite = this.createHPSprite(this.maxHp);
                 sprite.position.y = 2.0; // 名前の少し上に配置
@@ -285,18 +293,19 @@ window.MinigamePlugins['bom_battle'] = {
     },
 
     onRetire: function(userId) {
-        if (window.MinigameManager && window.MinigameManager.resultData) {
-            const data = window.MinigameManager.resultData.find(d => d.id === userId);
-            if (data) {
-                data.isRetired = true;
-                data.scoreValue = this.hp; 
-                data.scoreText = `ライフ: ${this.hp}`; 
+        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
+        if (userId === myId) {
+            if (window.MinigameManager && window.MinigameManager.resultData) {
+                const data = window.MinigameManager.resultData.find(d => d.id === userId);
+                if (data) {
+                    data.isRetired = true;
+                    data.scoreValue = this.hp; 
+                    data.scoreText = `ライフ: ${this.hp}`; 
+                }
             }
+            if (this.hpUI) this.hpUI.style.display = 'none';
         }
         
-        if (this.hpUI) this.hpUI.style.display = 'none';
-        
-        // リタイアした人の頭上HPを消す
         let rhp = this.remoteHPs[userId];
         if (rhp && rhp.sprite && rhp.sprite.parent) {
             rhp.sprite.parent.remove(rhp.sprite);
@@ -309,17 +318,16 @@ window.MinigamePlugins['bom_battle'] = {
     end: function() {
         console.log("[Bom Battle] Game Ended.");
         this.isPlaying = false;
+        this.isPrepared = false;
         this.invincibleTimer = 0;
 
         if (typeof player !== 'undefined' && player) {
             player.traverse(child => {
-                if (child.isMesh) {
-                    child.visible = true;
-                }
+                if (child.isMesh) child.visible = true;
             });
         }
 
-        // ★ランキング計算 (HPが多い順)
+        // ★ランキング計算 (HPが多い順にソート)
         if (window.MinigameManager && window.MinigameManager.resultData) {
             let rd = window.MinigameManager.resultData;
             rd.sort((a, b) => b.scoreValue - a.scoreValue);
@@ -338,7 +346,6 @@ window.MinigamePlugins['bom_battle'] = {
             this.hpUI = null;
         }
 
-        // 頭上HPスプライトの完全削除
         for (let id in this.remoteHPs) {
             let rhp = this.remoteHPs[id];
             if (rhp.sprite && rhp.sprite.parent) {
@@ -349,7 +356,6 @@ window.MinigamePlugins['bom_battle'] = {
         }
         this.remoteHPs = {};
 
-        // ハイジャック解除
         if (this.originalPlaceFieldItem) {
             if (window.ItemSystem) window.ItemSystem.placeFieldItem = this.originalPlaceFieldItem;
             this.originalPlaceFieldItem = null;
