@@ -1,6 +1,7 @@
 // =========================================================
 // chat_system.js
 // チャット機能、ログ表示、定型文（ショートカット）管理
+// ★ショートカットの保存先をLocalStorageからIndexedDB(FallGraDB)に移行
 // =========================================================
 
 window.addLog = function(htmlText, type = 'sys') {
@@ -22,7 +23,6 @@ window.addLog = function(htmlText, type = 'sys') {
     const bottomContentArea = document.getElementById('bottomContentArea');
     const isMinimized = bottomContentArea && bottomContentArea.style.height === '0px';
     
-    // チャットタブが選択されていて、かつ「ウィンドウが開いている」時だけフローティングログをオフにする
     if (isChatActive && !isMinimized) {
         return; 
     }
@@ -141,37 +141,6 @@ window.initChatSystem = function() {
     }
 
     let shortcuts = null;
-    
-    // ★重要: データが壊れていた場合に備え、エラーを無視する(try-catch)安全処理を追加
-    try {
-        let savedData = localStorage.getItem('fallGraShortcuts');
-        if (savedData) {
-            shortcuts = JSON.parse(savedData);
-            if (!Array.isArray(shortcuts)) shortcuts = null;
-        }
-    } catch (e) {
-        console.error("ショートカットデータの読み込みに失敗しました。初期化します。");
-        shortcuts = null;
-    }
-    
-    // 正常なデータがない場合はデフォルトに戻す
-    if (!shortcuts || shortcuts.length === 0) {
-        shortcuts = [
-            "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！"
-        ];
-    } else {
-        let modified = false;
-        for (let i = 0; i < shortcuts.length; i++) {
-            if (shortcuts[i] === "上に乗せて！") {
-                shortcuts[i] = "たすけて！";
-                modified = true;
-            }
-        }
-        if (modified) {
-            localStorage.setItem('fallGraShortcuts', JSON.stringify(shortcuts));
-        }
-    }
-
     let isEditMode = false;
 
     function renderShortcuts() {
@@ -194,7 +163,8 @@ window.initChatSystem = function() {
                     customPrompt('ショートカット文を入力してください:', text, (newText) => {
                         if (newText !== null) {
                             shortcuts[i] = newText.trim();
-                            localStorage.setItem('fallGraShortcuts', JSON.stringify(shortcuts));
+                            // ★IndexedDB(FallGraDB)に保存
+                            if (window.FallGraDB) window.FallGraDB.save('fallGraShortcuts', shortcuts);
                             renderShortcuts();
                         }
                     });
@@ -218,5 +188,51 @@ window.initChatSystem = function() {
         });
     }
 
-    renderShortcuts();
+    // ★非同期でIndexedDBからショートカットを読み込み
+    if (window.FallGraDB) {
+        window.FallGraDB.load('fallGraShortcuts', null).then(savedData => {
+            if (savedData && Array.isArray(savedData)) {
+                shortcuts = savedData;
+            }
+
+            // IndexedDBに無い場合、過去のLocalStorageからの引き継ぎを試みる
+            if (!shortcuts || shortcuts.length === 0) {
+                try {
+                    let oldData = localStorage.getItem('fallGraShortcuts');
+                    if (oldData) {
+                        let parsed = JSON.parse(oldData);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            shortcuts = parsed;
+                            // 見つけたらすぐにIndexedDBに退避
+                            window.FallGraDB.save('fallGraShortcuts', shortcuts); 
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            // それでもなければデフォルト値をセット
+            if (!shortcuts || shortcuts.length === 0) {
+                shortcuts = [
+                    "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！"
+                ];
+            } else {
+                let modified = false;
+                for (let i = 0; i < shortcuts.length; i++) {
+                    if (shortcuts[i] === "上に乗せて！") {
+                        shortcuts[i] = "たすけて！";
+                        modified = true;
+                    }
+                }
+                if (modified) {
+                    window.FallGraDB.save('fallGraShortcuts', shortcuts);
+                }
+            }
+
+            renderShortcuts();
+        });
+    } else {
+        // フォールバック(万が一DBが読み込めなかった場合)
+        shortcuts = ["こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！"];
+        renderShortcuts();
+    }
 };

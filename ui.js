@@ -1,11 +1,11 @@
 // =====================================
 // ui.js
-// 基礎的なUI要素（移動、ジャンプ、チャット、メニュー等）を生成
-// ★IndexedDBによるデータ保存基盤を追加
-// ★メニューボタン、ドロップダウン、設定モーダルを追加
+// 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
+// ★IndexedDB(FallGraDB)の基盤を追加
+// ★メニューボタン、ドロップダウンリスト、設定モーダルを追加
 // =====================================
 
-// ★追加: IndexedDB の簡易ラッパー（今後のマップ保存などでも流用可能）
+// ★ IndexedDB の簡易ラッパー（今後のマップ保存などでも流用可能）
 window.FallGraDB = {
     dbName: 'FallGraDatabase',
     storeName: 'settings',
@@ -109,7 +109,7 @@ function initUI() {
         .shortcut-btn:active { background: rgba(80,80,80,0.8); }
         #editShortcutBtn { width: 100%; background: #444; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
         
-        /* ★追加: メニューボタンとドロップダウン、設定モーダルのスタイル */
+        /* ★ メニューボタンとドロップダウン、設定モーダルのスタイル */
         #menu-btn { position: absolute; right: 10px; padding: 8px 16px; background: rgba(0, 150, 255, 0.85); border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; color: #fff; font-weight: bold; font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); pointer-events: auto; cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); z-index: 1000; transition: all 0.2s; }
         #menu-btn:active { background: rgba(0, 150, 255, 1.0); transform: scale(0.95); }
         #menu-btn.abort-mode { background: rgba(220, 50, 50, 0.9) !important; border-color: white !important; }
@@ -261,10 +261,11 @@ function initUI() {
             document.getElementById('content-' + target).classList.add('active');
         });
     });
+
     uiLayer.appendChild(bottomUI);
 
     // ==========================================
-    // ★追加: メニューボタンとドロップダウンの構築
+    // ★ メニューボタンとドロップダウンの構築
     // ==========================================
     const screenHeight = window.innerHeight;
     const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
@@ -383,9 +384,11 @@ function initUI() {
 
     document.body.appendChild(uiLayer);
 
+    // 分離した他モジュールのUI生成を呼び出す
     if (window.MultiplayerManager && typeof window.MultiplayerManager.initUI === 'function') {
         window.MultiplayerManager.initUI();
     }
+    // ミニゲーム専用UIの初期化
     if (window.MinigameUI && typeof window.MinigameUI.initUI === 'function') {
         window.MinigameUI.initUI();
     }

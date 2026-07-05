@@ -104,11 +104,15 @@ window.SESystem = {
         // 音源をその場に配置
         const mesh = new THREE.Object3D();
         mesh.position.copy(position);
-        scene.add(mesh);
+        
+        if (typeof scene !== 'undefined') scene.add(mesh);
         mesh.add(sound);
         
         sound.play();
-        setTimeout(() => { scene.remove(mesh); }, duration * 1000);
+        setTimeout(() => { 
+            if (typeof scene !== 'undefined') scene.remove(mesh); 
+            if (sound.isPlaying) sound.stop(); 
+        }, duration * 1000);
     }
 };
 
