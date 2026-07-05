@@ -1,8 +1,8 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★リストのユーザーをタップした際、Gravity特有のディープリンクを使って
-// プロフィール画面へ遷移するよう修正
+// ★リストのユーザーをタップした際、Gravity特有のディープリンクと
+// パラメータを使ってプロフィール画面へ遷移するよう修正
 // =========================================================
 
 window.MultiplayerManager = {
@@ -48,34 +48,33 @@ window.MultiplayerManager = {
         `;
         uiLayer.appendChild(memberWindow);
 
-        // ★追加: test.htmlのヒントを元にした、Gravity特有の画面遷移ロジック
+        // ★追加: 判明したパラメータを使ってプロフィールを開く関数
         const openGravityUserProfile = (userId) => {
-            // ① test.htmlの「makefeed(投稿)」を「user(プロフィール)」に置き換えた推測パターン
-            const paramObj = {
-                s: "web",
-                b: "profile", // "user" または "profile" の可能性が高い
-                uid: userId // IDの渡し方は "uid" または "id" が一般的
-            };
-            
-            // 暗号のような特殊リンク(ディープリンク)を組み立てる
-            const innerUrl = "user?0=" + encodeURIComponent(JSON.stringify(paramObj));
-            const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
+            // パターン1: HTMLファイルから判明した「URLパラメータ」を付与してiframeで叩く
+            // アプリ側がこのURLを検知してプロフィールを開く可能性が高い
+            const webUrl = `https://www.gravity.place/user/${userId}?f=${userId}&s=link&b=mypage`;
+            let i1 = document.createElement('iframe');
+            i1.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+            i1.src = webUrl;
+            document.body.appendChild(i1);
 
-            // test.htmlと同じく、見えないiframeを使ってリンクを発動させる
-            let i = document.createElement('iframe');
-            i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
-            i.src = deepLink;
-            document.body.appendChild(i);
+            // パターン2: 投稿(makefeed)の仕組みをマイページ(mypage)に変換した内部ディープリンク
+            const paramObj = {
+                f: userId,
+                s: "link",
+                b: "mypage"
+            };
+            const innerUrl = "mypage?0=" + encodeURIComponent(JSON.stringify(paramObj));
+            const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
             
-            // 万が一上のディープリンクが外れていた時のための保険（Web版のURLも同時に叩いてみる）
             let i2 = document.createElement('iframe');
             i2.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
-            i2.src = `https://www.gravity.place/user/${userId}`;
+            i2.src = deepLink;
             document.body.appendChild(i2);
 
-            // 用済みのiframeを掃除
+            // 5秒後に不要なiframeを削除
             setTimeout(() => {
-                if (i.parentNode) i.remove();
+                if (i1.parentNode) i1.remove();
                 if (i2.parentNode) i2.remove();
             }, 5000);
         };
