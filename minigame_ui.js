@@ -1,20 +1,13 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
-// ★リザルト表示を2行（スコアとステータス）に分け、名前の表示幅を確保
+// ★ui.jsで作成された「メニューボタン」に相乗りし、ゲーム中はリタイアボタンに変更するよう改修
 // =====================================
 
 window.MinigameUI = {
     initUI: function() {
         const style = document.createElement('style');
         style.innerHTML = `
-            #minigame-btn { position: absolute; right: 10px; padding: 8px 16px; background: rgba(255, 150, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; color: #fff; font-weight: bold; font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); pointer-events: auto; cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); z-index: 100; display: flex; justify-content: center; align-items: center; transition: all 0.2s; }
-            #minigame-btn:active { background: rgba(255, 150, 0, 1.0); transform: scale(0.95); }
-            #minigame-btn.abort-mode { background: rgba(220, 50, 50, 0.9) !important; border-color: white !important; }
-            #minigame-btn.abort-mode:active { background: rgba(200, 40, 40, 1.0) !important; }
-            #minigame-btn.spectator-mode { background: #555 !important; border-color: #777 !important; cursor: default; }
-            #minigame-btn.spectator-mode:active { transform: none; }
-
             .mg-window-base { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; height: 70%; max-height: 500px; background: rgba(15, 15, 25, 0.95); border: 3px solid #ffaa00; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); display: none; flex-direction: column; z-index: 1000; pointer-events: auto; font-family: sans-serif; color: white; }
 
             #mg-list-container { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: min-content; align-items: start; gap: 10px; padding: 15px; overflow-y: auto; flex: 1; }
@@ -71,7 +64,6 @@ window.MinigameUI = {
             .result-icon { width: 40px; height: 40px; border-radius: 50%; background-color: #555; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); margin-right: 15px; flex-shrink: 0; }
             .result-name { flex: 1; color: white; font-size: 16px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             
-            /* ★修正: スコア表示部分を2行レイアウト用に変更 */
             .result-score-container { display: flex; flex-direction: column; align-items: flex-end; margin-left: 10px; min-width: 60px; }
             .result-score { font-size: 16px; font-weight: bold; color: #ffaa00; white-space: nowrap; }
             .result-status { font-size: 11px; font-weight: bold; margin-top: 2px; white-space: nowrap; }
@@ -91,39 +83,41 @@ window.MinigameUI = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
+        // タイマーUI
         const timerUI = document.createElement('div');
         timerUI.id = 'mg-timer-ui';
         timerUI.innerText = '03:00';
         timerUI.style.top = (topExclusionHeight + 15) + 'px';
         uiLayer.appendChild(timerUI);
 
-        const minigameBtn = document.createElement('div');
-        minigameBtn.id = 'minigame-btn';
-        minigameBtn.innerText = 'ミニゲーム';
-        minigameBtn.style.top = (topExclusionHeight + 15) + 'px';
-        
-        let lastMgBtnClick = 0;
-        const onMinigameClick = (e) => {
-            const now = Date.now();
-            if (now - lastMgBtnClick < 500) return; 
-            lastMgBtnClick = now;
+        // ★修正: 独自のミニゲームボタン作成をやめ、ui.jsが作ったメニューボタンにリスナーを相乗りさせる
+        const menuBtn = document.getElementById('menu-btn');
+        if (menuBtn) {
+            // MinigameManager が参照するIDとして設定しておく(Manager側の書き換えを最小にするため)
+            menuBtn.id = 'minigame-btn'; 
+            
+            let lastMgBtnClick = 0;
+            const onMenuClick = (e) => {
+                const now = Date.now();
+                if (now - lastMgBtnClick < 500) return; 
+                lastMgBtnClick = now;
 
-            if (window.MinigameManager) {
-                if (window.MinigameManager.state === 'PLAYING' || window.MinigameManager.state === 'COUNTDOWN') {
-                    if (!window.isSpectatorMode) {
-                        window.MinigameManager.confirmRetire(); 
+                if (window.MinigameManager) {
+                    if (window.MinigameManager.state === 'PLAYING' || window.MinigameManager.state === 'COUNTDOWN') {
+                        e.stopPropagation(); // ドロップダウンが開くのを防ぐ
+                        if (!window.isSpectatorMode) {
+                            window.MinigameManager.confirmRetire(); 
+                        }
                     }
-                } else {
-                    window.MinigameManager.openListView(); 
+                    // IDLEの時はドロップダウンが開くのを邪魔しない（ui.jsの処理に任せる）
                 }
-            }
-        };
-        
-        minigameBtn.addEventListener('click', onMinigameClick);
-        minigameBtn.addEventListener('mousedown', preventTouch);
-        minigameBtn.addEventListener('touchstart', (e) => { preventTouch(e); onMinigameClick(e); }, {passive: false});
-        uiLayer.appendChild(minigameBtn);
+            };
+            
+            menuBtn.addEventListener('click', onMenuClick, true); // キャプチャフェーズで先に判定
+            menuBtn.addEventListener('touchstart', (e) => { onMenuClick(e); }, {passive: false, capture: true});
+        }
 
+        // リストウィンドウ
         const mgListWindow = document.createElement('div');
         mgListWindow.id = 'mg-list-window';
         mgListWindow.className = 'mg-window-base';
@@ -133,6 +127,7 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgListWindow);
 
+        // 詳細ウィンドウ
         const mgDetailWindow = document.createElement('div');
         mgDetailWindow.id = 'mg-detail-window';
         mgDetailWindow.className = 'mg-window-base';
@@ -153,6 +148,7 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgDetailWindow);
 
+        // 多数決ポップアップ
         const mgPopup = document.createElement('div');
         mgPopup.id = 'mg-proposal-popup';
         mgPopup.innerHTML = `
@@ -164,11 +160,13 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgPopup);
 
+        // カウントダウン
         const mgCountdown = document.createElement('div');
         mgCountdown.id = 'mg-countdown-overlay';
         mgCountdown.innerHTML = `<div class="mg-cd-label">ゲーム開始まで</div><div id="mg-countdown-text">10</div>`;
         uiLayer.appendChild(mgCountdown);
 
+        // リタイア確認ポップアップ
         const mgRetirePopup = document.createElement('div');
         mgRetirePopup.id = 'mg-retire-popup';
         mgRetirePopup.innerHTML = `
@@ -181,6 +179,7 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgRetirePopup);
 
+        // リザルト画面
         const mgResultWindow = document.createElement('div');
         mgResultWindow.id = 'mg-result-window';
         mgResultWindow.innerHTML = `
@@ -244,7 +243,6 @@ window.MinigameUI = {
             nameEl.className = 'result-name';
             nameEl.innerText = data.name;
 
-            // ★修正: スコアとステータスを縦2行に分けて配置するコンテナ
             const scoreContainer = document.createElement('div');
             scoreContainer.className = 'result-score-container';
 
@@ -272,7 +270,7 @@ window.MinigameUI = {
             item.appendChild(rankEl);
             item.appendChild(iconEl);
             item.appendChild(nameEl);
-            item.appendChild(scoreContainer); // nameElの隣にスコアコンテナを配置
+            item.appendChild(scoreContainer); 
             
             container.appendChild(item);
         });

@@ -1,8 +1,43 @@
 // =====================================
 // ui.js
-// 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
-// ★ジャンプボタンを観戦モード用の🔺🔻に切り替える機能を追加
+// 基礎的なUI要素（移動、ジャンプ、チャット、メニュー等）を生成
+// ★IndexedDBによるデータ保存基盤を追加
+// ★メニューボタン、ドロップダウン、設定モーダルを追加
 // =====================================
+
+// ★追加: IndexedDB の簡易ラッパー（今後のマップ保存などでも流用可能）
+window.FallGraDB = {
+    dbName: 'FallGraDatabase',
+    storeName: 'settings',
+    init: function() {
+        return new Promise((resolve) => {
+            const req = indexedDB.open(this.dbName, 1);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    db.createObjectStore(this.storeName);
+                }
+            };
+            req.onsuccess = (e) => resolve(e.target.result);
+        });
+    },
+    save: function(key, value) {
+        this.init().then(db => {
+            const tx = db.transaction(this.storeName, 'readwrite');
+            tx.objectStore(this.storeName).put(value, key);
+        });
+    },
+    load: function(key, defaultVal) {
+        return new Promise(resolve => {
+            this.init().then(db => {
+                const tx = db.transaction(this.storeName, 'readonly');
+                const req = tx.objectStore(this.storeName).get(key);
+                req.onsuccess = () => resolve(req.result !== undefined ? req.result : defaultVal);
+                req.onerror = () => resolve(defaultVal);
+            });
+        });
+    }
+};
 
 function initUI() {
     const style = document.createElement('style');
@@ -73,6 +108,24 @@ function initUI() {
         .shortcut-btn { background: rgba(0,0,0,0.6); border: 1px solid #666; color: white; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold; }
         .shortcut-btn:active { background: rgba(80,80,80,0.8); }
         #editShortcutBtn { width: 100%; background: #444; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
+        
+        /* ★追加: メニューボタンとドロップダウン、設定モーダルのスタイル */
+        #menu-btn { position: absolute; right: 10px; padding: 8px 16px; background: rgba(0, 150, 255, 0.85); border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; color: #fff; font-weight: bold; font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); pointer-events: auto; cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); z-index: 1000; transition: all 0.2s; }
+        #menu-btn:active { background: rgba(0, 150, 255, 1.0); transform: scale(0.95); }
+        #menu-btn.abort-mode { background: rgba(220, 50, 50, 0.9) !important; border-color: white !important; }
+        #menu-btn.abort-mode:active { background: rgba(200, 40, 40, 1.0) !important; }
+        #menu-btn.spectator-mode { background: #555 !important; border-color: #777 !important; cursor: default; }
+        
+        #menu-dropdown { position: absolute; right: 10px; background: rgba(20, 20, 30, 0.95); border: 2px solid #aaa; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.8); display: none; flex-direction: column; z-index: 999; pointer-events: auto; font-family: sans-serif; overflow: hidden; width: 160px; }
+        .menu-item { padding: 12px 15px; color: white; font-size: 14px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer; }
+        .menu-item:last-child { border-bottom: none; }
+        .menu-item:hover { background: rgba(255,255,255,0.1); }
+        .menu-item:active { background: rgba(255,255,255,0.2); }
+        
+        #settings-modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 320px; background: rgba(20, 20, 30, 0.95); border: 3px solid #00ffcc; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); display: none; flex-direction: column; z-index: 2000; pointer-events: auto; padding: 20px; font-family: sans-serif; color: white; }
+        .setting-row { margin-bottom: 20px; }
+        .setting-label { font-size: 14px; font-weight: bold; margin-bottom: 5px; display: flex; justify-content: space-between; }
+        .setting-slider { width: 100%; margin-top: 5px; cursor: pointer; }
     `;
     document.head.appendChild(style);
 
@@ -86,7 +139,6 @@ function initUI() {
     joystickBase.appendChild(joystickStick);
     uiLayer.appendChild(joystickBase);
 
-    // ★ジャンプボタンを通常版と観戦モード版(上下分割)に構造変更
     const jumpBtn = document.createElement('div');
     jumpBtn.id = 'jump-btn';
     jumpBtn.innerHTML = `
@@ -102,13 +154,11 @@ function initUI() {
     const specUp = jumpBtn.querySelector('#spec-up');
     const specDown = jumpBtn.querySelector('#spec-down');
 
-    // 観戦モード用のグローバルな上下移動フラグ
     window.specMoveUp = false;
     window.specMoveDown = false;
 
     const stopPropagation = (e) => e.stopPropagation();
     
-    // 上昇ボタン
     const doSpecUp = (e) => { stopPropagation(e); window.specMoveUp = true; };
     const endSpecUp = (e) => { stopPropagation(e); window.specMoveUp = false; };
     specUp.addEventListener('mousedown', doSpecUp);
@@ -118,7 +168,6 @@ function initUI() {
     specUp.addEventListener('touchend', endSpecUp);
     specUp.addEventListener('touchcancel', endSpecUp);
 
-    // 下降ボタン
     const doSpecDown = (e) => { stopPropagation(e); window.specMoveDown = true; };
     const endSpecDown = (e) => { stopPropagation(e); window.specMoveDown = false; };
     specDown.addEventListener('mousedown', doSpecDown);
@@ -128,7 +177,6 @@ function initUI() {
     specDown.addEventListener('touchend', endSpecDown);
     specDown.addEventListener('touchcancel', endSpecDown);
 
-    // 観戦モードのON/OFFに合わせてUIを切り替えるグローバル関数
     window.toggleSpectatorUI = function(isSpec) {
         if (isSpec) {
             normalJump.style.display = 'none';
@@ -213,15 +261,131 @@ function initUI() {
             document.getElementById('content-' + target).classList.add('active');
         });
     });
-
     uiLayer.appendChild(bottomUI);
+
+    // ==========================================
+    // ★追加: メニューボタンとドロップダウンの構築
+    // ==========================================
+    const screenHeight = window.innerHeight;
+    const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
+
+    const menuBtn = document.createElement('div');
+    menuBtn.id = 'menu-btn';
+    menuBtn.innerText = 'メニュー';
+    menuBtn.style.top = (topExclusionHeight + 15) + 'px';
+    
+    const menuDropdown = document.createElement('div');
+    menuDropdown.id = 'menu-dropdown';
+    menuDropdown.style.top = (topExclusionHeight + 60) + 'px';
+    menuDropdown.innerHTML = `
+        <div class="menu-item" id="menu-minigame">🎮 ミニゲーム</div>
+        <div class="menu-item" style="color:#777;">🗺️ マップ変更</div>
+        <div class="menu-item" style="color:#777;">📖 遊び方</div>
+        <div class="menu-item" id="menu-setting">⚙️ 設定</div>
+    `;
+
+    // 設定モーダルの構築
+    const settingsModal = document.createElement('div');
+    settingsModal.id = 'settings-modal';
+    settingsModal.innerHTML = `
+        <div style="font-size:18px; font-weight:bold; color:#00ffcc; text-align:center; margin-bottom:20px; border-bottom:1px solid #444; padding-bottom:10px;">⚙️ 音声設定</div>
+        
+        <div class="setting-row">
+            <div class="setting-label"><span>🎵 BGM音量</span><span id="bgm-val">50%</span></div>
+            <input type="range" class="setting-slider" id="bgm-slider" min="0" max="100" value="50">
+        </div>
+        <div class="setting-row">
+            <div class="setting-label"><span>🔊 効果音 (SE) 音量</span><span id="se-val">50%</span></div>
+            <input type="range" class="setting-slider" id="se-slider" min="0" max="100" value="50">
+        </div>
+        <div class="setting-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:30px;">
+            <span style="font-size:14px; font-weight:bold;">🔇 全体ミュート</span>
+            <input type="checkbox" id="mute-toggle" style="width:20px; height:20px;">
+        </div>
+        
+        <button id="close-settings-btn" style="width:100%; margin-top:20px; padding:12px; background:#4CAF50; color:white; border:none; border-radius:8px; font-size:16px; font-weight:bold; cursor:pointer;">閉じる</button>
+    `;
+
+    uiLayer.appendChild(menuBtn);
+    uiLayer.appendChild(menuDropdown);
+    uiLayer.appendChild(settingsModal);
+
+    // IndexedDBから設定を読み込んで反映
+    window.FallGraDB.load('bgmVolume', 50).then(v => {
+        settingsModal.querySelector('#bgm-slider').value = v;
+        settingsModal.querySelector('#bgm-val').innerText = v + '%';
+        if (window.BGMSystem) window.BGMSystem.setVolume(v / 100);
+    });
+    window.FallGraDB.load('seVolume', 50).then(v => {
+        settingsModal.querySelector('#se-slider').value = v;
+        settingsModal.querySelector('#se-val').innerText = v + '%';
+        if (window.SESystem) window.SESystem.setVolume(v / 100);
+    });
+    window.FallGraDB.load('isMuted', false).then(v => {
+        settingsModal.querySelector('#mute-toggle').checked = v;
+        if (window.BGMSystem) window.BGMSystem.setMute(v);
+        if (window.SESystem) window.SESystem.setMute(v);
+    });
+
+    // 設定モーダルのイベントリスナー
+    settingsModal.querySelector('#bgm-slider').addEventListener('input', (e) => {
+        const val = e.target.value;
+        settingsModal.querySelector('#bgm-val').innerText = val + '%';
+        if (window.BGMSystem) window.BGMSystem.setVolume(val / 100);
+        window.FallGraDB.save('bgmVolume', parseInt(val));
+    });
+    settingsModal.querySelector('#se-slider').addEventListener('input', (e) => {
+        const val = e.target.value;
+        settingsModal.querySelector('#se-val').innerText = val + '%';
+        if (window.SESystem) window.SESystem.setVolume(val / 100);
+        window.FallGraDB.save('seVolume', parseInt(val));
+    });
+    settingsModal.querySelector('#mute-toggle').addEventListener('change', (e) => {
+        const isMuted = e.target.checked;
+        if (window.BGMSystem) window.BGMSystem.setMute(isMuted);
+        if (window.SESystem) window.SESystem.setMute(isMuted);
+        window.FallGraDB.save('isMuted', isMuted);
+    });
+    settingsModal.querySelector('#close-settings-btn').addEventListener('click', () => {
+        settingsModal.style.display = 'none';
+    });
+
+    // ドロップダウンリストの開閉と項目のイベント
+    menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // ★ミニゲーム中はドロップダウンを出さず、リタイア確認として機能させる (minigame_ui.js でフック)
+        if (window.MinigameManager && (window.MinigameManager.state === 'PLAYING' || window.MinigameManager.state === 'COUNTDOWN')) {
+            return; 
+        }
+        menuDropdown.style.display = menuDropdown.style.display === 'flex' ? 'none' : 'flex';
+    });
+
+    menuDropdown.querySelector('#menu-minigame').addEventListener('click', (e) => {
+        e.stopPropagation();
+        menuDropdown.style.display = 'none';
+        if (window.MinigameManager) window.MinigameManager.openListView();
+    });
+
+    menuDropdown.querySelector('#menu-setting').addEventListener('click', (e) => {
+        e.stopPropagation();
+        menuDropdown.style.display = 'none';
+        settingsModal.style.display = 'flex';
+    });
+
+    // 背景タップでドロップダウンを閉じる
+    document.addEventListener('click', () => { menuDropdown.style.display = 'none'; });
+    document.addEventListener('touchstart', () => { menuDropdown.style.display = 'none'; }, {passive: true});
+
+    [menuBtn, menuDropdown, settingsModal].forEach(el => {
+        el.addEventListener('mousedown', preventTouch);
+        el.addEventListener('touchstart', preventTouch, {passive: false});
+    });
+
     document.body.appendChild(uiLayer);
 
-    // 分離した他モジュールのUI生成を呼び出す
     if (window.MultiplayerManager && typeof window.MultiplayerManager.initUI === 'function') {
         window.MultiplayerManager.initUI();
     }
-    // ミニゲーム専用UIの初期化
     if (window.MinigameUI && typeof window.MinigameUI.initUI === 'function') {
         window.MinigameUI.initUI();
     }
