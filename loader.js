@@ -6,13 +6,11 @@
 (function() {
     const baseURL = 'https://namnam2727.github.io/Fall_Gra/';
     
-    // ★ bgm_system.js と se_system.js を ui.js の直後に追加
+    // ★item_effects.js を追加し、item_system.js の直後に読み込むように更新
     const coreScripts = [
         'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
         'globals.js',
         'ui.js',
-        'bgm_system.js',
-        'se_system.js',
         'chat_system.js',
         'minigame_list.js',
         'minigame_manager.js',
