@@ -1,7 +1,8 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★リストのユーザーをタップした際、アプリ環境を考慮して「同じウィンドウ」で遷移するよう修正
+// ★リストのユーザーをタップした際、Gravityアプリ環境で
+// ブロックされないよう iframe を使ったディープリンク遷移を実装
 // =========================================================
 
 window.MultiplayerManager = {
@@ -47,6 +48,30 @@ window.MultiplayerManager = {
         `;
         uiLayer.appendChild(memberWindow);
 
+        // ★追加: Gravityアプリ内でプロフィールを開くための関数 (test.htmlの仕組みを応用)
+        const openGravityUserProfile = (userId) => {
+            // パターン1: WebのURLをiframeに渡す（アプリ側がURLを検知してプロフィールを開く可能性が高い）
+            let targetUrl = `https://www.gravity.place/user/${userId}`;
+
+            /* // パターン2: もしパターン1で動かない場合、Gravity専用のカスタムスキーム（推測）を試す場合はこちらを有効にします
+            // const paramObj = { s: "web", b: "user", id: userId };
+            // const innerUrl = "user?id=" + userId;
+            // targetUrl = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
+            
+            // パターン3: さらにシンプルなディープリンクの推測
+            // targetUrl = `slme://user?uid=${userId}`;
+            */
+
+            // 見えないiframeを作ってURLを読み込ませることで、アプリのブロックを回避してネイティブ動作を誘発する
+            let i = document.createElement('iframe');
+            i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+            i.src = targetUrl;
+            document.body.appendChild(i);
+            
+            // 処理が終わったら消す
+            setTimeout(() => i.remove(), 5000);
+        };
+
         window.updateMemberList = function() {
             const listEl = document.getElementById('member-list-content');
             if (!listEl) return;
@@ -79,10 +104,10 @@ window.MultiplayerManager = {
                 const item = document.createElement('div');
                 item.className = 'member-item';
                 
-                // ★修正: アプリ環境(WebView等)を考慮し、同一ウィンドウ(タブ)で遷移を試みる
+                // ★修正: location.href ではなく、iframeによる遷移関数を呼び出す
                 item.addEventListener('click', () => {
                     if (user.user_id && user.user_id !== 'local') {
-                        window.location.href = `https://www.gravity.place/user/${user.user_id}`;
+                        openGravityUserProfile(user.user_id);
                     }
                 });
                 
