@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★リストのユーザーをタップするとプロフィール画面へ遷移する機能を追加
+// ★リストのユーザーをタップした際、アプリ環境を考慮して「同じウィンドウ」で遷移するよう修正
 // =========================================================
 
 window.MultiplayerManager = {
@@ -21,7 +21,6 @@ window.MultiplayerManager = {
             .member-close-btn { background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 5px; }
             .member-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
             
-            /* ★修正: カーソルをポインターにし、タップ時の色変化を追加 */
             .member-item { display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
             .member-item:active { background: rgba(255,255,255,0.3); }
             
@@ -55,10 +54,9 @@ window.MultiplayerManager = {
 
             let allUsers = [];
             
-            // 1. まず自分自身を追加 (プロフィールURL用の user_id も保持する)
             if (window.GameState && window.GameState.userInfo) {
                 allUsers.push({
-                    user_id: window.GameState.userInfo.user_id, // ★追加
+                    user_id: window.GameState.userInfo.user_id,
                     user_name: window.GameState.userInfo.user_name || window.GameState.userInfo.name || "Player",
                     portrait: window.GameState.userInfo.portrait || window.GameState.userInfo.portait || ""
                 });
@@ -66,12 +64,11 @@ window.MultiplayerManager = {
                 allUsers.push({ user_id: 'local', user_name: "テストプレイヤー (あなた)", portrait: "" });
             }
 
-            // 2. リアルタイムに通信している他プレイヤー情報をリストに追加
             if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let op = window.MultiplayerManager.otherPlayers[id];
                     allUsers.push({
-                        user_id: op.id, // ★追加
+                        user_id: op.id, 
                         user_name: op.name || "Player",
                         portrait: op.icon || ""
                     });
@@ -82,11 +79,10 @@ window.MultiplayerManager = {
                 const item = document.createElement('div');
                 item.className = 'member-item';
                 
-                // ★追加: 項目をタップした時の処理
+                // ★修正: アプリ環境(WebView等)を考慮し、同一ウィンドウ(タブ)で遷移を試みる
                 item.addEventListener('click', () => {
                     if (user.user_id && user.user_id !== 'local') {
-                        // 新しいタブでプロフィール画面を開く
-                        window.open(`https://www.gravity.place/user/${user.user_id}`, '_blank');
+                        window.location.href = `https://www.gravity.place/user/${user.user_id}`;
                     }
                 });
                 
