@@ -53,7 +53,7 @@ window.MultiplayerManager = {
             // ① test.htmlの「makefeed(投稿)」を「user(プロフィール)」に置き換えた推測パターン
             const paramObj = {
                 s: "web",
-                b: "user", // "user" または "profile" の可能性が高い
+                b: "profile", // "user" または "profile" の可能性が高い
                 uid: userId // IDの渡し方は "uid" または "id" が一般的
             };
             
