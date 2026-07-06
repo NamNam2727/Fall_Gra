@@ -1,7 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★オートカメラ機能を「遮蔽物があったら接近するのみ」に修正
+// ★オートカメラ機能: 低い障害物なら上へ避け、高い壁なら接近するように修正
 // =====================================
 
 let mapMesh;
@@ -380,15 +380,26 @@ window.updateCamera = function(instant, delta = 0.016) {
             let hits = raycaster.intersectObjects(terrainMeshes, false);
             
             let isOccluded = false;
+            let occluderHeight = 0; // 遮蔽物がヒットした点の高さを保持
+
             if (hits.length > 0 && hits[0].distance < distToCamera) {
                 isOccluded = true;
+                occluderHeight = hits[0].point.y; // レーザーがぶつかった場所のY座標
             }
             
             let targetSliderValue = window.cameraSliderValue;
+            let headHeight = player.position.y + 2.0; // キャラクターの頭頂部あたりの高さ
 
             if (isOccluded) {
-                // 壁に遮られている場合、無条件でカメラをキャラクターに近づける（スライダーを下へ）
-                targetSliderValue -= 1.5 * delta;
+                if (occluderHeight < headHeight) {
+                    // ★ 障害物がキャラクターより低い（床から生えている低いもの）場合
+                    // スライダーを上（高空）へ動かして見下ろすように回避
+                    targetSliderValue += 1.5 * delta;
+                } else {
+                    // ★ 障害物がキャラクターより高い（高い壁や天井）場合
+                    // 無条件でカメラをキャラクターに近づける（スライダーを下へ）
+                    targetSliderValue -= 1.5 * delta;
+                }
             } else {
                 // 障害物がない場合は、ゆっくりとデフォルト(真ん中: 0.5)へ戻す
                 let returnSpeed = 0.2 * delta; 
