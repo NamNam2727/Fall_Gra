@@ -1,7 +1,7 @@
 // =====================================
 // ui.js
 // 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
-// ★ジャンプボタンを観戦モード用の🔺🔻に切り替える機能を追加
+// ★CAMスライダーにAUTOモードボタンとその制御を追加
 // =====================================
 
 function initUI() {
@@ -45,12 +45,19 @@ function initUI() {
         .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
         #camera-slider-container {
-            position: absolute; bottom: 250px; right: 25px; width: 40px; height: 130px;
+            position: absolute; bottom: 250px; right: 25px; width: 45px; height: 160px;
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; z-index: 100;
             padding: 10px 0; box-sizing: border-box;
         }
+        #camera-auto-btn {
+            background: #4CAF50; color: white; border: 1px solid #fff; border-radius: 4px;
+            font-size: 10px; font-weight: bold; padding: 3px; margin-bottom: 5px;
+            cursor: pointer; text-align: center; width: 35px; box-sizing: border-box;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4); font-family: sans-serif;
+        }
+        #camera-auto-btn.off { background: #f44336; color: #fff; }
         #camera-slider { -webkit-appearance: slider-vertical; writing-mode: bt-lr; appearance: slider-vertical; width: 8px; height: 80px; outline: none; margin-top: 5px; cursor: pointer; }
         #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
 
@@ -86,7 +93,6 @@ function initUI() {
     joystickBase.appendChild(joystickStick);
     uiLayer.appendChild(joystickBase);
 
-    // ★ジャンプボタンを通常版と観戦モード版(上下分割)に構造変更
     const jumpBtn = document.createElement('div');
     jumpBtn.id = 'jump-btn';
     jumpBtn.innerHTML = `
@@ -102,13 +108,11 @@ function initUI() {
     const specUp = jumpBtn.querySelector('#spec-up');
     const specDown = jumpBtn.querySelector('#spec-down');
 
-    // 観戦モード用のグローバルな上下移動フラグ
     window.specMoveUp = false;
     window.specMoveDown = false;
 
     const stopPropagation = (e) => e.stopPropagation();
     
-    // 上昇ボタン
     const doSpecUp = (e) => { stopPropagation(e); window.specMoveUp = true; };
     const endSpecUp = (e) => { stopPropagation(e); window.specMoveUp = false; };
     specUp.addEventListener('mousedown', doSpecUp);
@@ -118,7 +122,6 @@ function initUI() {
     specUp.addEventListener('touchend', endSpecUp);
     specUp.addEventListener('touchcancel', endSpecUp);
 
-    // 下降ボタン
     const doSpecDown = (e) => { stopPropagation(e); window.specMoveDown = true; };
     const endSpecDown = (e) => { stopPropagation(e); window.specMoveDown = false; };
     specDown.addEventListener('mousedown', doSpecDown);
@@ -128,7 +131,6 @@ function initUI() {
     specDown.addEventListener('touchend', endSpecDown);
     specDown.addEventListener('touchcancel', endSpecDown);
 
-    // 観戦モードのON/OFFに合わせてUIを切り替えるグローバル関数
     window.toggleSpectatorUI = function(isSpec) {
         if (isSpec) {
             normalJump.style.display = 'none';
@@ -147,15 +149,53 @@ function initUI() {
 
     const preventTouch = (e) => e.stopPropagation();
 
+    // ★オートボタン付きに更新
     const cameraSliderContainer = document.createElement('div');
     cameraSliderContainer.id = 'camera-slider-container';
-    cameraSliderContainer.innerHTML = `<div id="camera-slider-label">CAM</div><input type="range" id="camera-slider" min="0" max="100" value="50">`;
+    cameraSliderContainer.innerHTML = `
+        <div id="camera-auto-btn">AUTO</div>
+        <div id="camera-slider-label">CAM</div>
+        <input type="range" id="camera-slider" min="0" max="100" value="50">
+    `;
     uiLayer.appendChild(cameraSliderContainer);
+    
     window.cameraSliderValue = 0.5;
+    window.isCameraAuto = true; // デフォルトでオートON
+    
     const cameraSlider = cameraSliderContainer.querySelector('#camera-slider');
-    if (cameraSlider) {
-        cameraSlider.addEventListener('input', (e) => { window.cameraSliderValue = e.target.value / 100; });
+    const cameraAutoBtn = cameraSliderContainer.querySelector('#camera-auto-btn');
+
+    // ボタンのタップでON/OFF切り替え
+    if (cameraAutoBtn) {
+        cameraAutoBtn.addEventListener('click', (e) => {
+            window.isCameraAuto = !window.isCameraAuto;
+            if (window.isCameraAuto) {
+                cameraAutoBtn.innerText = 'AUTO';
+                cameraAutoBtn.classList.remove('off');
+            } else {
+                cameraAutoBtn.innerText = 'MAN'; // Manual
+                cameraAutoBtn.classList.add('off');
+            }
+        });
     }
+
+    // スライダー手動操作時に自動でOFFにする処理
+    if (cameraSlider) {
+        const disableAuto = () => {
+            if (window.isCameraAuto) {
+                window.isCameraAuto = false;
+                cameraAutoBtn.innerText = 'MAN';
+                cameraAutoBtn.classList.add('off');
+            }
+        };
+        cameraSlider.addEventListener('input', (e) => { 
+            disableAuto();
+            window.cameraSliderValue = e.target.value / 100; 
+        });
+        cameraSlider.addEventListener('mousedown', disableAuto);
+        cameraSlider.addEventListener('touchstart', disableAuto, {passive: false});
+    }
+
     cameraSliderContainer.addEventListener('mousedown', preventTouch);
     cameraSliderContainer.addEventListener('touchstart', preventTouch, {passive: false});
 
@@ -217,11 +257,9 @@ function initUI() {
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 
-    // 分離した他モジュールのUI生成を呼び出す
     if (window.MultiplayerManager && typeof window.MultiplayerManager.initUI === 'function') {
         window.MultiplayerManager.initUI();
     }
-    // ミニゲーム専用UIの初期化
     if (window.MinigameUI && typeof window.MinigameUI.initUI === 'function') {
         window.MinigameUI.initUI();
     }

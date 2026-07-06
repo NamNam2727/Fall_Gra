@@ -1,12 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★フライ(連続ジャンプ)中の天井衝突判定を追加
-// ★観戦モードのドローン操作（重力無視）を追加
-// ★押し出し処理を安定版（07021000）の構造に戻し、すり抜けを完全解決
-// ★処理落ち(スパイク)によるすり抜け防止のため Deltaハードクランプを追加
-// ★坂道での姿勢ガタつき・足場ロスト対策として地面判定を最適化
-// ★他プレイヤーからの押し出しを壁判定の前に処理し、壁抜けを完全防止
+// ★オートカメラ機能（障害物回避）を追加
 // =====================================
 
 let mapMesh;
@@ -90,7 +85,7 @@ window.initThreeJS = function() {
         }
     });
 
-    updateCamera(true);
+    updateCamera(true, 0.016);
     window.addEventListener('resize', onWindowResize);
 };
 
@@ -103,11 +98,6 @@ window.onWindowResize = function() {
 window.animate = function() {
     requestAnimationFrame(window.animate);
     
-    // =====================================
-    // ★重要: Delta のハードクランプ（すり抜けの完全防止）
-    // どんなにフリーズしても、1フレームの物理演算は最大 0.05秒(20FPS相当) の移動量に制限する。
-    // これにより、初回レンダー時などの巨大なスパイクによる壁・床抜けが物理的に発生しなくなります。
-    // =====================================
     const rawDelta = clock.getDelta();
     const delta = Math.min(rawDelta, 0.05); 
     
@@ -121,7 +111,8 @@ window.animate = function() {
         window.MinigameManager.update(delta);
     }
     
-    updateCamera(false);
+    // ★deltaを渡してカメラの自動調整のスピードを計算します
+    updateCamera(false, delta);
     renderer.render(scene, camera);
 };
 
@@ -158,7 +149,6 @@ window.updatePlayer = function(delta) {
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
     
-    // 1. UI更新
     if (player.chatTimer > 0) {
         player.chatTimer -= delta;
         if (player.chatTimer <= 0 && player.chatSprite) {
@@ -169,15 +159,12 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // 2. terrainMeshes取得
     let terrainMeshes = getTerrainMeshes();
 
-    // ・updatePlayer()開始時の地面Ray取得
     let groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
     let currentGroundY = groundInfo.currentGroundY;
     let groundNormal = groundInfo.groundNormal;
 
-    // 3. 入力から mX,mZ 計算
     let mX = 0, mZ = 0;
 
     if (moveVector.lengthSq() > 0.01) {
@@ -204,10 +191,6 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // =====================================
-    // ★他プレイヤーとの押し出し処理（壁判定の【前】に移動）
-    // 押し出しによる移動量ベクトルを mX, mZ に加算し、その合算ベクトルで壁判定を行うことで壁抜けを完全防止
-    // =====================================
     let isFalling = (isJumping && player.position.y > currentGroundY + 3.0);
 
     if (window.MultiplayerManager && !isFalling && !window.isSpectatorMode) {
@@ -244,8 +227,6 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // 4. 水平壁判定
-    // 5. XZ移動
     const nextX = player.position.x + mX;
     const nextZ = player.position.z + mZ;
     let margin = pRadius * 0.8; 
@@ -302,12 +283,10 @@ window.updatePlayer = function(delta) {
     }
     if (canMoveZ) player.position.z = nextZ;
 
-    // 6. 移動後の座標で地面Ray再取得
     groundInfo = getGroundInfo(terrainMeshes, player.position, pRadius, myStepHeight);
     currentGroundY = groundInfo.currentGroundY;
     groundNormal = groundInfo.groundNormal;
 
-    // 9. ジャンプ・重力・着地判定
     if (window.isSpectatorMode) {
         const flySpeed = 20.0;
         if (window.specMoveUp) player.position.y += flySpeed * delta;
@@ -365,17 +344,94 @@ window.updatePlayer = function(delta) {
         }
     }
 
-    // 10. Quaternion更新（最新の groundNormal を使用）
     const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), currentFacingAngle);
     const effectiveNormal = (!isJumping && !window.isSpectatorMode) ? groundNormal : new THREE.Vector3(0, 1, 0);
     const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), effectiveNormal);
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 };
 
-window.updateCamera = function(instant) {
+// ★オートカメラ機能を追加
+window.updateCamera = function(instant, delta = 0.016) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
+
+    // ----- 自動カメラ制御 -----
+    if (window.isCameraAuto && typeof player !== 'undefined') {
+        let terrainMeshes = getTerrainMeshes();
+        if (terrainMeshes.length > 0) {
+            // 現在のスライダー値での理想的なカメラ位置を計算
+            let tempDist = baseDist + (window.cameraSliderValue - 0.5) * 15.0;
+            let tempHeight = baseHeight + (window.cameraSliderValue - 0.5) * 35.0;
+            tempDist = Math.max(tempDist, 1.0);
+            tempHeight = Math.max(tempHeight, 1.0);
+            
+            let lookTarget = player.position.clone();
+            lookTarget.y += 1.0; // キャラクターの頭あたり
+            
+            let targetCamPos = new THREE.Vector3(
+                player.position.x + Math.sin(cAngle) * tempDist,
+                player.position.y + tempHeight,
+                player.position.z + Math.cos(cAngle) * tempDist
+            );
+            
+            // プレイヤーからカメラへ向かってRaycast（経路上に壁があるか）
+            let dirToCamera = new THREE.Vector3().subVectors(targetCamPos, lookTarget);
+            let distToCamera = dirToCamera.length();
+            dirToCamera.normalize();
+            
+            raycaster.set(lookTarget, dirToCamera);
+            let hits = raycaster.intersectObjects(terrainMeshes, false);
+            
+            let isOccluded = false;
+            if (hits.length > 0 && hits[0].distance < distToCamera) {
+                isOccluded = true; // 壁に遮られている
+            }
+            
+            let targetSliderValue = window.cameraSliderValue;
+
+            if (isOccluded) {
+                // 遮られている場合、キャラクターの真上を確認
+                let upRayOrigin = player.position.clone();
+                upRayOrigin.y += 1.5;
+                raycaster.set(upRayOrigin, new THREE.Vector3(0, 1, 0));
+                let upHits = raycaster.intersectObjects(terrainMeshes, false);
+                
+                let hasRoof = (upHits.length > 0 && upHits[0].distance < 15.0); 
+                
+                if (hasRoof) {
+                    // トンネルの中：カメラを近づけるためにスライダーを下へ
+                    targetSliderValue -= 1.5 * delta;
+                } else {
+                    // 壁の裏：カメラを高くするためにスライダーを上へ
+                    targetSliderValue += 1.5 * delta;
+                }
+            } else {
+                // 障害物がない場合は、ゆっくりとデフォルト(真ん中: 0.5)へ戻す
+                let returnSpeed = 0.2 * delta; 
+                if (window.cameraSliderValue > 0.5) {
+                    targetSliderValue -= returnSpeed;
+                    if (targetSliderValue < 0.5) targetSliderValue = 0.5;
+                } else if (window.cameraSliderValue < 0.5) {
+                    targetSliderValue += returnSpeed;
+                    if (targetSliderValue > 0.5) targetSliderValue = 0.5;
+                }
+            }
+            
+            // 0〜1の間にクランプ
+            targetSliderValue = Math.max(0, Math.min(1, targetSliderValue));
+            
+            // 実際に値が変わったらUIにも反映
+            if (window.cameraSliderValue !== targetSliderValue) {
+                window.cameraSliderValue = targetSliderValue;
+                const sliderEl = document.getElementById('camera-slider');
+                if (sliderEl) {
+                    sliderEl.value = window.cameraSliderValue * 100;
+                }
+            }
+        }
+    }
+    // -------------------------
 
     let cDist = baseDist;
     let cHeight = baseHeight;
