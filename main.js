@@ -1,7 +1,10 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★カメラ操作: 50〜150は以前と同じ挙動、0〜50は高さを維持した貫通ズームに拡張
+// ★フライ(連続ジャンプ)中の天井衝突判定を追加
+// ★観戦モードのドローン操作（重力無視）を追加
+// ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
+// ★カメラ操作: スライダー(0.0〜1.0)の解釈を分割し、0〜0.25を限界突破の貫通ズームに割り当て
 // =====================================
 
 let mapMesh;
@@ -350,53 +353,62 @@ window.updatePlayer = function(delta) {
 };
 
 
+// ★スライダーの値(0.0〜1.0)からカメラ位置を計算するヘルパー関数
+function getCameraPosBySlider(val, cAngle) {
+    let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
+    let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
+    
+    let h, d;
+
+    if (val >= 0.5) {
+        // 【上半分 (0.5〜1.0)】: 以前と全く同じ計算式 (デフォルト位置〜見下ろし)
+        let diff = val - 0.5;
+        h = baseHeight + (diff * 35.0);
+        d = baseDist + (diff * 15.0);
+        h = Math.max(h, 1.0);
+        d = Math.max(d, 1.0);
+    } else if (val >= 0.25) {
+        // 【下半分・通常 (0.25〜0.5)】: 以前の 0.0〜0.5(接近) に相当する動きを引き伸ばして適用
+        let diff = (val - 0.5) * 2.0; 
+        h = baseHeight + (diff * 35.0);
+        d = baseDist + (diff * 15.0);
+        h = Math.max(h, 1.0);
+        d = Math.max(d, 1.0);
+    } else {
+        // 【限界突破領域 (0.0〜0.25)】: 高さを維持したままキャラクターに向かって貫通ズーム
+        let minDiff = -0.5; // 旧0.0の時のdiff
+        let minHeight = baseHeight + (minDiff * 35.0);
+        let minDist = baseDist + (minDiff * 15.0);
+        minHeight = Math.max(minHeight, 1.0);
+        minDist = Math.max(minDist, 1.0); // 通常限界の距離 (1.0)
+
+        h = minHeight; // 高さは固定
+        let t = val / 0.25; // 0.0(超接近) 〜 1.0(通常限界)
+        d = 0.1 + (t * (minDist - 0.1)); // 距離を 0.1(目の前) から minDist の間でスライド
+    }
+
+    return new THREE.Vector3(
+        player.position.x + Math.sin(cAngle) * d,
+        player.position.y + h,
+        player.position.z + Math.cos(cAngle) * d
+    );
+}
+
+
 window.updateCamera = function(instant, delta = 0.016) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
     
-    // 以前のバージョンと全く同じデフォルト基準値
-    let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
-    let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
-
-    // 現在のスライダー値 (0〜150, デフォルト100)
-    let sliderVal = typeof window.cameraSliderValue !== 'undefined' ? window.cameraSliderValue : 100;
+    let sliderVal = typeof window.cameraSliderValue !== 'undefined' ? window.cameraSliderValue : 0.5;
 
     // ----- 自動カメラ制御 -----
     if (window.isCameraAuto && typeof player !== 'undefined') {
         let terrainMeshes = getTerrainMeshes();
         if (terrainMeshes.length > 0) {
             
-            let tempHeight, tempDist;
-            if (sliderVal >= 50) {
-                // 【従来範囲】50〜150は、以前の0.0〜1.0と全く同じ計算
-                let oldV = (sliderVal - 50) / 100;
-                let diff = oldV - 0.5;
-                tempHeight = baseHeight + (diff * 35.0); 
-                tempDist = baseDist + (diff * 15.0);
-                tempHeight = Math.max(tempHeight, 1.0);
-                tempDist = Math.max(tempDist, 1.0);
-            } else {
-                // 【拡張範囲】0〜50は、高さを維持したままキャラに貫通ズーム
-                let oldV = 0.0; // スライダーが50（以前の最小値）の時の高さを基準とする
-                let diff = oldV - 0.5;
-                let minHeight = baseHeight + (diff * 35.0); 
-                let minDist = baseDist + (diff * 15.0);
-                
-                minHeight = Math.max(minHeight, 1.0);
-                minDist = Math.max(minDist, 1.0);
-
-                tempHeight = minHeight; // 高さを固定
-                let t = sliderVal / 50.0; // 0.0(超接近) 〜 1.0(以前の最小値)
-                tempDist = 0.1 + (t * (minDist - 0.1)); // 距離を 0.1 から minDist の間で調整
-            }
+            let targetCamPos = getCameraPosBySlider(sliderVal, cAngle);
             
             let lookTarget = player.position.clone();
             lookTarget.y += 1.0; 
-            
-            let targetCamPos = new THREE.Vector3(
-                player.position.x + Math.sin(cAngle) * tempDist,
-                player.position.y + tempHeight,
-                player.position.z + Math.cos(cAngle) * tempDist
-            );
             
             let dirToCamera = new THREE.Vector3().subVectors(targetCamPos, lookTarget);
             let distToCamera = dirToCamera.length();
@@ -414,67 +426,39 @@ window.updateCamera = function(instant, delta = 0.016) {
 
             if (isOccluded) {
                 // 壁があれば問答無用で極限まで接近する（スライダーを大きく下げる）
-                targetSliderValue -= 150 * delta; 
+                targetSliderValue -= 1.5 * delta; 
             } else {
-                // 障害物がない場合は、ゆっくりとデフォルト(100)へ戻す
-                let returnSpeed = 20 * delta; 
-                if (targetSliderValue > 100) {
+                // 障害物がない場合は、ゆっくりとデフォルト(0.5)へ戻す
+                let returnSpeed = 0.2 * delta; 
+                if (targetSliderValue > 0.5) {
                     targetSliderValue -= returnSpeed;
-                    if (targetSliderValue < 100) targetSliderValue = 100;
-                } else if (targetSliderValue < 100) {
+                    if (targetSliderValue < 0.5) targetSliderValue = 0.5;
+                } else if (targetSliderValue < 0.5) {
                     targetSliderValue += returnSpeed;
-                    if (targetSliderValue > 100) targetSliderValue = 100;
+                    if (targetSliderValue > 0.5) targetSliderValue = 0.5;
                 }
             }
             
-            // 範囲を 0 〜 150 に制限
-            targetSliderValue = Math.max(0, Math.min(150, targetSliderValue));
+            // スライダーの範囲を 0.0 〜 1.0 に制限
+            targetSliderValue = Math.max(0.0, Math.min(1.0, targetSliderValue));
             
             if (sliderVal !== targetSliderValue) {
                 window.cameraSliderValue = targetSliderValue;
                 sliderVal = targetSliderValue; // このフレームの描画にも適用
                 const sliderEl = document.getElementById('camera-slider');
                 if (sliderEl) {
-                    sliderEl.value = window.cameraSliderValue;
+                    sliderEl.value = window.cameraSliderValue * 100;
                 }
             }
         }
     }
     // -------------------------
 
-    let cDist, cHeight;
-
-    if (sliderVal >= 50) {
-        // 【従来範囲】手動操作時の計算（以前の0.0〜1.0相当）
-        let oldV = (sliderVal - 50) / 100;
-        let diff = oldV - 0.5;
-        cHeight = baseHeight + (diff * 35.0); 
-        cDist = baseDist + (diff * 15.0);     
-        cHeight = Math.max(cHeight, 1.0);
-        cDist = Math.max(cDist, 1.0);
-    } else {
-        // 【拡張範囲】手動操作時も、一番下に引くと高さを維持して貫通ズーム
-        let oldV = 0.0;
-        let diff = oldV - 0.5;
-        let minHeight = baseHeight + (diff * 35.0); 
-        let minDist = baseDist + (diff * 15.0);
-        
-        minHeight = Math.max(minHeight, 1.0);
-        minDist = Math.max(minDist, 1.0);
-
-        cHeight = minHeight; // 高さを固定
-        let t = sliderVal / 50.0;
-        cDist = 0.1 + (t * (minDist - 0.1));
-    }
-
-    const targetCamPos = new THREE.Vector3(
-        player.position.x + Math.sin(cAngle) * cDist,
-        player.position.y + cHeight, 
-        player.position.z + Math.cos(cAngle) * cDist
-    );
+    // 最終的なカメラ位置を計算
+    const finalCamPos = getCameraPosBySlider(sliderVal, cAngle);
     
-    if (instant) camera.position.copy(targetCamPos);
-    else camera.position.lerp(targetCamPos, 0.1);
+    if (instant) camera.position.copy(finalCamPos);
+    else camera.position.lerp(finalCamPos, 0.1);
     
     let lookTarget = player.position.clone();
     lookTarget.y += 1.0;
