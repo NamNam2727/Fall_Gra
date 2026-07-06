@@ -1,6 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
+// ★元のカメラ角度・距離を維持したまま、ズームイン（スライダー下）の限界突破を実装
 // ★オートカメラ機能: 遮蔽物があれば問答無用で極限まで接近するように修正
 // =====================================
 
@@ -349,23 +350,27 @@ window.updatePlayer = function(delta) {
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 };
 
+
 window.updateCamera = function(instant, delta = 0.016) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
-    // ★基準の距離と高さをより近くに変更（これでスライダーの中央値が少し寄りになります）
-    let baseDist = 4;
-    let baseHeight = 10;
+    
+    // ★以前のバージョンと全く同じデフォルト値（中央＝0.5の時の基準）
+    let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
+    let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
 
     // ----- 自動カメラ制御 -----
     if (window.isCameraAuto && typeof player !== 'undefined') {
         let terrainMeshes = getTerrainMeshes();
         if (terrainMeshes.length > 0) {
-            let tempDist = baseDist + (window.cameraSliderValue - 0.5) * 15.0;
-            let tempHeight = baseHeight + (window.cameraSliderValue - 0.5) * 35.0;
             
-            // ★限界まで接近できるように、マイナスの値（めり込み）を許可
-            // tempDist = Math.max(tempDist, 1.0); の制限を撤廃または極小化
-            tempDist = Math.max(tempDist, 0.5); 
-            tempHeight = Math.max(tempHeight, 0.5);
+            // ★計算式も以前のバージョンと同じ（diff * 15 / 35 の比率）
+            let diff = window.cameraSliderValue - 0.5;
+            let tempHeight = baseHeight + (diff * 35.0); 
+            let tempDist = baseDist + (diff * 15.0);
+            
+            // ★Math.max(1.0) の制限だけを外し、マイナス値（極限の接近やめり込み）を許容
+            tempDist = Math.max(tempDist, -5.0); 
+            tempHeight = Math.max(tempHeight, -5.0);
             
             let lookTarget = player.position.clone();
             lookTarget.y += 1.0; 
@@ -391,7 +396,7 @@ window.updateCamera = function(instant, delta = 0.016) {
             let targetSliderValue = window.cameraSliderValue;
 
             if (isOccluded) {
-                // ★ 壁があれば問答無用で極限まで接近する
+                // 壁があれば問答無用で極限まで接近する（スライダーを下げる）
                 targetSliderValue -= 1.5 * delta;
             } else {
                 // 障害物がない場合は、ゆっくりとデフォルト(真ん中: 0.5)へ戻す
@@ -405,7 +410,6 @@ window.updateCamera = function(instant, delta = 0.016) {
                 }
             }
             
-            // ★スライダーの最小値を0未満にも行けるように見せかけつつ、0にクランプ
             targetSliderValue = Math.max(0, Math.min(1, targetSliderValue));
             
             if (window.cameraSliderValue !== targetSliderValue) {
@@ -423,12 +427,14 @@ window.updateCamera = function(instant, delta = 0.016) {
     let cHeight = baseHeight;
 
     if (typeof window.cameraSliderValue !== 'undefined') {
+        // ★以前のバージョンと全く同じ計算式
         let diff = window.cameraSliderValue - 0.5; 
         cHeight = baseHeight + (diff * 35.0); 
         cDist = baseDist + (diff * 15.0);     
-        // ★手動操作時もキャラクターの背中スレスレまで寄れるように
-        cHeight = Math.max(cHeight, 0.5);
-        cDist = Math.max(cDist, 0.5);
+        
+        // ★ここも手動操作時のめり込みを許可するため、Math.max(1.0) の制限を撤廃
+        cHeight = Math.max(cHeight, -5.0);
+        cDist = Math.max(cDist, -5.0);
     }
 
     const targetCamPos = new THREE.Vector3(
