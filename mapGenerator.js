@@ -1,22 +1,12 @@
 // ==========================================
 // mapGenerator.js
 // 地形データの解析とBufferGeometryメッシュの生成
-// ★まっすぐな坂道が三角に削られるバグを修正
-// ★Zファイティング（縞々模様）の原因だった DoubleSide を削除し、綺麗な描画に復元
+// ★幅広の坂道の両端が欠けるバグを完全に修正（主斜面判定の導入）
+// ★Zファイティング（縞々模様）の原因だった DoubleSide を削除し綺麗な描画に復元
 // ==========================================
 
 window.MapGenerator = {
-    rawMapData: [
-        ["4","4","4","4","4","4","4","4","4","4","4"],
-        ["4","2","2","2","2","2","2","2","2","2","4"],
-        ["4","2","224","224","224","224","224","2","2","2","4"],
-        ["4","2","2","2","3","2","2","2","2","2","4"],
-        ["4","2","2","3","4","3","2","2","2","2","4"],
-        ["4","2","2","2","3","2","2","3","3","3","4"],
-        ["4","2","2","2","2","2","2","3","2","3","4"],
-        ["4","2","2","2","2","2","2","3","3","3","4"],
-        ["4","4","4","4","4","4","4","4","4","4","4"]
-    ],
+    rawMapData: [],
 
     parseMap: function() {
         const mapW = this.rawMapData.length;
@@ -60,6 +50,7 @@ window.MapGenerator = {
             let minDiff = Infinity;
             for(let l of layers) {
                 let diff = Math.abs(l.top - myTop);
+                // 段差が1.0以内のものを繋ぎ先として探す
                 if (diff < minDiff && diff <= 1.0) {
                     minDiff = diff;
                     closestTop = l.top;
@@ -78,32 +69,44 @@ window.MapGenerator = {
         let h_pXmZ = getHeight(cx + 1, cz - 1);
         let h_mXmZ = getHeight(cx - 1, cz - 1);
 
-        let pull_pX = (h_pX > myTop) ? 0.5 : ((h_pX < myTop) ? -0.5 : 0);
-        let pull_mX = (h_mX > myTop) ? 0.5 : ((h_mX < myTop) ? -0.5 : 0);
-        let pull_pZ = (h_pZ > myTop) ? 0.5 : ((h_pZ < myTop) ? -0.5 : 0);
-        let pull_mZ = (h_mZ > myTop) ? 0.5 : ((h_mZ < myTop) ? -0.5 : 0);
+        // 高低差が 0.5（1段）の場合のみ引っ張られる
+        // 1.0以上（崖）の場合は 0 にして干渉を絶つ
+        const getPull = (h) => {
+            let diff = h - myTop;
+            if (diff >= 0.25 && diff <= 0.75) return 0.5;
+            if (diff <= -0.25 && diff >= -0.75) return -0.5;
+            return 0;
+        };
 
-        // 階段の開始・終了をなめらかにする補完
-        if (pull_pX > 0 && pull_mX === 0) pull_mX = -0.5;
-        if (pull_mX > 0 && pull_pX === 0) pull_pX = -0.5;
-        if (pull_pZ > 0 && pull_mZ === 0) pull_mZ = -0.5;
-        if (pull_mZ > 0 && pull_pZ === 0) pull_pZ = -0.5;
+        let pull_pX = getPull(h_pX);
+        let pull_mX = getPull(h_mX);
+        let pull_pZ = getPull(h_pZ);
+        let pull_mZ = getPull(h_mZ);
 
-        if (pull_pX < 0 && pull_mX === 0) pull_mX = 0.5;
-        if (pull_mX < 0 && pull_pX === 0) pull_pX = 0.5;
-        if (pull_pZ < 0 && pull_mZ === 0) pull_mZ = 0.5;
-        if (pull_mZ < 0 && pull_pZ === 0) pull_pZ = 0.5;
+        // まっすぐなスロープ（貫通している）の判定
+        let isThroughX = (pull_pX > 0 && pull_mX < 0) || (pull_pX < 0 && pull_mX > 0);
+        let isThroughZ = (pull_pZ > 0 && pull_mZ < 0) || (pull_pZ < 0 && pull_mZ > 0);
 
-        // まっすぐなスロープの判定と横からの干渉無効化
-        let isSlopeX = (pull_pX === 0.5 && pull_mX === -0.5) || (pull_pX === -0.5 && pull_mX === 0.5);
-        let isSlopeZ = (pull_pZ === 0.5 && pull_mZ === -0.5) || (pull_pZ === -0.5 && pull_mZ === 0.5);
-
-        if (isSlopeX && !isSlopeZ) {
+        // ★主斜面判定: 貫通スロープが一方にだけ存在する場合は、もう一方の崖干渉を無効化する
+        if (isThroughX && !isThroughZ) {
             pull_pZ = 0;
             pull_mZ = 0;
-        } else if (isSlopeZ && !isSlopeX) {
+        } else if (isThroughZ && !isThroughX) {
             pull_pX = 0;
             pull_mX = 0;
+        } else if (!isThroughX && !isThroughZ) {
+            // どちらも貫通していない（階段の登り始め、または角）場合
+            // X方向に道幅（同じ高さ）があり、Z方向にはない場合はZ方向の坂道とみなす
+            let isFlatX = (h_pX === myTop || h_mX === myTop);
+            let isFlatZ = (h_pZ === myTop || h_mZ === myTop);
+            
+            if (isFlatX && !isFlatZ) {
+                pull_pX = 0;
+                pull_mX = 0;
+            } else if (isFlatZ && !isFlatX) {
+                pull_pZ = 0;
+                pull_mZ = 0;
+            }
         }
 
         const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
@@ -114,14 +117,14 @@ window.MapGenerator = {
         let c_mXmZ = myTop + clamp(pull_mX + pull_mZ, -0.5, 0.5);
 
         // まだ傾斜がついていない角のみ、斜め方向のマスを参照して角を落とす/上げる
-        if (h_pXpZ > myTop && c_pXpZ === myTop) c_pXpZ = myTop + 0.5;
-        if (h_pXpZ < myTop && c_pXpZ === myTop) c_pXpZ = myTop - 0.5;
-        if (h_mXpZ > myTop && c_mXpZ === myTop) c_mXpZ = myTop + 0.5;
-        if (h_mXpZ < myTop && c_mXpZ === myTop) c_mXpZ = myTop - 0.5;
-        if (h_pXmZ > myTop && c_pXmZ === myTop) c_pXmZ = myTop + 0.5;
-        if (h_pXmZ < myTop && c_pXmZ === myTop) c_pXmZ = myTop - 0.5;
-        if (h_mXmZ > myTop && c_mXmZ === myTop) c_mXmZ = myTop + 0.5;
-        if (h_mXmZ < myTop && c_mXmZ === myTop) c_mXmZ = myTop - 0.5;
+        if (getPull(h_pXpZ) > 0 && c_pXpZ === myTop) c_pXpZ = myTop + 0.5;
+        if (getPull(h_pXpZ) < 0 && c_pXpZ === myTop) c_pXpZ = myTop - 0.5;
+        if (getPull(h_mXpZ) > 0 && c_mXpZ === myTop) c_mXpZ = myTop + 0.5;
+        if (getPull(h_mXpZ) < 0 && c_mXpZ === myTop) c_mXpZ = myTop - 0.5;
+        if (getPull(h_pXmZ) > 0 && c_pXmZ === myTop) c_pXmZ = myTop + 0.5;
+        if (getPull(h_pXmZ) < 0 && c_pXmZ === myTop) c_pXmZ = myTop - 0.5;
+        if (getPull(h_mXmZ) > 0 && c_mXmZ === myTop) c_mXmZ = myTop + 0.5;
+        if (getPull(h_mXmZ) < 0 && c_mXmZ === myTop) c_mXmZ = myTop - 0.5;
 
         return { pXpZ: c_pXpZ, mXpZ: c_mXpZ, pXmZ: c_pXmZ, mXmZ: c_mXmZ, center: myTop };
     },
@@ -224,7 +227,6 @@ window.MapGenerator = {
         geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-        // ★Zファイティングの元凶であった side: THREE.DoubleSide を削除し、元の綺麗な描画に戻します
         const material = new THREE.MeshStandardMaterial({ 
             vertexColors: true, 
             roughness: 0.8
@@ -242,4 +244,3 @@ window.MapGenerator = {
         return mesh;
     }
 };
-
