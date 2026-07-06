@@ -1,7 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★オートカメラ機能（障害物回避）を追加
+// ★オートカメラ機能を「遮蔽物があったら接近するのみ」に修正
 // =====================================
 
 let mapMesh;
@@ -111,7 +111,6 @@ window.animate = function() {
         window.MinigameManager.update(delta);
     }
     
-    // ★deltaを渡してカメラの自動調整のスピードを計算します
     updateCamera(false, delta);
     renderer.render(scene, camera);
 };
@@ -350,7 +349,6 @@ window.updatePlayer = function(delta) {
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 };
 
-// ★オートカメラ機能を追加
 window.updateCamera = function(instant, delta = 0.016) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
@@ -360,14 +358,13 @@ window.updateCamera = function(instant, delta = 0.016) {
     if (window.isCameraAuto && typeof player !== 'undefined') {
         let terrainMeshes = getTerrainMeshes();
         if (terrainMeshes.length > 0) {
-            // 現在のスライダー値での理想的なカメラ位置を計算
             let tempDist = baseDist + (window.cameraSliderValue - 0.5) * 15.0;
             let tempHeight = baseHeight + (window.cameraSliderValue - 0.5) * 35.0;
             tempDist = Math.max(tempDist, 1.0);
             tempHeight = Math.max(tempHeight, 1.0);
             
             let lookTarget = player.position.clone();
-            lookTarget.y += 1.0; // キャラクターの頭あたり
+            lookTarget.y += 1.0; 
             
             let targetCamPos = new THREE.Vector3(
                 player.position.x + Math.sin(cAngle) * tempDist,
@@ -375,7 +372,6 @@ window.updateCamera = function(instant, delta = 0.016) {
                 player.position.z + Math.cos(cAngle) * tempDist
             );
             
-            // プレイヤーからカメラへ向かってRaycast（経路上に壁があるか）
             let dirToCamera = new THREE.Vector3().subVectors(targetCamPos, lookTarget);
             let distToCamera = dirToCamera.length();
             dirToCamera.normalize();
@@ -385,27 +381,14 @@ window.updateCamera = function(instant, delta = 0.016) {
             
             let isOccluded = false;
             if (hits.length > 0 && hits[0].distance < distToCamera) {
-                isOccluded = true; // 壁に遮られている
+                isOccluded = true;
             }
             
             let targetSliderValue = window.cameraSliderValue;
 
             if (isOccluded) {
-                // 遮られている場合、キャラクターの真上を確認
-                let upRayOrigin = player.position.clone();
-                upRayOrigin.y += 1.5;
-                raycaster.set(upRayOrigin, new THREE.Vector3(0, 1, 0));
-                let upHits = raycaster.intersectObjects(terrainMeshes, false);
-                
-                let hasRoof = (upHits.length > 0 && upHits[0].distance < 15.0); 
-                
-                if (hasRoof) {
-                    // トンネルの中：カメラを近づけるためにスライダーを下へ
-                    targetSliderValue -= 1.5 * delta;
-                } else {
-                    // 壁の裏：カメラを高くするためにスライダーを上へ
-                    targetSliderValue += 1.5 * delta;
-                }
+                // 壁に遮られている場合、無条件でカメラをキャラクターに近づける（スライダーを下へ）
+                targetSliderValue -= 1.5 * delta;
             } else {
                 // 障害物がない場合は、ゆっくりとデフォルト(真ん中: 0.5)へ戻す
                 let returnSpeed = 0.2 * delta; 
@@ -418,10 +401,8 @@ window.updateCamera = function(instant, delta = 0.016) {
                 }
             }
             
-            // 0〜1の間にクランプ
             targetSliderValue = Math.max(0, Math.min(1, targetSliderValue));
             
-            // 実際に値が変わったらUIにも反映
             if (window.cameraSliderValue !== targetSliderValue) {
                 window.cameraSliderValue = targetSliderValue;
                 const sliderEl = document.getElementById('camera-slider');
