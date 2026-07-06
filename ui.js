@@ -1,7 +1,7 @@
 // =====================================
 // ui.js
 // 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
-// ★CAMスライダーにAUTOモードボタンとその制御を追加
+// ★CAMスライダーの長さを縦に伸ばして操作しやすく拡張
 // =====================================
 
 function initUI() {
@@ -44,8 +44,9 @@ function initUI() {
         #item-slot.cooling { pointer-events: none; background: rgba(0, 0, 0, 0.8); }
         .item-timer { position: absolute; font-size: 24px; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: sans-serif; }
 
+        /* ★コンテナとスライダーの高さを大幅に拡張 */
         #camera-slider-container {
-            position: absolute; bottom: 250px; right: 25px; width: 45px; height: 160px;
+            position: absolute; bottom: 250px; right: 25px; width: 45px; height: 240px; 
             background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: auto; z-index: 100;
@@ -53,12 +54,15 @@ function initUI() {
         }
         #camera-auto-btn {
             background: #4CAF50; color: white; border: 1px solid #fff; border-radius: 4px;
-            font-size: 10px; font-weight: bold; padding: 3px; margin-bottom: 5px;
+            font-size: 10px; font-weight: bold; padding: 3px; margin-bottom: 8px;
             cursor: pointer; text-align: center; width: 35px; box-sizing: border-box;
             box-shadow: 0 2px 5px rgba(0,0,0,0.4); font-family: sans-serif;
         }
         #camera-auto-btn.off { background: #f44336; color: #fff; }
-        #camera-slider { -webkit-appearance: slider-vertical; writing-mode: bt-lr; appearance: slider-vertical; width: 8px; height: 80px; outline: none; margin-top: 5px; cursor: pointer; }
+        #camera-slider { 
+            -webkit-appearance: slider-vertical; writing-mode: bt-lr; appearance: slider-vertical; 
+            width: 12px; height: 160px; outline: none; margin-top: 5px; cursor: pointer; 
+        }
         #camera-slider-label { color: white; font-size: 10px; font-weight: bold; text-shadow: 1px 1px 1px black; font-family: sans-serif; }
 
         #bottomUIContainer { position: absolute; left: 10px; bottom: 10px; width: 250px; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; font-family: sans-serif; pointer-events: none; }
@@ -149,7 +153,6 @@ function initUI() {
 
     const preventTouch = (e) => e.stopPropagation();
 
-    // ★オートボタン付きに更新
     const cameraSliderContainer = document.createElement('div');
     cameraSliderContainer.id = 'camera-slider-container';
     cameraSliderContainer.innerHTML = `
@@ -160,12 +163,11 @@ function initUI() {
     uiLayer.appendChild(cameraSliderContainer);
     
     window.cameraSliderValue = 0.5;
-    window.isCameraAuto = true; // デフォルトでオートON
+    window.isCameraAuto = true; 
     
     const cameraSlider = cameraSliderContainer.querySelector('#camera-slider');
     const cameraAutoBtn = cameraSliderContainer.querySelector('#camera-auto-btn');
 
-    // ボタンのタップでON/OFF切り替え
     if (cameraAutoBtn) {
         cameraAutoBtn.addEventListener('click', (e) => {
             window.isCameraAuto = !window.isCameraAuto;
@@ -173,13 +175,12 @@ function initUI() {
                 cameraAutoBtn.innerText = 'AUTO';
                 cameraAutoBtn.classList.remove('off');
             } else {
-                cameraAutoBtn.innerText = 'MAN'; // Manual
+                cameraAutoBtn.innerText = 'MAN';
                 cameraAutoBtn.classList.add('off');
             }
         });
     }
 
-    // スライダー手動操作時に自動でOFFにする処理
     if (cameraSlider) {
         const disableAuto = () => {
             if (window.isCameraAuto) {

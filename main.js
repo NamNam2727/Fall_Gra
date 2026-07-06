@@ -1,7 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★オートカメラ機能: 低い障害物なら上へ避け、高い壁なら接近するように修正
+// ★オートカメラ機能: 遮蔽物があれば問答無用で極限まで接近するように修正
 // =====================================
 
 let mapMesh;
@@ -351,8 +351,9 @@ window.updatePlayer = function(delta) {
 
 window.updateCamera = function(instant, delta = 0.016) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
-    let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
-    let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
+    // ★基準の距離と高さをより近くに変更（これでスライダーの中央値が少し寄りになります）
+    let baseDist = 4;
+    let baseHeight = 10;
 
     // ----- 自動カメラ制御 -----
     if (window.isCameraAuto && typeof player !== 'undefined') {
@@ -360,8 +361,11 @@ window.updateCamera = function(instant, delta = 0.016) {
         if (terrainMeshes.length > 0) {
             let tempDist = baseDist + (window.cameraSliderValue - 0.5) * 15.0;
             let tempHeight = baseHeight + (window.cameraSliderValue - 0.5) * 35.0;
-            tempDist = Math.max(tempDist, 1.0);
-            tempHeight = Math.max(tempHeight, 1.0);
+            
+            // ★限界まで接近できるように、マイナスの値（めり込み）を許可
+            // tempDist = Math.max(tempDist, 1.0); の制限を撤廃または極小化
+            tempDist = Math.max(tempDist, 0.5); 
+            tempHeight = Math.max(tempHeight, 0.5);
             
             let lookTarget = player.position.clone();
             lookTarget.y += 1.0; 
@@ -380,26 +384,15 @@ window.updateCamera = function(instant, delta = 0.016) {
             let hits = raycaster.intersectObjects(terrainMeshes, false);
             
             let isOccluded = false;
-            let occluderHeight = 0; // 遮蔽物がヒットした点の高さを保持
-
             if (hits.length > 0 && hits[0].distance < distToCamera) {
                 isOccluded = true;
-                occluderHeight = hits[0].point.y; // レーザーがぶつかった場所のY座標
             }
             
             let targetSliderValue = window.cameraSliderValue;
-            let headHeight = player.position.y + 2.0; // キャラクターの頭頂部あたりの高さ
 
             if (isOccluded) {
-                if (occluderHeight < headHeight) {
-                    // ★ 障害物がキャラクターより低い（床から生えている低いもの）場合
-                    // スライダーを上（高空）へ動かして見下ろすように回避
-                    targetSliderValue += 1.5 * delta;
-                } else {
-                    // ★ 障害物がキャラクターより高い（高い壁や天井）場合
-                    // 無条件でカメラをキャラクターに近づける（スライダーを下へ）
-                    targetSliderValue -= 1.5 * delta;
-                }
+                // ★ 壁があれば問答無用で極限まで接近する
+                targetSliderValue -= 1.5 * delta;
             } else {
                 // 障害物がない場合は、ゆっくりとデフォルト(真ん中: 0.5)へ戻す
                 let returnSpeed = 0.2 * delta; 
@@ -412,6 +405,7 @@ window.updateCamera = function(instant, delta = 0.016) {
                 }
             }
             
+            // ★スライダーの最小値を0未満にも行けるように見せかけつつ、0にクランプ
             targetSliderValue = Math.max(0, Math.min(1, targetSliderValue));
             
             if (window.cameraSliderValue !== targetSliderValue) {
@@ -432,8 +426,9 @@ window.updateCamera = function(instant, delta = 0.016) {
         let diff = window.cameraSliderValue - 0.5; 
         cHeight = baseHeight + (diff * 35.0); 
         cDist = baseDist + (diff * 15.0);     
-        cHeight = Math.max(cHeight, 1.0);
-        cDist = Math.max(cDist, 1.0);
+        // ★手動操作時もキャラクターの背中スレスレまで寄れるように
+        cHeight = Math.max(cHeight, 0.5);
+        cDist = Math.max(cDist, 0.5);
     }
 
     const targetCamPos = new THREE.Vector3(
