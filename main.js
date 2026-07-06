@@ -5,6 +5,7 @@
 // ★観戦モードのドローン操作（重力無視）を追加
 // ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
 // ★カメラ操作: スライダー(0.0〜1.0)の解釈を分割し、0〜0.25を限界突破の貫通ズームに割り当て
+// ★オートカメラ: 常に基準位置へRaycastを行い、ガタつき(ジッター)を完全に解消
 // =====================================
 
 let mapMesh;
@@ -405,46 +406,57 @@ window.updateCamera = function(instant, delta = 0.016) {
         let terrainMeshes = getTerrainMeshes();
         if (terrainMeshes.length > 0) {
             
-            let targetCamPos = getCameraPosBySlider(sliderVal, cAngle);
-            
             let lookTarget = player.position.clone();
             lookTarget.y += 1.0; 
             
-            let dirToCamera = new THREE.Vector3().subVectors(targetCamPos, lookTarget);
-            let distToCamera = dirToCamera.length();
-            dirToCamera.normalize();
+            // ★ガクガク防止: 常に「理想のデフォルト位置(0.5)」に向けてRaycastを飛ばし、壁の有無を判定する
+            let idealSliderVal = 0.5;
+            let idealCamPos = getCameraPosBySlider(idealSliderVal, cAngle);
+            let dirToIdeal = new THREE.Vector3().subVectors(idealCamPos, lookTarget);
+            let idealDist = dirToIdeal.length();
+            dirToIdeal.normalize();
             
-            raycaster.set(lookTarget, dirToCamera);
+            raycaster.set(lookTarget, dirToIdeal);
             let hits = raycaster.intersectObjects(terrainMeshes, false);
             
-            let isOccluded = false;
-            if (hits.length > 0 && hits[0].distance < distToCamera) {
-                isOccluded = true;
-            }
-            
-            let targetSliderValue = sliderVal;
+            let targetSliderValue = idealSliderVal;
 
-            if (isOccluded) {
-                // 壁があれば問答無用で極限まで接近する（スライダーを大きく下げる）
-                targetSliderValue -= 1.5 * delta; 
-            } else {
-                // 障害物がない場合は、ゆっくりとデフォルト(0.5)へ戻す
-                let returnSpeed = 0.2 * delta; 
-                if (targetSliderValue > 0.5) {
-                    targetSliderValue -= returnSpeed;
-                    if (targetSliderValue < 0.5) targetSliderValue = 0.5;
-                } else if (targetSliderValue < 0.5) {
-                    targetSliderValue += returnSpeed;
-                    if (targetSliderValue > 0.5) targetSliderValue = 0.5;
+            if (hits.length > 0 && hits[0].distance < idealDist) {
+                // 理想位置までの間に壁があった場合、壁の少し手前(マージン0.5)を安全な距離とする
+                let safeDist = Math.max(0.1, hits[0].distance - 0.5);
+                
+                // 二分探索で、safeDist に最も近いスライダーの値(0.0〜0.5)を逆算する
+                let low = 0.0;
+                let high = idealSliderVal;
+                for (let i = 0; i < 8; i++) {
+                    let mid = (low + high) / 2;
+                    let pos = getCameraPosBySlider(mid, cAngle);
+                    let d = pos.distanceTo(lookTarget);
+                    if (d < safeDist) {
+                        low = mid;
+                    } else {
+                        high = mid;
+                    }
+                    targetSliderValue = mid;
                 }
+            }
+
+            // ★今のスライダー値を目標値に向けて滑らかに動かす（ガクガク揺れるのを防止）
+            let diff = targetSliderValue - sliderVal;
+            if (diff < 0) {
+                sliderVal -= 5.0 * delta; // 壁が迫ったら素早くズームイン
+                if (sliderVal < targetSliderValue) sliderVal = targetSliderValue;
+            } else if (diff > 0) {
+                sliderVal += 0.5 * delta; // 障害物がなくなったらゆっくり戻る
+                if (sliderVal > targetSliderValue) sliderVal = targetSliderValue;
             }
             
             // スライダーの範囲を 0.0 〜 1.0 に制限
-            targetSliderValue = Math.max(0.0, Math.min(1.0, targetSliderValue));
+            sliderVal = Math.max(0.0, Math.min(1.0, sliderVal));
             
-            if (sliderVal !== targetSliderValue) {
-                window.cameraSliderValue = targetSliderValue;
-                sliderVal = targetSliderValue; // このフレームの描画にも適用
+            if (window.cameraSliderValue !== sliderVal) {
+                window.cameraSliderValue = sliderVal;
+                // UIのスライダー表示も連動させる
                 const sliderEl = document.getElementById('camera-slider');
                 if (sliderEl) {
                     sliderEl.value = window.cameraSliderValue * 100;
