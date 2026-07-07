@@ -4,7 +4,7 @@
 // ★フライ(連続ジャンプ)中の天井衝突判定を追加
 // ★観戦モードのドローン操作（重力無視）を追加
 // ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
-// ★オートカメラ: デュアルレイキャスト（現在位置＋少し上）を導入し、ガタつきをスマートに解消
+// ★オートカメラ: トリプルレイキャスト（現在位置＋少し上＋少し後ろ）を導入し、グラグラを完全に解消
 // ★カメラ操作: スライダー10〜100は以前の計算式を完全維持し、0〜10のみスレスレ貫通ズームを追加
 // =====================================
 
@@ -403,14 +403,15 @@ window.updateCamera = function(instant, delta = 0.016) {
             // 現在のカメラの想定位置
             let currentCamPos = getCameraPosBySlider(window.cameraSliderValue, cAngle);
             
-            // ★ デュアルレイキャスト：後退停止のバッファとなる「少し上」の位置
+            // デュアルレイキャスト用：後退停止のバッファとなる「少し上」の位置
             let upCamPos = currentCamPos.clone();
             upCamPos.y += 1.0; // 垂直方向に+1.0
             
             let mainHit = false;
             let subHit = false;
+            let backHit = false; // ★追加：すぐ後ろの壁判定
 
-            // 1. 主レイキャスト（現在のカメラ位置から）
+            // 1. 主レイキャスト（現在のカメラ位置からプレイヤーへ）
             let dirMain = new THREE.Vector3().subVectors(currentCamPos, lookTarget);
             let distMain = dirMain.length();
             dirMain.normalize();
@@ -421,7 +422,7 @@ window.updateCamera = function(instant, delta = 0.016) {
                 mainHit = true;
             }
 
-            // 2. 副レイキャスト（少し上から）
+            // 2. 副レイキャスト1（少し上からプレイヤーへ：屋根判定）
             let dirSub = new THREE.Vector3().subVectors(upCamPos, lookTarget);
             let distSub = dirSub.length();
             dirSub.normalize();
@@ -431,15 +432,23 @@ window.updateCamera = function(instant, delta = 0.016) {
                 subHit = true;
             }
 
-            // ★ 判定ロジック
+            // 3. ★ 副レイキャスト2（現在のカメラ位置からさらに後ろへ：背後の壁判定）
+            // dirMain は プレイヤーからカメラへの方向 なので、そのままカメラの後ろへのレイとして使える
+            raycaster.set(currentCamPos, dirMain); 
+            let hitsBack = raycaster.intersectObjects(terrainMeshes, false);
+            if (hitsBack.length > 0 && hitsBack[0].distance < 0.8) {
+                backHit = true; // カメラの後ろ 0.8 以内に壁がある
+            }
+
+            // ★ トリプル・レイキャスト判定ロジック
             if (mainHit) {
                 // 主レイが遮られた＝プレイヤーが隠れている -> 接近(ズームイン)
                 window.cameraSliderValue -= 1.5 * delta; 
-            } else if (subHit) {
-                // 主レイは通るが副レイが遮られた＝上に屋根などがある
-                // これ以上後退するとぶつかるので、ここでピタッと停止する（現状維持）
+            } else if (subHit || backHit) {
+                // 主レイは通るが、上に屋根がある、またはすぐ後ろに壁がある
+                // ★ これ以上後退するとぶつかるので、ここでピタッと停止する（現状維持）
             } else {
-                // どちらも通っている -> 安全に後退（デフォルト0.5に戻る）
+                // どれも遮られていない -> 安全に後退（デフォルト0.5に戻る）
                 let returnSpeed = 0.2 * delta; 
                 if (window.cameraSliderValue > 0.5) {
                     window.cameraSliderValue -= returnSpeed;
