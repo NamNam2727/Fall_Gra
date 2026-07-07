@@ -6,6 +6,7 @@
 // ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
 // ★カメラ操作: 旧バージョンの計算式を完全復元し、限界値を超えた時のみ貫通ズームを発動
 // ★オートカメラ: 複数レーザーによる事前スキャン方式を導入し、ガタつきと過剰ズームを完全解消
+// ★スライダー(0〜100)の挙動を修正: 10〜100は通常、0〜10を限界突破ズーム領域に設定
 // =====================================
 
 let mapMesh;
@@ -354,27 +355,37 @@ window.updatePlayer = function(delta) {
 };
 
 
-// 完全に旧バージョンの計算式を復元したヘルパー関数
+// ヘルパー関数: スライダー値(val)からカメラ位置を計算
+// ★ val は 0.0〜1.0 の値 (スライダーの 0〜100 に対応)
 function getCameraPosBySlider(val, cAngle) {
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
     
-    let diff = val - 0.5;
-    let h = baseHeight + (diff * 35.0);
-    let d = baseDist + (diff * 15.0);
+    let final_h, final_d;
 
-    let old_h = Math.max(h, 1.0);
-    let old_d = Math.max(d, 1.0);
+    if (val >= 0.1) {
+        // 【通常領域 (0.1 〜 1.0)】: スライダーの10〜100に相当
+        // 以前の計算式をそのまま適用する
+        let diff = val - 0.5;
+        let h = baseHeight + (diff * 35.0);
+        let d = baseDist + (diff * 15.0);
+        final_h = Math.max(h, 1.0);
+        final_d = Math.max(d, 1.0);
+    } else {
+        // 【貫通ズーム領域 (0.0 〜 0.1未満)】: スライダーの0〜10未満に相当
+        // val = 0.1 の時の高さと距離を基準(限界)とする
+        let diff_limit = 0.1 - 0.5;
+        let limit_h = baseHeight + (diff_limit * 35.0);
+        let limit_d = baseDist + (diff_limit * 15.0);
+        limit_h = Math.max(limit_h, 1.0);
+        limit_d = Math.max(limit_d, 1.0);
 
-    let final_h = old_h;
-    let final_d = old_d;
-
-    let val_limit = 0.5 + Math.min((1.0 - baseHeight) / 35.0, (1.0 - baseDist) / 15.0);
-
-    if (val < val_limit) {
-        final_h = 1.0;
-        let t = val / val_limit; 
-        final_d = 0.1 + t * 0.9;
+        // 高さは limit_h を維持
+        final_h = limit_h;
+        // 距離は limit_d から 0.1（スレスレ）に向かって縮める
+        // valが 0.1 の時に t=1.0、valが 0.0 の時に t=0.0
+        let t = val / 0.1;
+        final_d = 0.1 + t * (limit_d - 0.1);
     }
 
     return new THREE.Vector3(
@@ -386,6 +397,7 @@ function getCameraPosBySlider(val, cAngle) {
 
 window.updateCamera = function(instant, delta = 0.016) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
+    // window.cameraSliderValue は 0.0〜1.0 (ui.jsで設定される値)
     let sliderVal = typeof window.cameraSliderValue !== 'undefined' ? window.cameraSliderValue : 0.5;
 
     // ----- 自動カメラ制御 -----
@@ -397,25 +409,23 @@ window.updateCamera = function(instant, delta = 0.016) {
             let playerCenter = player.position.clone();
             playerCenter.y += 1.0; 
 
-            // ★改良: マルチ・レイキャスト用のターゲット5点（上下左右に散らす）
-            let spread = 0.8; // ばらけさせる広さ
+            // マルチ・レイキャスト用のターゲット5点（上下左右に散らす）
+            let spread = 0.8; 
             let rightOffset = new THREE.Vector3(Math.cos(cAngle), 0, -Math.sin(cAngle)).multiplyScalar(spread);
             let upOffset = new THREE.Vector3(0, spread, 0);
 
             let targets = [
-                playerCenter, // 0: 中心
-                playerCenter.clone().add(upOffset), // 1: 頭
-                playerCenter.clone().sub(upOffset), // 2: 足元
-                playerCenter.clone().add(rightOffset), // 3: 右
-                playerCenter.clone().sub(rightOffset)  // 4: 左
+                playerCenter, 
+                playerCenter.clone().add(upOffset), 
+                playerCenter.clone().sub(upOffset), 
+                playerCenter.clone().add(rightOffset), 
+                playerCenter.clone().sub(rightOffset)  
             ];
 
-            let targetSliderValue = 0.0; // 最悪のケース（一番ズームインした状態）を初期値とする
+            let targetSliderValue = 0.0; 
 
-            // ★改良: ガタつき防止の事前スキャン
-            // スライダー 0.5(遠い) から 0.0(近い) に向けて 0.02 刻みで仮想的にカメラを動かし、
-            // 「いずれかのターゲットが見える」最初（一番遠い）の位置を最適値として採用する。
-            for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.02) {
+            // 事前スキャン: 0.5(遠い) から 0.0(近い) に向けて 0.01 刻みで仮想的にカメラを動かす
+            for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.01) {
                 let testCamPos = getCameraPosBySlider(testVal, cAngle);
                 let isVisible = false;
 
@@ -430,12 +440,12 @@ window.updateCamera = function(instant, delta = 0.016) {
                     
                     // その点へ向かう直線上に壁が「無い」場合
                     if (!(hits.length > 0 && hits[0].distance < dist - 0.2)) {
-                        isVisible = true; // 1箇所でも通っていれば「見えている」と判定！
+                        isVisible = true; // 1箇所でも通っていれば「見えている」と判定
                         break;
                     }
                 }
 
-                // 見える位置が見つかったら、そこを今回の目標値にしてスキャン終了
+                // 見える位置が見つかったら、そこを目標値にしてスキャン終了
                 if (isVisible) {
                     targetSliderValue = testVal;
                     break;
@@ -460,6 +470,7 @@ window.updateCamera = function(instant, delta = 0.016) {
                 window.cameraSliderValue = sliderVal;
                 const sliderEl = document.getElementById('camera-slider');
                 if (sliderEl) {
+                    // ui.jsの min="0" max="100" に対応させるため * 100
                     sliderEl.value = window.cameraSliderValue * 100;
                 }
             }
@@ -477,4 +488,3 @@ window.updateCamera = function(instant, delta = 0.016) {
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);
 };
-
