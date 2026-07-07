@@ -1,7 +1,11 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★オートカメラ: 複数本のレーザー（マルチ・レイキャスト）による視野判定を導入し、不要なズームを防止
+// ★フライ(連続ジャンプ)中の天井衝突判定を追加
+// ★観戦モードのドローン操作（重力無視）を追加
+// ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
+// ★カメラ操作: 旧バージョンの計算式を完全復元し、限界値を超えた時のみ貫通ズームを発動
+// ★オートカメラ: 複数レーザーによる事前スキャン方式を導入し、ガタつきと過剰ズームを完全解消
 // =====================================
 
 let mapMesh;
@@ -389,70 +393,67 @@ window.updateCamera = function(instant, delta = 0.016) {
         let terrainMeshes = getTerrainMeshes();
         if (terrainMeshes.length > 0) {
             
-            // ★ マルチ・レイキャスト判定の起点と目標
-            // カメラは今のスライダーの少し上（少し引いた位置）を基準に考える
-            let checkVal = Math.min(1.0, sliderVal + 0.1); 
-            let testCamPos = getCameraPosBySlider(checkVal, cAngle);
-            
             // プレイヤーの中心（頭の少し下）
             let playerCenter = player.position.clone();
             playerCenter.y += 1.0; 
 
-            // プレイヤーの周囲4点（左右・上下に少し散らした位置）
-            let spread = 0.8; 
+            // ★改良: マルチ・レイキャスト用のターゲット5点（上下左右に散らす）
+            let spread = 0.8; // ばらけさせる広さ
             let rightOffset = new THREE.Vector3(Math.cos(cAngle), 0, -Math.sin(cAngle)).multiplyScalar(spread);
             let upOffset = new THREE.Vector3(0, spread, 0);
 
             let targets = [
-                playerCenter, // 0: ど真ん中（一番重要）
-                playerCenter.clone().add(upOffset), // 1: 上（頭の上）
-                playerCenter.clone().sub(upOffset), // 2: 下（足元）
+                playerCenter, // 0: 中心
+                playerCenter.clone().add(upOffset), // 1: 頭
+                playerCenter.clone().sub(upOffset), // 2: 足元
                 playerCenter.clone().add(rightOffset), // 3: 右
                 playerCenter.clone().sub(rightOffset)  // 4: 左
             ];
 
-            let hitsCount = 0;
-            let centerHit = false;
+            let targetSliderValue = 0.0; // 最悪のケース（一番ズームインした状態）を初期値とする
 
-            // カメラ位置から各ターゲットに向けてレーザーを飛ばす
-            for (let i = 0; i < targets.length; i++) {
-                let dir = new THREE.Vector3().subVectors(targets[i], testCamPos);
-                let dist = dir.length();
-                dir.normalize();
-                
-                raycaster.set(testCamPos, dir);
-                let hits = raycaster.intersectObjects(terrainMeshes, false);
-                
-                // ターゲットより手前に壁があれば「遮られた」と判定
-                if (hits.length > 0 && hits[0].distance < dist - 0.2) {
-                    hitsCount++;
-                    if (i === 0) centerHit = true;
+            // ★改良: ガタつき防止の事前スキャン
+            // スライダー 0.5(遠い) から 0.0(近い) に向けて 0.02 刻みで仮想的にカメラを動かし、
+            // 「いずれかのターゲットが見える」最初（一番遠い）の位置を最適値として採用する。
+            for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.02) {
+                let testCamPos = getCameraPosBySlider(testVal, cAngle);
+                let isVisible = false;
+
+                // 仮想カメラ位置から、プレイヤーの5点に向けてレーザーを飛ばす
+                for (let i = 0; i < targets.length; i++) {
+                    let dir = new THREE.Vector3().subVectors(targets[i], testCamPos);
+                    let dist = dir.length();
+                    dir.normalize();
+                    
+                    raycaster.set(testCamPos, dir);
+                    let hits = raycaster.intersectObjects(terrainMeshes, false);
+                    
+                    // その点へ向かう直線上に壁が「無い」場合
+                    if (!(hits.length > 0 && hits[0].distance < dist - 0.2)) {
+                        isVisible = true; // 1箇所でも通っていれば「見えている」と判定！
+                        break;
+                    }
+                }
+
+                // 見える位置が見つかったら、そこを今回の目標値にしてスキャン終了
+                if (isVisible) {
+                    targetSliderValue = testVal;
+                    break;
                 }
             }
 
-            let targetSliderValue = sliderVal;
-
-            if (centerHit) {
-                // 真ん中が隠れている場合は、プレイヤーが見えないので一気にズームイン（スライダーを下げる）
-                targetSliderValue -= 1.0 * delta; 
-            } else if (hitsCount > 0) {
-                // 真ん中は見えているが、周りの何本かが壁に当たっている（屋根の下など、画面の端に壁が映っている状態）
-                // この場合はズームインせず、むしろ壁から離れるように少しだけスライダーを上げる
-                targetSliderValue += 0.2 * delta; 
-            } else {
-                // 全く壁に当たっていない（見晴らしが良い）場合、ゆっくりデフォルト(0.5)へ戻る
-                let returnSpeed = 0.4 * delta; 
-                if (targetSliderValue > 0.5) {
-                    targetSliderValue -= returnSpeed;
-                    if (targetSliderValue < 0.5) targetSliderValue = 0.5;
-                } else if (targetSliderValue < 0.5) {
-                    targetSliderValue += returnSpeed;
-                    if (targetSliderValue > 0.5) targetSliderValue = 0.5;
-                }
+            // 今のスライダー値を目標値に向けて滑らかに動かす
+            let diff = targetSliderValue - sliderVal;
+            if (diff < 0) {
+                // 壁が迫ってズームインする時
+                sliderVal -= 1.5 * delta; 
+                if (sliderVal < targetSliderValue) sliderVal = targetSliderValue;
+            } else if (diff > 0) {
+                // 壁がなくなりズームアウトする時
+                sliderVal += 0.5 * delta; 
+                if (sliderVal > targetSliderValue) sliderVal = targetSliderValue;
             }
             
-            // スライダーを滑らかに動かす
-            sliderVal = targetSliderValue;
             sliderVal = Math.max(0.0, Math.min(1.0, sliderVal));
             
             if (window.cameraSliderValue !== sliderVal) {
@@ -476,3 +477,4 @@ window.updateCamera = function(instant, delta = 0.016) {
     lookTarget.y += 1.0;
     camera.lookAt(lookTarget);
 };
+
