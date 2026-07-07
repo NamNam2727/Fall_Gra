@@ -1,11 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★フライ(連続ジャンプ)中の天井衝突判定を追加
-// ★観戦モードのドローン操作（重力無視）を追加
-// ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
-// ★カメラ操作: 旧バージョンの計算式を完全復元し、限界値を超えた時のみ貫通ズームを発動
-// ★オートカメラ: 0.01刻みで最適値をスキャンし、必要最低限のズームに留める
+// ★オートカメラ: 複数本のレーザー（マルチ・レイキャスト）による視野判定を導入し、不要なズームを防止
 // =====================================
 
 let mapMesh;
@@ -354,32 +350,26 @@ window.updatePlayer = function(delta) {
 };
 
 
-// ★完全に旧バージョンの計算式を復元したヘルパー関数
+// 完全に旧バージョンの計算式を復元したヘルパー関数
 function getCameraPosBySlider(val, cAngle) {
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
     
-    // 1. まずは旧バージョンと全く同じ計算を行う
     let diff = val - 0.5;
     let h = baseHeight + (diff * 35.0);
     let d = baseDist + (diff * 15.0);
 
-    // 旧バージョンでの最終的な高さと距離
     let old_h = Math.max(h, 1.0);
     let old_d = Math.max(d, 1.0);
 
     let final_h = old_h;
     let final_d = old_d;
 
-    // 2. hとdの両方が限界値(1.0)に達するスライダーの閾値(val)を逆算
-    // ※この閾値を下回った時が「旧バージョンでカメラが限界まで下がり切った状態」
     let val_limit = 0.5 + Math.min((1.0 - baseHeight) / 35.0, (1.0 - baseDist) / 15.0);
 
     if (val < val_limit) {
-        // 【限界突破・貫通ズーム領域】
-        // 旧限界を超えてスライダーを下げた時のみ、高さは1.0をキープし、距離を 1.0 から 0.1 へ近づける
         final_h = 1.0;
-        let t = val / val_limit; // 0.0(スライダー下端) 〜 1.0(旧限界値) に正規化
+        let t = val / val_limit; 
         final_d = 0.1 + t * 0.9;
     }
 
@@ -399,48 +389,70 @@ window.updateCamera = function(instant, delta = 0.016) {
         let terrainMeshes = getTerrainMeshes();
         if (terrainMeshes.length > 0) {
             
-            let lookTarget = player.position.clone();
-            lookTarget.y += 1.0; 
+            // ★ マルチ・レイキャスト判定の起点と目標
+            // カメラは今のスライダーの少し上（少し引いた位置）を基準に考える
+            let checkVal = Math.min(1.0, sliderVal + 0.1); 
+            let testCamPos = getCameraPosBySlider(checkVal, cAngle);
             
-            let idealSliderVal = 0.5;
-            let targetSliderValue = idealSliderVal;
+            // プレイヤーの中心（頭の少し下）
+            let playerCenter = player.position.clone();
+            playerCenter.y += 1.0; 
 
-            let idealCamPos = getCameraPosBySlider(idealSliderVal, cAngle);
-            let dirToIdeal = new THREE.Vector3().subVectors(idealCamPos, lookTarget);
-            let idealDist = dirToIdeal.length();
-            dirToIdeal.normalize();
-            
-            raycaster.set(lookTarget, dirToIdeal);
-            let hits = raycaster.intersectObjects(terrainMeshes, false);
-            
-            if (hits.length > 0 && hits[0].distance < idealDist) {
-                // 壁にめり込まないための安全な距離
-                let safeDist = Math.max(0.1, hits[0].distance - 0.5);
+            // プレイヤーの周囲4点（左右・上下に少し散らした位置）
+            let spread = 0.8; 
+            let rightOffset = new THREE.Vector3(Math.cos(cAngle), 0, -Math.sin(cAngle)).multiplyScalar(spread);
+            let upOffset = new THREE.Vector3(0, spread, 0);
+
+            let targets = [
+                playerCenter, // 0: ど真ん中（一番重要）
+                playerCenter.clone().add(upOffset), // 1: 上（頭の上）
+                playerCenter.clone().sub(upOffset), // 2: 下（足元）
+                playerCenter.clone().add(rightOffset), // 3: 右
+                playerCenter.clone().sub(rightOffset)  // 4: 左
+            ];
+
+            let hitsCount = 0;
+            let centerHit = false;
+
+            // カメラ位置から各ターゲットに向けてレーザーを飛ばす
+            for (let i = 0; i < targets.length; i++) {
+                let dir = new THREE.Vector3().subVectors(targets[i], testCamPos);
+                let dist = dir.length();
+                dir.normalize();
                 
-                // ★旧式の計算式を使い、0.5(上)から0.0(下)まで0.01刻みでチェック。
-                // キャラクターが見える限界の距離を正確に見つける。
-                targetSliderValue = 0.0;
-                for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.01) {
-                    let pos = getCameraPosBySlider(testVal, cAngle);
-                    if (pos.distanceTo(lookTarget) <= safeDist) {
-                        targetSliderValue = testVal; 
-                        break;
-                    }
+                raycaster.set(testCamPos, dir);
+                let hits = raycaster.intersectObjects(terrainMeshes, false);
+                
+                // ターゲットより手前に壁があれば「遮られた」と判定
+                if (hits.length > 0 && hits[0].distance < dist - 0.2) {
+                    hitsCount++;
+                    if (i === 0) centerHit = true;
                 }
             }
 
-            // 今のスライダー値を目標値に向けて滑らかに動かす
-            let diff = targetSliderValue - sliderVal;
-            if (diff < 0) {
-                // ズームインの速度（酔いを防ぐためマイルドに）
-                sliderVal -= 1.2 * delta; 
-                if (sliderVal < targetSliderValue) sliderVal = targetSliderValue;
-            } else if (diff > 0) {
-                // 障害物がなくなった時の戻る速度
-                sliderVal += 0.4 * delta; 
-                if (sliderVal > targetSliderValue) sliderVal = targetSliderValue;
+            let targetSliderValue = sliderVal;
+
+            if (centerHit) {
+                // 真ん中が隠れている場合は、プレイヤーが見えないので一気にズームイン（スライダーを下げる）
+                targetSliderValue -= 1.0 * delta; 
+            } else if (hitsCount > 0) {
+                // 真ん中は見えているが、周りの何本かが壁に当たっている（屋根の下など、画面の端に壁が映っている状態）
+                // この場合はズームインせず、むしろ壁から離れるように少しだけスライダーを上げる
+                targetSliderValue += 0.2 * delta; 
+            } else {
+                // 全く壁に当たっていない（見晴らしが良い）場合、ゆっくりデフォルト(0.5)へ戻る
+                let returnSpeed = 0.4 * delta; 
+                if (targetSliderValue > 0.5) {
+                    targetSliderValue -= returnSpeed;
+                    if (targetSliderValue < 0.5) targetSliderValue = 0.5;
+                } else if (targetSliderValue < 0.5) {
+                    targetSliderValue += returnSpeed;
+                    if (targetSliderValue > 0.5) targetSliderValue = 0.5;
+                }
             }
             
+            // スライダーを滑らかに動かす
+            sliderVal = targetSliderValue;
             sliderVal = Math.max(0.0, Math.min(1.0, sliderVal));
             
             if (window.cameraSliderValue !== sliderVal) {
