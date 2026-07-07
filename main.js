@@ -4,8 +4,8 @@
 // ★フライ(連続ジャンプ)中の天井衝突判定を追加
 // ★観戦モードのドローン操作（重力無視）を追加
 // ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
-// ★カメラ操作: スライダー式を完全な線形補間に書き直し、死んだゾーンを撤廃
-// ★オートカメラ: 0.01刻みで最適値をスキャンし、必要最低限のズームに留める。速度も酔わないレベルへ低下。
+// ★カメラ操作: 旧バージョンの計算式を完全復元し、限界値を超えた時のみ貫通ズームを発動
+// ★オートカメラ: 0.01刻みで最適値をスキャンし、必要最低限のズームに留める
 // =====================================
 
 let mapMesh;
@@ -354,34 +354,39 @@ window.updatePlayer = function(delta) {
 };
 
 
-// ★修正: Math.max による死んだゾーンを完全に撤廃し、ミリ単位でなめらかな線形補間に変更
+// ★完全に旧バージョンの計算式を復元したヘルパー関数
 function getCameraPosBySlider(val, cAngle) {
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
     
-    let h, d;
+    // 1. まずは旧バージョンと全く同じ計算を行う
+    let diff = val - 0.5;
+    let h = baseHeight + (diff * 35.0);
+    let d = baseDist + (diff * 15.0);
 
-    if (val >= 0.5) {
-        // 【上半分 (0.5〜1.0)】: デフォルト位置から見下ろしまで
-        let t = (val - 0.5) / 0.5; // 0.0 〜 1.0 に正規化
-        h = baseHeight + (t * 17.5);
-        d = baseDist + (t * 7.5);
-    } else if (val >= 0.25) {
-        // 【下半分・通常 (0.25〜0.5)】: デフォルト位置からキャラクターの背後(距離1.0, 高さ1.0)まで
-        let t = (val - 0.25) / 0.25; // 0.0(最小) 〜 1.0(デフォルト) に正規化
-        h = 1.0 + t * (baseHeight - 1.0);
-        d = 1.0 + t * (baseDist - 1.0);
-    } else {
-        // 【限界突破領域 (0.0〜0.25)】: 高さを維持したままキャラクターに向かって貫通ズーム
-        let t = val / 0.25; // 0.0(超接近) 〜 1.0(距離1.0) に正規化
-        h = 1.0;
-        d = 0.1 + t * 0.9;
+    // 旧バージョンでの最終的な高さと距離
+    let old_h = Math.max(h, 1.0);
+    let old_d = Math.max(d, 1.0);
+
+    let final_h = old_h;
+    let final_d = old_d;
+
+    // 2. hとdの両方が限界値(1.0)に達するスライダーの閾値(val)を逆算
+    // ※この閾値を下回った時が「旧バージョンでカメラが限界まで下がり切った状態」
+    let val_limit = 0.5 + Math.min((1.0 - baseHeight) / 35.0, (1.0 - baseDist) / 15.0);
+
+    if (val < val_limit) {
+        // 【限界突破・貫通ズーム領域】
+        // 旧限界を超えてスライダーを下げた時のみ、高さは1.0をキープし、距離を 1.0 から 0.1 へ近づける
+        final_h = 1.0;
+        let t = val / val_limit; // 0.0(スライダー下端) 〜 1.0(旧限界値) に正規化
+        final_d = 0.1 + t * 0.9;
     }
 
     return new THREE.Vector3(
-        player.position.x + Math.sin(cAngle) * d,
-        player.position.y + h,
-        player.position.z + Math.cos(cAngle) * d
+        player.position.x + Math.sin(cAngle) * final_d,
+        player.position.y + final_h,
+        player.position.z + Math.cos(cAngle) * final_d
     );
 }
 
@@ -412,13 +417,13 @@ window.updateCamera = function(instant, delta = 0.016) {
                 // 壁にめり込まないための安全な距離
                 let safeDist = Math.max(0.1, hits[0].distance - 0.5);
                 
-                // ★修正: 0.5 から 0.0 まで「0.01刻み」で細かくテストし、
-                // 壁をすり抜けずに済む「一番高い数値（遠い位置）」をピンポイントで見つける
-                targetSliderValue = 0.0; // 見つからなかった場合の最終手段
+                // ★旧式の計算式を使い、0.5(上)から0.0(下)まで0.01刻みでチェック。
+                // キャラクターが見える限界の距離を正確に見つける。
+                targetSliderValue = 0.0;
                 for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.01) {
                     let pos = getCameraPosBySlider(testVal, cAngle);
                     if (pos.distanceTo(lookTarget) <= safeDist) {
-                        targetSliderValue = testVal; // 安全な位置が見つかったらそこで決定！
+                        targetSliderValue = testVal; 
                         break;
                     }
                 }
@@ -427,11 +432,11 @@ window.updateCamera = function(instant, delta = 0.016) {
             // 今のスライダー値を目標値に向けて滑らかに動かす
             let diff = targetSliderValue - sliderVal;
             if (diff < 0) {
-                // ★修正: ズームインの速度を以前の 1/4 以下に減速（マイルドに接近して酔いを防止）
+                // ズームインの速度（酔いを防ぐためマイルドに）
                 sliderVal -= 1.2 * delta; 
                 if (sliderVal < targetSliderValue) sliderVal = targetSliderValue;
             } else if (diff > 0) {
-                // 障害物がなくなった時の戻る速度（さらにゆっくり）
+                // 障害物がなくなった時の戻る速度
                 sliderVal += 0.4 * delta; 
                 if (sliderVal > targetSliderValue) sliderVal = targetSliderValue;
             }
