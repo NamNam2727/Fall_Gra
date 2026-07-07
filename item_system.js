@@ -2,6 +2,7 @@
 // item_system.js
 // ミニゲーム用アイテムの出現、取得、管理、同期（コアロジック）
 // ★プラグインからの特別ルール（アイテム固定・スタック許可）を受け入れる変数を追加
+// ★アイテムの出現位置を「高さ10（ブロック5個分）以下の場所」に制限
 // =====================================
 
 window.ItemSystem = {
@@ -9,7 +10,7 @@ window.ItemSystem = {
     fieldItems: {}, 
     maxItems: 1,    
     
-    // ★追加: ミニゲーム用特別ルール変数
+    // ミニゲーム用特別ルール変数
     forceItemType: null, // 例: 'bomb' (ランダムではなくこれを必ず引く)
     isStackable: false,  // trueの場合、複数所持(個数表示)を許可
     stackedCount: 0,     // スタック中の個数
@@ -91,14 +92,19 @@ window.ItemSystem = {
                         let isOdd = (val % 2 !== 0);
                         let spaceVal = (i - 1 >= 0) ? parseInt(str[i - 1], 10) : -1;
                         
+                        // ブロックの上空が空いているかどうかの判定
                         if (spaceVal > 0 || spaceVal === -1) {
                             if (isOdd) {
                                 let corners = window.MapGenerator.getCornerHeights(parsedMap, mapW, mapD, x, z, py);
                                 py = corners.center;
                             }
-                            let px = x - mapW / 2 + 0.5;
-                            let pz = z - mapD / 2 + 0.5;
-                            validSpawns.push({ x: px * bs, y: py * bs, z: pz * bs });
+                            
+                            // ★ 追加：アイテムの出現高さを論理座標の 10.0（ブロック5個分）以下に制限する
+                            if (py <= 10.0) {
+                                let px = x - mapW / 2 + 0.5;
+                                let pz = z - mapD / 2 + 0.5;
+                                validSpawns.push({ x: px * bs, y: py * bs, z: pz * bs });
+                            }
                         }
                     }
                     currentY += height;
@@ -107,7 +113,9 @@ window.ItemSystem = {
             }
         }
         
+        // 有効な出現位置が1つもない場合（全て高すぎる場合など）のフェイルセーフ
         if (validSpawns.length === 0) validSpawns.push({ x: 0, y: 2.0 * bs, z: 0 });
+        
         const spawn = validSpawns[Math.floor(Math.random() * validSpawns.length)];
         const itemYOffset = 1.5; 
         const pos = { x: spawn.x, y: spawn.y + itemYOffset, z: spawn.z };
@@ -165,14 +173,12 @@ window.ItemSystem = {
             delete this.fieldItems[id];
         }
 
-        // ★取得アイテムの決定（固定指定があればそれを使う）
         let gottenItem = this.forceItemType;
         if (!gottenItem) {
             const items = ['fly', 'bomb', 'net'];
             gottenItem = items[Math.floor(Math.random() * items.length)];
         }
 
-        // ★スタック可能かどうかで処理を分岐
         if (this.isStackable) {
             this.mySlotItem = gottenItem;
             this.stackedCount++;
@@ -205,7 +211,6 @@ window.ItemSystem = {
             else if (this.mySlotItem === 'bomb') iconText = '💣';
             else if (this.mySlotItem === 'net') iconText = '🕸️';
             
-            // ★スタック数が2以上の場合は個数を表示
             if (this.isStackable && this.stackedCount > 1) {
                 this.slotUI.innerHTML = `${iconText}<div class="item-timer" style="bottom:-5px; right:-5px; font-size:16px;">x${this.stackedCount}</div>`;
             } else {
@@ -222,7 +227,6 @@ window.ItemSystem = {
         
         const item = this.mySlotItem;
         
-        // ★スタック処理の反映
         if (this.isStackable && this.stackedCount > 1) {
             this.stackedCount--;
         } else {
@@ -268,7 +272,6 @@ window.ItemSystem = {
             itemMesh.position.y = ud.baseY + Math.sin(ud.time) * 0.4;
             itemMesh.rotation.y += delta;
             
-            // ★取得条件の変更: スタック可能モードならすでに持っていても拾える
             const canGet = !this.mySlotItem || (this.isStackable && this.mySlotItem === this.forceItemType);
             
             if (!window.isSpectatorMode && typeof player !== 'undefined' && player && canGet && !this.isCoolingDown && this.canPickup !== false) {
