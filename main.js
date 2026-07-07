@@ -5,7 +5,7 @@
 // ★観戦モードのドローン操作（重力無視）を追加
 // ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
 // ★カメラ操作: 旧バージョンの計算式を完全復元し、限界値を超えた時のみ貫通ズームを発動
-// ★オートカメラ: 複数レーザーによる事前スキャン方式を導入し、ガタつきと過剰ズームを完全解消
+// ★オートカメラ: 8点レイキャストを導入。キャラクター全体を捉え、不要なズームを防止。
 // ★スライダー(0〜100)の挙動を修正: 10〜100は通常、0〜10を限界突破ズーム領域に設定
 // =====================================
 
@@ -354,7 +354,6 @@ window.updatePlayer = function(delta) {
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 };
 
-
 // ヘルパー関数: スライダー値(val)からカメラ位置を計算
 // ★ val は 0.0〜1.0 の値 (スライダーの 0〜100 に対応)
 function getCameraPosBySlider(val, cAngle) {
@@ -405,48 +404,78 @@ window.updateCamera = function(instant, delta = 0.016) {
         let terrainMeshes = getTerrainMeshes();
         if (terrainMeshes.length > 0) {
             
-            // プレイヤーの中心（頭の少し下）
             let playerCenter = player.position.clone();
             playerCenter.y += 1.0; 
 
-            // マルチ・レイキャスト用のターゲット5点（上下左右に散らす）
-            let spread = 0.8; 
-            let rightOffset = new THREE.Vector3(Math.cos(cAngle), 0, -Math.sin(cAngle)).multiplyScalar(spread);
-            let upOffset = new THREE.Vector3(0, spread, 0);
+            // ★ 8点マルチ・レイキャストのターゲット
+            let innerSpread = 0.5; // キャラクター周辺（近め）
+            let outerSpread = 1.5; // キャラクター外側（遠め）
+            
+            let rightDir = new THREE.Vector3(Math.cos(cAngle), 0, -Math.sin(cAngle));
+            let upDir = new THREE.Vector3(0, 1, 0);
 
-            let targets = [
-                playerCenter, 
-                playerCenter.clone().add(upOffset), 
-                playerCenter.clone().sub(upOffset), 
-                playerCenter.clone().add(rightOffset), 
-                playerCenter.clone().sub(rightOffset)  
+            // キャラクターが確実に見えているか判定する「内側の4点」
+            let innerTargets = [
+                playerCenter.clone().add(upDir.clone().multiplyScalar(innerSpread)), // 上
+                playerCenter.clone().sub(upDir.clone().multiplyScalar(innerSpread)), // 下
+                playerCenter.clone().add(rightDir.clone().multiplyScalar(innerSpread)), // 右
+                playerCenter.clone().sub(rightDir.clone().multiplyScalar(innerSpread))  // 左
+            ];
+
+            // 画面端に壁が被っていないか判定する「外側の4点」
+            let outerTargets = [
+                playerCenter.clone().add(upDir.clone().multiplyScalar(outerSpread)), 
+                playerCenter.clone().sub(upDir.clone().multiplyScalar(outerSpread)), 
+                playerCenter.clone().add(rightDir.clone().multiplyScalar(outerSpread)), 
+                playerCenter.clone().sub(rightDir.clone().multiplyScalar(outerSpread))  
             ];
 
             let targetSliderValue = 0.0; 
 
-            // 事前スキャン: 0.5(遠い) から 0.0(近い) に向けて 0.01 刻みで仮想的にカメラを動かす
+            // 事前スキャン: 0.5(遠い) から 0.0(近い) に向けて仮想的にカメラを動かす
             for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.01) {
                 let testCamPos = getCameraPosBySlider(testVal, cAngle);
-                let isVisible = false;
+                
+                let innerBlockedCount = 0;
+                let outerBlockedCount = 0;
 
-                // 仮想カメラ位置から、プレイヤーの5点に向けてレーザーを飛ばす
-                for (let i = 0; i < targets.length; i++) {
-                    let dir = new THREE.Vector3().subVectors(targets[i], testCamPos);
+                // 内側の4点をチェック
+                for (let i = 0; i < innerTargets.length; i++) {
+                    let dir = new THREE.Vector3().subVectors(innerTargets[i], testCamPos);
                     let dist = dir.length();
                     dir.normalize();
-                    
                     raycaster.set(testCamPos, dir);
                     let hits = raycaster.intersectObjects(terrainMeshes, false);
-                    
-                    // その点へ向かう直線上に壁が「無い」場合
-                    if (!(hits.length > 0 && hits[0].distance < dist - 0.2)) {
-                        isVisible = true; // 1箇所でも通っていれば「見えている」と判定
-                        break;
+                    if (hits.length > 0 && hits[0].distance < dist - 0.2) {
+                        innerBlockedCount++;
                     }
                 }
 
-                // 見える位置が見つかったら、そこを目標値にしてスキャン終了
-                if (isVisible) {
+                // 外側の4点をチェック
+                for (let i = 0; i < outerTargets.length; i++) {
+                    let dir = new THREE.Vector3().subVectors(outerTargets[i], testCamPos);
+                    let dist = dir.length();
+                    dir.normalize();
+                    raycaster.set(testCamPos, dir);
+                    let hits = raycaster.intersectObjects(terrainMeshes, false);
+                    if (hits.length > 0 && hits[0].distance < dist - 0.2) {
+                        outerBlockedCount++;
+                    }
+                }
+
+                // 【判定ロジック】
+                if (innerBlockedCount > 0) {
+                    // 内側が遮られている = キャラクター本体が見えない！ -> ズームイン続行（次のスキャンへ）
+                    continue; 
+                } else if (outerBlockedCount > 0) {
+                    // 内側は見えているが、外側が遮られている = 画面端に壁がある
+                    // キャラクターは見えているので、これ以上ズームインする必要はない。
+                    // むしろ少しズームアウトして様子を見たいので、目標値として採用しスキャン終了。
+                    targetSliderValue = testVal;
+                    break;
+                } else {
+                    // 全く遮られていない = 視界クリア！
+                    // ここが最適な位置なので目標値として採用しスキャン終了。
                     targetSliderValue = testVal;
                     break;
                 }
@@ -455,11 +484,11 @@ window.updateCamera = function(instant, delta = 0.016) {
             // 今のスライダー値を目標値に向けて滑らかに動かす
             let diff = targetSliderValue - sliderVal;
             if (diff < 0) {
-                // 壁が迫ってズームインする時
+                // キャラクターが見えない時のズームイン
                 sliderVal -= 1.5 * delta; 
                 if (sliderVal < targetSliderValue) sliderVal = targetSliderValue;
             } else if (diff > 0) {
-                // 壁がなくなりズームアウトする時
+                // 画面端の壁を避ける、または視界クリアな時のズームアウト
                 sliderVal += 0.5 * delta; 
                 if (sliderVal > targetSliderValue) sliderVal = targetSliderValue;
             }
