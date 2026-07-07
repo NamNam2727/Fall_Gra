@@ -1,7 +1,10 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★オートカメラ: シングルレイキャストのまま、ガタガタ揺れる問題を修正
+// ★フライ(連続ジャンプ)中の天井衝突判定を追加
+// ★観戦モードのドローン操作（重力無視）を追加
+// ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
+// ★オートカメラ: デュアルレイキャスト（現在位置＋少し上）を導入し、ガタつきをスマートに解消
 // ★カメラ操作: スライダー10〜100は以前の計算式を完全維持し、0〜10のみスレスレ貫通ズームを追加
 // =====================================
 
@@ -350,9 +353,7 @@ window.updatePlayer = function(delta) {
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 };
 
-
-// ★追加：スライダー値からカメラ位置を計算するヘルパー関数
-// これを使うことで、以前の計算式を一切変えずにスレスレズームだけを実現できます
+// ★ スライダー値(val: 0.0〜1.0)からカメラ位置を計算する関数
 function getCameraPosBySlider(val, cAngle) {
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
@@ -367,14 +368,14 @@ function getCameraPosBySlider(val, cAngle) {
         cHeight = Math.max(cHeight, 1.0);
         cDist = Math.max(cDist, 1.0);
     } else {
-        // 【0〜10区間】10の時の高さを維持し、距離だけを0.1（スレスレ）まで縮める
-        let diff = 0.1 - 0.5; // スライダーが0.1(10%)の時のdiff
+        // 【0〜10区間】10(val=0.1)の時の高さを維持し、距離だけを0.1（スレスレ）まで縮める
+        let diff = 0.1 - 0.5; 
         let minHeight = Math.max(baseHeight + (diff * 35.0), 1.0);
         let minDist = Math.max(baseDist + (diff * 15.0), 1.0);
         
         cHeight = minHeight; // 高さを固定
         let t = val / 0.1;   // 0.0〜1.0 の割合
-        cDist = 0.1 + t * (minDist - 0.1); // 距離を限界まで縮める
+        cDist = 0.1 + t * (minDist - 0.1); // 距離を限界(0.1)まで縮める
     }
 
     return new THREE.Vector3(
@@ -399,43 +400,54 @@ window.updateCamera = function(instant, delta = 0.016) {
             let lookTarget = player.position.clone();
             lookTarget.y += 1.0; 
             
-            // ★ガタつき解消：現在のカメラ位置ではなく「理想のデフォルト位置(0.5)」へ向けて1本だけレイキャストを飛ばす
-            let idealVal = 0.5;
-            let idealPos = getCameraPosBySlider(idealVal, cAngle);
-            let dirToIdeal = new THREE.Vector3().subVectors(idealPos, lookTarget);
-            let idealDist = dirToIdeal.length();
-            dirToIdeal.normalize();
+            // 現在のカメラの想定位置
+            let currentCamPos = getCameraPosBySlider(window.cameraSliderValue, cAngle);
             
-            raycaster.set(lookTarget, dirToIdeal);
-            let hits = raycaster.intersectObjects(terrainMeshes, false);
+            // ★ デュアルレイキャスト：後退停止のバッファとなる「少し上」の位置
+            let upCamPos = currentCamPos.clone();
+            upCamPos.y += 1.0; // 垂直方向に+1.0
             
-            let targetVal = idealVal;
+            let mainHit = false;
+            let subHit = false;
 
-            if (hits.length > 0 && hits[0].distance < idealDist) {
-                // 壁にぶつかった場合、その壁の少し手前(マージン0.5)を安全圏とする
-                let safeDist = Math.max(0.1, hits[0].distance - 0.5);
-                
-                targetVal = 0.0; // 最悪のケース
-                // 0.5(遠い) から 0.0(近い) へ向けて、安全圏に収まる最適なスライダー値を逆算する
-                for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.01) {
-                    let pos = getCameraPosBySlider(testVal, cAngle);
-                    if (pos.distanceTo(lookTarget) <= safeDist) {
-                        targetVal = testVal; // 安全な位置が見つかったら目標値に設定
-                        break;
-                    }
-                }
+            // 1. 主レイキャスト（現在のカメラ位置から）
+            let dirMain = new THREE.Vector3().subVectors(currentCamPos, lookTarget);
+            let distMain = dirMain.length();
+            dirMain.normalize();
+            raycaster.set(lookTarget, dirMain);
+            let hitsMain = raycaster.intersectObjects(terrainMeshes, false);
+            // 壁ギリギリで判定がブレないよう -0.1 のマージンを設定
+            if (hitsMain.length > 0 && hitsMain[0].distance < distMain - 0.1) {
+                mainHit = true;
             }
-            
-            // ★目標値(targetVal)に向けて、現在のスライダー値を滑らかに動かす
-            let diff = targetVal - window.cameraSliderValue;
-            if (diff < 0) {
-                // ズームイン（壁が迫った時）
+
+            // 2. 副レイキャスト（少し上から）
+            let dirSub = new THREE.Vector3().subVectors(upCamPos, lookTarget);
+            let distSub = dirSub.length();
+            dirSub.normalize();
+            raycaster.set(lookTarget, dirSub);
+            let hitsSub = raycaster.intersectObjects(terrainMeshes, false);
+            if (hitsSub.length > 0 && hitsSub[0].distance < distSub - 0.1) {
+                subHit = true;
+            }
+
+            // ★ 判定ロジック
+            if (mainHit) {
+                // 主レイが遮られた＝プレイヤーが隠れている -> 接近(ズームイン)
                 window.cameraSliderValue -= 1.5 * delta; 
-                if (window.cameraSliderValue < targetVal) window.cameraSliderValue = targetVal;
-            } else if (diff > 0) {
-                // ズームアウト（壁がなくなった時）
-                window.cameraSliderValue += 0.5 * delta; 
-                if (window.cameraSliderValue > targetVal) window.cameraSliderValue = targetVal;
+            } else if (subHit) {
+                // 主レイは通るが副レイが遮られた＝上に屋根などがある
+                // これ以上後退するとぶつかるので、ここでピタッと停止する（現状維持）
+            } else {
+                // どちらも通っている -> 安全に後退（デフォルト0.5に戻る）
+                let returnSpeed = 0.2 * delta; 
+                if (window.cameraSliderValue > 0.5) {
+                    window.cameraSliderValue -= returnSpeed;
+                    if (window.cameraSliderValue < 0.5) window.cameraSliderValue = 0.5;
+                } else if (window.cameraSliderValue < 0.5) {
+                    window.cameraSliderValue += returnSpeed;
+                    if (window.cameraSliderValue > 0.5) window.cameraSliderValue = 0.5;
+                }
             }
             
             window.cameraSliderValue = Math.max(0.0, Math.min(1.0, window.cameraSliderValue));
