@@ -4,8 +4,8 @@
 // ★フライ(連続ジャンプ)中の天井衝突判定を追加
 // ★観戦モードのドローン操作（重力無視）を追加
 // ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
-// ★カメラ操作: スライダー(0.0〜1.0)の解釈を分割し、0〜0.25を限界突破の貫通ズームに割り当て
-// ★オートカメラ: 常に基準位置へRaycastを行い、ガタつき(ジッター)を完全に解消
+// ★カメラ操作: スライダー式を完全な線形補間に書き直し、死んだゾーンを撤廃
+// ★オートカメラ: 0.01刻みで最適値をスキャンし、必要最低限のズームに留める。速度も酔わないレベルへ低下。
 // =====================================
 
 let mapMesh;
@@ -354,7 +354,7 @@ window.updatePlayer = function(delta) {
 };
 
 
-// ★スライダーの値(0.0〜1.0)からカメラ位置を計算するヘルパー関数
+// ★修正: Math.max による死んだゾーンを完全に撤廃し、ミリ単位でなめらかな線形補間に変更
 function getCameraPosBySlider(val, cAngle) {
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
@@ -362,30 +362,20 @@ function getCameraPosBySlider(val, cAngle) {
     let h, d;
 
     if (val >= 0.5) {
-        // 【上半分 (0.5〜1.0)】: 以前と全く同じ計算式 (デフォルト位置〜見下ろし)
-        let diff = val - 0.5;
-        h = baseHeight + (diff * 35.0);
-        d = baseDist + (diff * 15.0);
-        h = Math.max(h, 1.0);
-        d = Math.max(d, 1.0);
+        // 【上半分 (0.5〜1.0)】: デフォルト位置から見下ろしまで
+        let t = (val - 0.5) / 0.5; // 0.0 〜 1.0 に正規化
+        h = baseHeight + (t * 17.5);
+        d = baseDist + (t * 7.5);
     } else if (val >= 0.25) {
-        // 【下半分・通常 (0.25〜0.5)】: 以前の 0.0〜0.5(接近) に相当する動きを引き伸ばして適用
-        let diff = (val - 0.5) * 2.0; 
-        h = baseHeight + (diff * 35.0);
-        d = baseDist + (diff * 15.0);
-        h = Math.max(h, 1.0);
-        d = Math.max(d, 1.0);
+        // 【下半分・通常 (0.25〜0.5)】: デフォルト位置からキャラクターの背後(距離1.0, 高さ1.0)まで
+        let t = (val - 0.25) / 0.25; // 0.0(最小) 〜 1.0(デフォルト) に正規化
+        h = 1.0 + t * (baseHeight - 1.0);
+        d = 1.0 + t * (baseDist - 1.0);
     } else {
         // 【限界突破領域 (0.0〜0.25)】: 高さを維持したままキャラクターに向かって貫通ズーム
-        let minDiff = -0.5; // 旧0.0の時のdiff
-        let minHeight = baseHeight + (minDiff * 35.0);
-        let minDist = baseDist + (minDiff * 15.0);
-        minHeight = Math.max(minHeight, 1.0);
-        minDist = Math.max(minDist, 1.0); // 通常限界の距離 (1.0)
-
-        h = minHeight; // 高さは固定
-        let t = val / 0.25; // 0.0(超接近) 〜 1.0(通常限界)
-        d = 0.1 + (t * (minDist - 0.1)); // 距離を 0.1(目の前) から minDist の間でスライド
+        let t = val / 0.25; // 0.0(超接近) 〜 1.0(距離1.0) に正規化
+        h = 1.0;
+        d = 0.1 + t * 0.9;
     }
 
     return new THREE.Vector3(
@@ -395,10 +385,8 @@ function getCameraPosBySlider(val, cAngle) {
     );
 }
 
-
 window.updateCamera = function(instant, delta = 0.016) {
     let cAngle = typeof cameraAngle !== 'undefined' ? cameraAngle : 0;
-    
     let sliderVal = typeof window.cameraSliderValue !== 'undefined' ? window.cameraSliderValue : 0.5;
 
     // ----- 自動カメラ制御 -----
@@ -409,8 +397,9 @@ window.updateCamera = function(instant, delta = 0.016) {
             let lookTarget = player.position.clone();
             lookTarget.y += 1.0; 
             
-            // ★ガクガク防止: 常に「理想のデフォルト位置(0.5)」に向けてRaycastを飛ばし、壁の有無を判定する
             let idealSliderVal = 0.5;
+            let targetSliderValue = idealSliderVal;
+
             let idealCamPos = getCameraPosBySlider(idealSliderVal, cAngle);
             let dirToIdeal = new THREE.Vector3().subVectors(idealCamPos, lookTarget);
             let idealDist = dirToIdeal.length();
@@ -419,44 +408,38 @@ window.updateCamera = function(instant, delta = 0.016) {
             raycaster.set(lookTarget, dirToIdeal);
             let hits = raycaster.intersectObjects(terrainMeshes, false);
             
-            let targetSliderValue = idealSliderVal;
-
             if (hits.length > 0 && hits[0].distance < idealDist) {
-                // 理想位置までの間に壁があった場合、壁の少し手前(マージン0.5)を安全な距離とする
+                // 壁にめり込まないための安全な距離
                 let safeDist = Math.max(0.1, hits[0].distance - 0.5);
                 
-                // 二分探索で、safeDist に最も近いスライダーの値(0.0〜0.5)を逆算する
-                let low = 0.0;
-                let high = idealSliderVal;
-                for (let i = 0; i < 8; i++) {
-                    let mid = (low + high) / 2;
-                    let pos = getCameraPosBySlider(mid, cAngle);
-                    let d = pos.distanceTo(lookTarget);
-                    if (d < safeDist) {
-                        low = mid;
-                    } else {
-                        high = mid;
+                // ★修正: 0.5 から 0.0 まで「0.01刻み」で細かくテストし、
+                // 壁をすり抜けずに済む「一番高い数値（遠い位置）」をピンポイントで見つける
+                targetSliderValue = 0.0; // 見つからなかった場合の最終手段
+                for (let testVal = 0.5; testVal >= 0.0; testVal -= 0.01) {
+                    let pos = getCameraPosBySlider(testVal, cAngle);
+                    if (pos.distanceTo(lookTarget) <= safeDist) {
+                        targetSliderValue = testVal; // 安全な位置が見つかったらそこで決定！
+                        break;
                     }
-                    targetSliderValue = mid;
                 }
             }
 
-            // ★今のスライダー値を目標値に向けて滑らかに動かす（ガクガク揺れるのを防止）
+            // 今のスライダー値を目標値に向けて滑らかに動かす
             let diff = targetSliderValue - sliderVal;
             if (diff < 0) {
-                sliderVal -= 5.0 * delta; // 壁が迫ったら素早くズームイン
+                // ★修正: ズームインの速度を以前の 1/4 以下に減速（マイルドに接近して酔いを防止）
+                sliderVal -= 1.2 * delta; 
                 if (sliderVal < targetSliderValue) sliderVal = targetSliderValue;
             } else if (diff > 0) {
-                sliderVal += 0.5 * delta; // 障害物がなくなったらゆっくり戻る
+                // 障害物がなくなった時の戻る速度（さらにゆっくり）
+                sliderVal += 0.4 * delta; 
                 if (sliderVal > targetSliderValue) sliderVal = targetSliderValue;
             }
             
-            // スライダーの範囲を 0.0 〜 1.0 に制限
             sliderVal = Math.max(0.0, Math.min(1.0, sliderVal));
             
             if (window.cameraSliderValue !== sliderVal) {
                 window.cameraSliderValue = sliderVal;
-                // UIのスライダー表示も連動させる
                 const sliderEl = document.getElementById('camera-slider');
                 if (sliderEl) {
                     sliderEl.value = window.cameraSliderValue * 100;
