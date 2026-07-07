@@ -1,10 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★フライ(連続ジャンプ)中の天井衝突判定を追加
-// ★観戦モードのドローン操作（重力無視）を追加
-// ★押し出し処理を安定版の構造に戻し、すり抜けを完全解決
-// ★オートカメラ: トリプルレイキャスト（現在位置＋少し上＋少し後ろ）を導入し、グラグラを完全に解消
+// ★オートカメラ: クアッド(4点)レイキャストを導入し、斜め後ろの壁によるグラグラも完全解消
 // ★カメラ操作: スライダー10〜100は以前の計算式を完全維持し、0〜10のみスレスレ貫通ズームを追加
 // =====================================
 
@@ -353,7 +350,7 @@ window.updatePlayer = function(delta) {
     player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 };
 
-// ★ スライダー値(val: 0.0〜1.0)からカメラ位置を計算する関数
+// スライダー値(val: 0.0〜1.0)からカメラ位置を計算する関数
 function getCameraPosBySlider(val, cAngle) {
     let baseDist = typeof cameraDistance !== 'undefined' ? cameraDistance : 5;
     let baseHeight = typeof cameraHeight !== 'undefined' ? cameraHeight : 15;
@@ -403,13 +400,19 @@ window.updateCamera = function(instant, delta = 0.016) {
             // 現在のカメラの想定位置
             let currentCamPos = getCameraPosBySlider(window.cameraSliderValue, cAngle);
             
-            // デュアルレイキャスト用：後退停止のバッファとなる「少し上」の位置
+            // ★ 4点(クアッド)レイキャスト用のバッファ位置
             let upCamPos = currentCamPos.clone();
-            upCamPos.y += 1.0; // 垂直方向に+1.0
+            upCamPos.y += 1.0; // 少し上
+            
+            let backDir = new THREE.Vector3(Math.sin(cAngle), 0, Math.cos(cAngle)).normalize();
+            let backCamPos = currentCamPos.clone().add(backDir.multiplyScalar(0.8)); // 少し後ろ
+            
+            let diagCamPos = currentCamPos.clone();
+            diagCamPos.y += 1.0; // 少し上
+            diagCamPos.add(new THREE.Vector3(Math.sin(cAngle), 0, Math.cos(cAngle)).normalize().multiplyScalar(0.8)); // かつ少し後ろ
             
             let mainHit = false;
             let subHit = false;
-            let backHit = false; // ★追加：すぐ後ろの壁判定
 
             // 1. 主レイキャスト（現在のカメラ位置からプレイヤーへ）
             let dirMain = new THREE.Vector3().subVectors(currentCamPos, lookTarget);
@@ -417,36 +420,43 @@ window.updateCamera = function(instant, delta = 0.016) {
             dirMain.normalize();
             raycaster.set(lookTarget, dirMain);
             let hitsMain = raycaster.intersectObjects(terrainMeshes, false);
-            // 壁ギリギリで判定がブレないよう -0.1 のマージンを設定
             if (hitsMain.length > 0 && hitsMain[0].distance < distMain - 0.1) {
                 mainHit = true;
             }
 
             // 2. 副レイキャスト1（少し上からプレイヤーへ：屋根判定）
-            let dirSub = new THREE.Vector3().subVectors(upCamPos, lookTarget);
-            let distSub = dirSub.length();
-            dirSub.normalize();
-            raycaster.set(lookTarget, dirSub);
-            let hitsSub = raycaster.intersectObjects(terrainMeshes, false);
-            if (hitsSub.length > 0 && hitsSub[0].distance < distSub - 0.1) {
+            let dirSubUp = new THREE.Vector3().subVectors(upCamPos, lookTarget);
+            let distSubUp = dirSubUp.length();
+            dirSubUp.normalize();
+            raycaster.set(lookTarget, dirSubUp);
+            let hitsSubUp = raycaster.intersectObjects(terrainMeshes, false);
+            if (hitsSubUp.length > 0 && hitsSubUp[0].distance < distSubUp - 0.1) {
                 subHit = true;
             }
 
-            // 3. ★ 副レイキャスト2（現在のカメラ位置からさらに後ろへ：背後の壁判定）
-            // dirMain は プレイヤーからカメラへの方向 なので、そのままカメラの後ろへのレイとして使える
-            raycaster.set(currentCamPos, dirMain); 
+            // 3. 副レイキャスト2（現在のカメラ位置から真後ろへ：背後の壁判定）
+            raycaster.set(currentCamPos, new THREE.Vector3(Math.sin(cAngle), 0, Math.cos(cAngle)).normalize()); 
             let hitsBack = raycaster.intersectObjects(terrainMeshes, false);
             if (hitsBack.length > 0 && hitsBack[0].distance < 0.8) {
-                backHit = true; // カメラの後ろ 0.8 以内に壁がある
+                subHit = true;
+            }
+            
+            // 4. ★ 副レイキャスト3（現在のカメラ位置から斜め上後ろへ：斜めの壁・角判定）
+            let dirDiag = new THREE.Vector3().subVectors(diagCamPos, currentCamPos).normalize();
+            raycaster.set(currentCamPos, dirDiag);
+            let hitsDiag = raycaster.intersectObjects(terrainMeshes, false);
+            // 斜め方向は少し長めにチェックして安心感を高める
+            if (hitsDiag.length > 0 && hitsDiag[0].distance < 1.0) {
+                subHit = true;
             }
 
-            // ★ トリプル・レイキャスト判定ロジック
+            // ★ 判定ロジック
             if (mainHit) {
                 // 主レイが遮られた＝プレイヤーが隠れている -> 接近(ズームイン)
                 window.cameraSliderValue -= 1.5 * delta; 
-            } else if (subHit || backHit) {
-                // 主レイは通るが、上に屋根がある、またはすぐ後ろに壁がある
-                // ★ これ以上後退するとぶつかるので、ここでピタッと停止する（現状維持）
+            } else if (subHit) {
+                // 主レイは通るが、いずれかの副レイが遮られた＝屋根、背後、斜め後ろに壁がある
+                // これ以上後退するとぶつかるので、ここでピタッと停止する（現状維持）
             } else {
                 // どれも遮られていない -> 安全に後退（デフォルト0.5に戻る）
                 let returnSpeed = 0.2 * delta; 
