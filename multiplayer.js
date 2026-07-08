@@ -1,7 +1,6 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★旧変数の参照を修正し、全員「観戦中」になるバグを解消
 // =========================================================
 
 window.MultiplayerManager = {
@@ -39,11 +38,48 @@ window.MultiplayerManager = {
 
         const memberWindow = document.createElement('div');
         memberWindow.id = 'member-window';
+        
+        // ★変更: ルームIDとコピーボタンの表示エリアを追加
         memberWindow.innerHTML = `
+            <div id="member-room-info" style="padding: 10px 15px 0 15px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: bold; color: #00ffff; font-family: sans-serif;">
+                <span>ルームID: <span id="member-room-id-text">----</span></span>
+                <button id="member-room-id-copy" style="background: #4CAF50; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">コピー</button>
+            </div>
             <div class="member-header"><span>ルームメンバー</span><button class="member-close-btn" id="member-close-btn">❌</button></div>
             <div class="member-list" id="member-list-content"></div>
         `;
         uiLayer.appendChild(memberWindow);
+
+        // ★追加: コピーボタンの処理
+        const copyBtn = memberWindow.querySelector('#member-room-id-copy');
+        copyBtn.addEventListener('click', () => {
+            const roomId = window.GameState ? window.GameState.currentRoomId : '';
+            if (!roomId || window.GameState.isLocalMode) return;
+
+            // iFrame環境でも安全にコピーできるようtextareaを生成して実行
+            const textArea = document.createElement("textarea");
+            textArea.value = roomId;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                document.execCommand('copy');
+                copyBtn.innerText = "コピー完了!";
+                copyBtn.style.background = "#ffaa00";
+                copyBtn.style.color = "#000";
+                setTimeout(() => {
+                    copyBtn.innerText = "コピー";
+                    copyBtn.style.background = "#4CAF50";
+                    copyBtn.style.color = "white";
+                }, 2000);
+            } catch (err) {
+                console.error("コピー失敗", err);
+            }
+            document.body.removeChild(textArea);
+        });
 
         window.updateMemberList = function() {
             const listEl = document.getElementById('member-list-content');
@@ -161,6 +197,16 @@ window.MultiplayerManager = {
         let lastScoreRequestTime = 0;
 
         memberBtn.addEventListener('click', () => { 
+            // ★追加: メンバーリストを開くたびにルームID表示を更新
+            const roomInfoArea = document.getElementById('member-room-info');
+            const roomIdText = document.getElementById('member-room-id-text');
+            if (window.GameState && window.GameState.currentRoomId && !window.GameState.isLocalMode) {
+                roomIdText.innerText = window.GameState.currentRoomId;
+                roomInfoArea.style.display = 'flex';
+            } else {
+                roomInfoArea.style.display = 'none'; // ローカルモード時は非表示
+            }
+            
             window.updateMemberList(); 
             memberWindow.style.display = 'flex'; 
 

@@ -5,8 +5,8 @@
 
 document.addEventListener('DOMContentLoaded', async () => {
 
-    // ゲーム全体で共有する状態
-    const State = { isLocalMode: false, userInfo: null, currentRoomId: null, roomUsers: [] };
+    // ★変更: isHost（ルーム作成者かどうか）のフラグを追加
+    const State = { isLocalMode: false, userInfo: null, currentRoomId: null, roomUsers: [], isHost: false };
     window.GameState = State;
 
     const screens = { 
@@ -31,11 +31,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // ネットワークエラーで止まらないように、3秒で強制的にタイムアウトさせる
         const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('TIMEOUT'), 3000));
         
         try {
-            // SDKからの情報取得とタイムアウトを競争させる
             const result = await Promise.race([ window.AgentSDK.user.getMyUserInfo(), timeoutPromise ]);
             
             if (result === 'TIMEOUT') {
@@ -43,22 +41,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 fallbackToLocalMode("通信タイムアウトしました。");
                 
             } else if (result && result.errno === 0) {
-                // 成功
                 State.userInfo = result.data;
                 console.log("SDK User Info:", State.userInfo);
                 
-                // 既存のルームID(招待URLなど)で入ってきたかチェック
                 try {
                     const roomRes = await window.AgentSDK.room.getRoomId();
                     if (roomRes && roomRes.room_id) {
                         await joinExistingRoom(roomRes.room_id);
-                        return; // 参加成功したらロビーを出さずにそのままゲーム開始へ
+                        return; 
                     }
                 } catch(e) {
                     console.log("既存のルームIDなし");
                 }
                 
-                // 正常に初期化できたらロビー画面へ
                 showScreen('room');
                 refreshRoomList();
                 
@@ -73,14 +68,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // =========================================
-    // 2. ローカルフォールバック (SDKエラー時の救済措置)
+    // 2. ローカルフォールバック
     // =========================================
     function fallbackToLocalMode(reasonMsg) {
         State.isLocalMode = true;
         const dummyUserId = Math.floor(Math.random() * 10000);
         State.userInfo = { name: 'Guest_' + dummyUserId, user_id: dummyUserId, portrait: '' };
         
-        // エラー後も後続のコードが落ちないように「ダミーのSDK通信」をセットする
         window.AgentSDK = window.AgentSDK || {};
         window.AgentSDK.room = {
             create: async () => ({ errno: 0, data: { room_id: 'local_room_' + dummyUserId } }),
@@ -97,9 +91,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         setTimeout(() => {
             showScreen('room');
             if (roomListContainer) roomListContainer.innerHTML = '<div class="empty-text">ローカルモードのため一覧は表示されません。</div>';
-        }, 800); // メッセージを読ませるために少し待つ
+        }, 800); 
     }
-
 
     // =========================================
     // 3. UIのボタンイベントとルーム操作
@@ -119,19 +112,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         prepareGameRun('local_mode', [State.userInfo]);
     });
 
+    const btnJoinById = document.getElementById('btn-join-by-id');
+    if (btnJoinById) {
+        btnJoinById.addEventListener('click', async function() {
+            const inputId = document.getElementById('input-room-id').value.trim();
+            if (!inputId) {
+                alert("ルームIDを入力してください。");
+                return;
+            }
+            
+            const originalText = this.innerText;
+            this.innerText = "入室中...";
+            this.disabled = true;
+
+            try {
+                const res = await window.AgentSDK.room.join({ room_id: inputId });
+                if (res && res.errno === 0) {
+                    prepareGameRun(inputId, res.data.user_list);
+                } else {
+                    alert("入室できませんでした。IDが間違っているか、満室です。");
+                    this.innerText = originalText;
+                    this.disabled = false;
+                }
+            } catch(e) {
+                console.error("Join Private Room Error:", e);
+                alert("通信エラーが発生しました。");
+                this.innerText = originalText;
+                this.disabled = false;
+            }
+        });
+    }
+
     async function handleCreateRoom(permission, btnElement) {
         if(btnCreatePub) btnCreatePub.disabled = true; 
         if(btnCreatePriv) btnCreatePriv.disabled = true;
         const originalText = btnElement.innerHTML;
         btnElement.innerHTML = "作成中...";
         
-        let maxPlayers = parseInt(document.getElementById('input-max-players').value);
-        if (isNaN(maxPlayers) || maxPlayers < 1) maxPlayers = 1;
-        if (maxPlayers > 10) maxPlayers = 10; // 10人を上限とする
+        const maxPlayers = 10;
 
         try {
             const res = await window.AgentSDK.room.create({ max_players: maxPlayers, room_permission: permission });
             if (res && res.errno === 0) {
+                // ★追加: ルームを作成した場合は isHost フラグを立てる
+                State.isHost = true;
                 prepareGameRun(res.data.room_id, [State.userInfo]);
             } else {
                 alert("ルーム作成に失敗しました: " + (res.errmsg || ''));
@@ -212,14 +236,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         State.currentRoomId = roomId; 
         State.roomUsers = userList || [State.userInfo];
         
-        // SDK側の受信イベントをゲームメイン側へ中継する仕組み
         window.AgentSDK.room.receiveMessage((payload) => {
             if (typeof window.onMultiplayerMessage === 'function') {
                 window.onMultiplayerMessage(payload);
             }
         });
         
-        // ゲームメイン側からメッセージを送るための関数
         window.sendMultiplayerMessage = async function(msgData) {
             if (State.isLocalMode || !State.currentRoomId) return;
             try {
@@ -229,11 +251,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         };
         
-        // マッチングUIを非表示にして画面を空ける
         const startupUI = document.getElementById('startup-ui');
         if (startupUI) startupUI.style.display = 'none';
         
-        // loader.js を動的に読み込む（ここから Three.js のゲーム本編がスタート）
         const script = document.createElement('script');
         script.src = "https://namnam2727.github.io/Fall_Gra/loader.js?v=" + new Date().getTime();
         document.body.appendChild(script);

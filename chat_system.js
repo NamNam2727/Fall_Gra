@@ -142,7 +142,6 @@ window.initChatSystem = function() {
 
     let shortcuts = null;
     
-    // ★重要: データが壊れていた場合に備え、エラーを無視する(try-catch)安全処理を追加
     try {
         let savedData = localStorage.getItem('fallGraShortcuts');
         if (savedData) {
@@ -154,7 +153,6 @@ window.initChatSystem = function() {
         shortcuts = null;
     }
     
-    // 正常なデータがない場合はデフォルトに戻す
     if (!shortcuts || shortcuts.length === 0) {
         shortcuts = [
             "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！"
@@ -219,4 +217,12 @@ window.initChatSystem = function() {
     }
 
     renderShortcuts();
+    
+    // ★追加: 自分がルーム作成者だった場合、ゲーム開始時に案内文をチャットに表示する
+    if (window.GameState && window.GameState.isHost && window.GameState.currentRoomId && !window.GameState.isLocalMode) {
+        setTimeout(() => {
+            const roomId = window.GameState.currentRoomId;
+            window.addLog(`<span style="color:#00ffff; font-size:13px; display:block; padding: 4px; border: 1px solid rgba(0,255,255,0.5); border-radius: 4px; background: rgba(0,255,255,0.1);">新規ルームを作成しました。<br>ルームIDは「${roomId}」です。<br>右側のメンバーリストからルームIDをコピーすることが可能です。</span>`, 'sys');
+        }, 2000); // UI構築などが落ち着いた2秒後に表示
+    }
 };

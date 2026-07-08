@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Voxel Action (Multiplayer)</title>
+    <title>Fall Gras</title>
     
     <!-- Gravity SDK の読み込み -->
     <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
@@ -32,10 +32,11 @@
         .room-panel { background: rgba(0,0,0,0.6); border: 1px solid #555; border-radius: 10px; padding: 20px; width: 90%; max-width: 400px; max-height: 90%; display: flex; flex-direction: column; position: relative; pointer-events: auto; }
         .room-header { font-size: 20px; font-weight: bold; margin-bottom: 15px; text-align: center; border-bottom: 1px solid #444; padding-bottom: 10px;}
         
-        /* 人数入力エリア */
-        .input-group { margin-bottom: 15px; display: flex; align-items: center; justify-content: center; gap: 10px;}
-        .input-group label { font-size: 14px; color: #ccc; }
-        .input-group input { width: 60px; padding: 5px; border-radius: 5px; border: 1px solid #555; background: #222; color: white; text-align: center; font-size: 16px; outline: none; }
+        /* ルームID入室エリア */
+        .join-id-group { margin-bottom: 15px; display: flex; gap: 8px; }
+        .join-id-group input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #555; background: #222; color: white; font-size: 14px; outline: none; }
+        .join-id-group button { background: #4CAF50; color: white; border: none; padding: 10px 15px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap; }
+        .join-id-group button:active { transform: scale(0.95); }
 
         /* ルーム作成ボタン */
         .create-btn-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; width: 100%; }
@@ -72,9 +73,10 @@
         <div class="room-panel">
             <div class="room-header">マルチプレイ ロビー</div>
             
-            <div class="input-group">
-                <label for="input-max-players">最大人数 (1〜10人):</label>
-                <input type="number" id="input-max-players" min="1" max="10" value="10">
+            <!-- ★追加: ルームIDによる入室UI -->
+            <div class="join-id-group">
+                <input type="text" id="input-room-id" placeholder="ルームIDを入力">
+                <button id="btn-join-by-id">IDで入室</button>
             </div>
 
             <div class="create-btn-container">
@@ -95,8 +97,7 @@
     </div>
 </div>
 
-<!-- ★修正: js/ サブフォルダの指定を削除しました -->
-<script src="https://namnam2727.github.io/Fall_Gra/gravity_setup.js?v=2"></script>
+<script src="https://namnam2727.github.io/Fall_Gra/gravity_setup.js?v=3"></script>
 
 </body>
 </html>
