@@ -1,8 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★メンバーのミニゲーム参加状況（ステータス）を表示可能に修正
-// ★リストを開いた際にスコア情報を要求する処理を追加
+// ★旧変数の参照を修正し、全員「観戦中」になるバグを解消
 // =========================================================
 
 window.MultiplayerManager = {
@@ -94,39 +93,56 @@ window.MultiplayerManager = {
                 name.className = 'member-name';
                 name.innerText = user.user_name || user.name || "Player";
                 
-                // ★追加: ミニゲームの状態表示エリア
                 const statusEl = document.createElement('div');
                 statusEl.className = 'member-status';
                 statusEl.style.color = '#aaa';
                 
                 if (window.MinigameManager) {
                     const state = window.MinigameManager.state;
-                    const gameUsers = window.MinigameManager.gameUsers || {}; 
-                    const uData = gameUsers[user.user_id]; // Manager側で管理する最新データ
+                    const uidStr = String(user.user_id);
                     
                     if (state === 'PROPOSING') {
-                        if (uData) {
-                            if (uData.myVote === true) {
-                                statusEl.innerText = '参加';
-                                statusEl.style.color = '#00ff00';
-                            } else if (uData.myVote === false) {
-                                statusEl.innerText = '不参加';
-                                statusEl.style.color = '#ff4444';
-                            } else {
-                                statusEl.innerText = '考え中...';
-                                statusEl.style.color = '#ffcc00';
+                        let vote = null;
+                        if (window.MinigameManager.currentProposal && window.MinigameManager.currentProposal.votes) {
+                            if (window.MinigameManager.currentProposal.votes[uidStr] !== undefined) {
+                                vote = window.MinigameManager.currentProposal.votes[uidStr];
                             }
-                        } else {
-                            statusEl.innerText = '未回答';
                         }
-                    } else if (state === 'PLAYING') {
-                        if (uData && uData.myVote === true) {
-                            if (uData.isRetired) {
+                        if (uidStr === 'local' && vote === null && window.MinigameManager.myVote !== null) {
+                            vote = window.MinigameManager.myVote;
+                        }
+
+                        if (vote === true) {
+                            statusEl.innerText = '参加';
+                            statusEl.style.color = '#00ff00';
+                        } else if (vote === false) {
+                            statusEl.innerText = '不参加';
+                            statusEl.style.color = '#ff4444';
+                        } else {
+                            statusEl.innerText = '考え中...';
+                            statusEl.style.color = '#ffcc00';
+                        }
+                    } else if (state === 'PLAYING' || state === 'RESULT') {
+                        let isParticipating = false;
+                        let isRetired = false;
+                        let currentScoreText = "スコア取得中...";
+                        
+                        if (window.MinigameManager.resultData) {
+                            const rd = window.MinigameManager.resultData.find(d => String(d.id) === uidStr);
+                            if (rd) {
+                                isParticipating = true;
+                                isRetired = rd.isRetired;
+                                if (rd.currentScoreText) currentScoreText = rd.currentScoreText;
+                            }
+                        }
+
+                        if (isParticipating) {
+                            if (isRetired) {
                                 statusEl.innerText = 'リタイア';
                                 statusEl.style.color = '#ff4444';
                             } else {
-                                statusEl.id = 'member-score-' + user.user_id; // 後からスコアを差し込むためのID
-                                statusEl.innerText = 'スコア取得中...';
+                                statusEl.id = 'member-score-' + uidStr; 
+                                statusEl.innerText = currentScoreText;
                                 statusEl.style.color = '#00ffff';
                             }
                         } else {
@@ -148,14 +164,12 @@ window.MultiplayerManager = {
             window.updateMemberList(); 
             memberWindow.style.display = 'flex'; 
 
-            // ★追加: リストを開いた時に、PLAYING中なら一回だけ全員にスコア(途中経過)を要求する
             if (window.MinigameManager && window.MinigameManager.state === 'PLAYING') {
                 const now = Date.now();
-                if (now - lastScoreRequestTime > 3000) { // 3秒のクールタイムで連続送信を防止
+                if (now - lastScoreRequestTime > 3000) { 
                     lastScoreRequestTime = now;
                     if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
                         window.MultiplayerManager.sendData({ type: 'mg_request_score' });
-                        // 自分のスコアも即座にリストに反映
                         if (typeof window.MinigameManager.replyMyScore === 'function') {
                             window.MinigameManager.replyMyScore(); 
                         }
@@ -261,7 +275,6 @@ window.MultiplayerManager = {
             }
             this.removePlayer(data);
             
-            // ★追加: ミニゲーム中であれば退出処理を伝える
             if (window.MinigameManager && typeof window.MinigameManager.handlePlayerExit === 'function') {
                 window.MinigameManager.handlePlayerExit(data.user_id);
             }
@@ -290,17 +303,15 @@ window.MultiplayerManager = {
                         this.sendData({ type: 'mg_spectator', isSpectator: true });
                     }
 
-                    // 途中入室者に対するステート同期は次回 manager 側で行います。
-                    // ここでの処理は残しておいても大丈夫です。
                     if (window.MinigameManager && window.MinigameManager.state !== 'IDLE' && window.MinigameManager.currentProposal) {
-                        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
-                        if (window.MinigameManager.currentProposal.proposerId === myId) {
+                        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+                        if (String(window.MinigameManager.currentProposal.proposerId) === myId) {
                             this.sendData({
                                 type: 'mg_sync_state',
                                 state: window.MinigameManager.state,
                                 targetStartTime: window.MinigameManager.targetStartTime,
                                 proposal: window.MinigameManager.currentProposal,
-                                gameUsers: window.MinigameManager.gameUsers // 次回導入するリスト
+                                votes: window.MinigameManager.currentProposal.votes
                             });
                         }
                     }
@@ -335,7 +346,7 @@ window.MultiplayerManager = {
     },
 
     addPlayer: function(user) {
-        if (window.GameState && window.GameState.userInfo && user.user_id === window.GameState.userInfo.user_id) return;
+        if (window.GameState && window.GameState.userInfo && String(user.user_id) === String(window.GameState.userInfo.user_id)) return;
         if (this.otherPlayers[user.user_id]) return; 
 
         const mesh = this.createPlayerMesh(user);

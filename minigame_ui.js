@@ -1,7 +1,7 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
-// ★ポップアップに閉じるボタンとタイマーを追加し、ボタンを動的生成可能に変更
+// ★通信エラー表示の追加と、ソート条件の対応
 // =====================================
 
 window.MinigameUI = {
@@ -39,13 +39,10 @@ window.MinigameUI = {
             #mg-detail-start-btn:active { transform: scale(0.98); background: #45a049; }
 
             #mg-proposal-popup { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 350px; background: rgba(30, 20, 20, 0.95); border: 4px solid #ff4444; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 2000; pointer-events: auto; padding: 20px; font-family: sans-serif; text-align: center; }
-            .mg-popup-header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-            .mg-popup-header { color: #ffaa00; font-size: 18px; font-weight: bold; }
-            .mg-popup-close-btn { background: none; border: none; color: white; font-size: 20px; cursor: pointer; padding: 0; outline: none; }
+            .mg-popup-header { color: #ffaa00; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
             #mg-popup-icon { width: 80px; height: 80px; margin: 0 auto 10px auto; border-radius: 12px; background-size: cover; background-position: center; border: 2px solid #fff; }
             #mg-popup-title { font-size: 20px; color: white; font-weight: bold; margin-bottom: 5px; }
-            #mg-popup-rules { font-size: 13px; color: #ccc; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 6px; margin-bottom: 5px; }
-            #mg-popup-timer { color: #ffaa00; font-size: 16px; font-weight: bold; margin-bottom: 15px; }
+            #mg-popup-rules { font-size: 13px; color: #ccc; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 6px; margin-bottom: 15px; }
             
             .mg-popup-btns { display: flex; gap: 10px; }
             .mg-popup-btn { flex: 1; padding: 12px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; }
@@ -72,7 +69,7 @@ window.MinigameUI = {
             .result-item.rank-2 { border-color: silver; }
             .result-item.rank-3 { border-color: #cd7f32; }
             .result-item.retired { opacity: 0.6; background: rgba(255, 0, 0, 0.1); border-color: #ff4444; }
-            .result-item.error { opacity: 0.6; background: rgba(100, 100, 100, 0.3); border-color: #888; }
+            .result-item.error { opacity: 0.6; background: rgba(100, 100, 100, 0.3); border-color: #888; } /* ★エラー用のCSS追加 */
             
             .result-rank { width: 30px; font-size: 18px; font-weight: bold; text-align: center; color: white; margin-right: 10px; }
             .result-icon { width: 40px; height: 40px; border-radius: 50%; background-color: #555; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); margin-right: 15px; flex-shrink: 0; }
@@ -117,14 +114,12 @@ window.MinigameUI = {
             if (window.MinigameManager) {
                 if (window.MinigameManager.state === 'PLAYING' || window.MinigameManager.state === 'COUNTDOWN') {
                     if (!window.isSpectatorMode) {
-                        window.MinigameManager.confirmRetire(); 
+                        if (typeof window.MinigameManager.confirmRetire === 'function') window.MinigameManager.confirmRetire(); 
                     }
                 } else if (window.MinigameManager.state === 'PROPOSING') {
-                    // ★ 申請中(PROPOSING)は、詳細(ポップアップ)を再度開く
-                    window.MinigameManager.showProposalPopup();
+                    if (typeof window.MinigameManager.showProposalPopup === 'function') window.MinigameManager.showProposalPopup();
                 } else {
-                    // IDLE時はリストを開く
-                    window.MinigameManager.openListView(); 
+                    if (typeof window.MinigameManager.openListView === 'function') window.MinigameManager.openListView(); 
                 }
             }
         };
@@ -163,28 +158,16 @@ window.MinigameUI = {
         `;
         uiLayer.appendChild(mgDetailWindow);
 
-        // ★修正: ポップアップに閉じるボタンと動的ボタンコンテナを追加
         const mgPopup = document.createElement('div');
         mgPopup.id = 'mg-proposal-popup';
         mgPopup.innerHTML = `
-            <div class="mg-popup-header-container">
-                <div class="mg-popup-header">🎮 ゲーム開始申請 🎮</div>
-                <button class="mg-popup-close-btn" id="mg-btn-close-popup">❌</button>
-            </div>
+            <div class="mg-popup-header">🎮 ゲーム開始申請 🎮</div>
             <div id="mg-popup-icon"></div>
             <div id="mg-popup-title">ゲームタイトル</div>
             <div id="mg-popup-rules">制限時間: 3分 | アイテム: 1個 | 開始: 現在地</div>
-            <div id="mg-popup-timer">残り受付時間: 60秒</div>
-            <div class="mg-popup-btns" id="mg-popup-btns-container">
-                <!-- JS側で動的にボタンを入れる -->
-            </div>
+            <div class="mg-popup-btns" id="mg-popup-btns-container"></div>
         `;
         uiLayer.appendChild(mgPopup);
-        
-        // 閉じるボタンの動作
-        document.getElementById('mg-btn-close-popup').onclick = () => {
-            mgPopup.style.display = 'none';
-        };
 
         const mgCountdown = document.createElement('div');
         mgCountdown.id = 'mg-countdown-overlay';
@@ -236,11 +219,10 @@ window.MinigameUI = {
         if (!win || !container) return;
         container.innerHTML = '';
 
+        // ★エラーを一番下に表示するためのソート条件
         dataArray.sort((a, b) => {
-            // 通信エラー（未受信）を一番下にする
             if (a.isError && !b.isError) return 1;
             if (!a.isError && b.isError) return -1;
-            // リタイアを下にする
             if (a.isRetired && !b.isRetired) return 1;
             if (!a.isRetired && b.isRetired) return -1;
             return a.rank - b.rank; 
@@ -250,6 +232,7 @@ window.MinigameUI = {
             const item = document.createElement('div');
             item.className = 'result-item';
             
+            // ★エラー時のCSSクラス付与
             if (data.isError) item.classList.add('error');
             else if (data.isRetired) item.classList.add('retired');
             else if (data.rank === 1) item.classList.add('rank-1');
@@ -278,14 +261,15 @@ window.MinigameUI = {
             scoreEl.className = 'result-score';
             scoreEl.innerText = data.scoreText || '';
             if (data.isRetired) scoreEl.style.color = '#ffaa00';
-            if (data.isError) scoreEl.style.color = '#888';
 
             const statusEl = document.createElement('div');
             statusEl.className = 'result-status';
             
+            // ★通信エラー時のテキストと色を設定
             if (data.isError) {
                 statusEl.innerText = '通信エラー';
                 statusEl.style.color = '#ff4444';
+                scoreEl.style.color = '#888';
             } else if (data.isRetired) {
                 statusEl.innerText = 'リタイア';
                 statusEl.style.color = '#ff4444';

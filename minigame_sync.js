@@ -1,8 +1,7 @@
 // =====================================
 // minigame_sync.js
 // ミニゲームの通信・同期管理（3分割の1/3）
-// ★全員のタイムスタンプから一番早い時刻を採用し、逆算して同期する仕様に復元
-// ★リザルト本スコアと、メンバーリスト用の現在スコアの処理を完全分離
+// ★スコアを受信した際に通信エラーフラグ(isError)を解除する処理を追加
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -39,7 +38,7 @@ Object.assign(window.MinigameManager, {
                 this.currentPlugin.handleNetwork(msg.data);
             }
         } else if (msg.type === 'mg_update_score') {
-            // ★ リザルト用の「本スコア」を受信
+            // リザルト用の「本スコア」を受信
             const data = this.resultData.find(d => String(d.id) === String(msg.userId));
             if (data) {
                 if (msg.isRetired && !data.isRetired && typeof window.addLog === 'function') {
@@ -49,8 +48,8 @@ Object.assign(window.MinigameManager, {
                 data.scoreText = msg.scoreText;
                 data.statusText = msg.statusText; 
                 data.isRetired = msg.isRetired;
+                data.isError = false; // ★追加：本スコアを受信したので通信エラーを解除する
 
-                // リザルト画面が開いていれば動的に上書き更新
                 if (this.state === 'RESULT' || (document.getElementById('mg-result-window') && document.getElementById('mg-result-window').style.display === 'flex')) {
                     if (window.MinigameUI && typeof window.MinigameUI.showResult === 'function') {
                         const gameName = document.getElementById('result-game-name') ? document.getElementById('result-game-name').innerText : "ミニゲーム";
@@ -61,14 +60,13 @@ Object.assign(window.MinigameManager, {
         } else if (msg.type === 'mg_request_score') {
             if (typeof this.replyMyScore === 'function') this.replyMyScore();
         } else if (msg.type === 'mg_reply_score') {
-            // ★ メンバーリスト用の「現在のスコア」を受信
+            // メンバーリスト用の「現在のスコア」を受信
             const data = this.resultData.find(d => String(d.id) === String(msg.userId));
             if (data) {
                 data.currentScoreText = msg.currentScoreText;
                 data.currentScoreValue = msg.currentScoreValue;
                 data.currentStatusText = msg.currentStatusText;
                 
-                // リタイアしていないユーザーのみ、現状のスコアを画面に反映
                 if (!data.isRetired) {
                     const statusEl = document.getElementById('member-score-' + msg.userId);
                     if (statusEl) {
@@ -142,7 +140,6 @@ Object.assign(window.MinigameManager, {
     receiveReady: function(timestamp) {
         if (this.state === 'IDLE' || this.state === 'RESULT') return; 
         
-        // ★ タイムスタンプが一番早い（過去の）ものを基準として採用
         if (timestamp < this.earliestReadyTime) {
             this.earliestReadyTime = timestamp;
             if (this.state === 'COUNTDOWN') {
@@ -152,7 +149,6 @@ Object.assign(window.MinigameManager, {
     },
 
     calcTargetTimes: function() {
-        // 一番早いタイムスタンプから10秒後をターゲット開始時間に設定
         this.targetStartTime = this.earliestReadyTime + 10000;
         
         if (this.currentProposal && this.currentProposal.settings && this.currentProposal.settings.time) {

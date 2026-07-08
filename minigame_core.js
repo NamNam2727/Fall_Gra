@@ -1,8 +1,7 @@
 // =====================================
 // minigame_core.js
 // ミニゲーム本編のメインロジックとリザルト管理（3分割の3/3）
-// ★3秒以上のラグ検知とタイマーの強制修復処理
-// ★リタイア時のスコア送信と、通信エラー判定の厳密化
+// ★ラグ検知を「毎フレームの絶対時間とタイマーの差分比較」に変更
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -12,19 +11,25 @@ Object.assign(window.MinigameManager, {
     update: function(delta) {
         if (this.state !== 'PLAYING') return;
 
-        // ★ ラグ検知：deltaが3.0秒以上あったら強制同期
-        if (delta >= 3.0 && this.targetEndTime > 0) {
+        // ★ ラグ検知：毎フレーム、絶対時間(Date.now)と終了時刻から正しい残り時間を算出
+        if (this.targetEndTime > 0) {
             const actualRemainSec = (this.targetEndTime - Date.now()) / 1000;
             
+            // 時間切れならゲーム終了
             if (actualRemainSec <= 0) {
                 if (this.currentPlugin && typeof this.currentPlugin.isPlaying !== 'undefined') {
                     this.currentPlugin.isPlaying = false;
                 }
                 if (typeof this.endGame === 'function') this.endGame();
                 return;
-            } else {
-                if (this.currentPlugin && typeof this.currentPlugin.remainTime !== 'undefined') {
+            }
+
+            // プラグインの管理するタイマーと実際の時間にズレ（1.0秒以上）があれば強制修復
+            if (this.currentPlugin && typeof this.currentPlugin.remainTime !== 'undefined') {
+                const diff = Math.abs(this.currentPlugin.remainTime - actualRemainSec);
+                if (diff > 1.0) {
                     this.currentPlugin.remainTime = actualRemainSec;
+                    // （頻繁なログ出力を防ぐため、1秒以上ずれた確実なラグの時のみ修正＆ログ出力）
                     if (typeof window.addLog === 'function') {
                         window.addLog('<span style="color:#ffaa00;">[システム] 通信ラグを検知したためタイマーを同期修復しました。</span>', 'sys');
                     }
@@ -60,7 +65,6 @@ Object.assign(window.MinigameManager, {
             this.currentPlugin.onRetire(myId);
         }
         
-        // ★ リタイアした瞬間にスコアを計算して確定（固定）させる
         const myData = this.resultData.find(d => String(d.id) === myId);
         if (myData) {
             myData.isRetired = true;
@@ -80,7 +84,6 @@ Object.assign(window.MinigameManager, {
                     cText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
                 }
             }
-            // リザルト用とメンバーリスト用の両方を書き込む
             myData.scoreValue = cVal;
             myData.scoreText = cText;
             myData.statusText = cStatus;
@@ -119,7 +122,6 @@ Object.assign(window.MinigameManager, {
 
         let cVal = 0, cText = "", cStatus = "";
 
-        // ★ リタイア済みなら固定されたスコアを返す。生存中なら現在値を計算する
         if (myData && myData.isRetired) {
             cVal = myData.scoreValue;
             cText = myData.scoreText;
@@ -307,8 +309,8 @@ Object.assign(window.MinigameManager, {
 
         this.currentPlugin = null;
 
-        // ★ 通信エラー対策：他人の本スコア(scoreValue)が null のままならエラー扱い
-        // （currentScoreTextはメンバーリスト用なのでリザルトには反映されない）
+        // ★ リザルトに本スコア(scoreValue)が届いていない場合はエラー扱いとする
+        // （UI側でエラー表示が適用される）
         this.resultData.forEach(d => {
             if (d.scoreValue === null && !d.isRetired) {
                 d.isError = true;
