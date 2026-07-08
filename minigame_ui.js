@@ -1,7 +1,7 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
-// ★通信エラー表示の追加と、ソート条件の対応
+// ★ランキングのソート処理を「スコアの降順」に厳密化
 // =====================================
 
 window.MinigameUI = {
@@ -69,7 +69,7 @@ window.MinigameUI = {
             .result-item.rank-2 { border-color: silver; }
             .result-item.rank-3 { border-color: #cd7f32; }
             .result-item.retired { opacity: 0.6; background: rgba(255, 0, 0, 0.1); border-color: #ff4444; }
-            .result-item.error { opacity: 0.6; background: rgba(100, 100, 100, 0.3); border-color: #888; } /* ★エラー用のCSS追加 */
+            .result-item.error { opacity: 0.6; background: rgba(100, 100, 100, 0.3); border-color: #888; }
             
             .result-rank { width: 30px; font-size: 18px; font-weight: bold; text-align: center; color: white; margin-right: 10px; }
             .result-icon { width: 40px; height: 40px; border-radius: 50%; background-color: #555; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); margin-right: 15px; flex-shrink: 0; }
@@ -219,20 +219,22 @@ window.MinigameUI = {
         if (!win || !container) return;
         container.innerHTML = '';
 
-        // ★エラーを一番下に表示するためのソート条件
+        // ★ ランキングの厳密なソート: エラーとリタイアは下。それ以外はスコア(scoreValue)の降順。
         dataArray.sort((a, b) => {
             if (a.isError && !b.isError) return 1;
             if (!a.isError && b.isError) return -1;
             if (a.isRetired && !b.isRetired) return 1;
             if (!a.isRetired && b.isRetired) return -1;
-            return a.rank - b.rank; 
+            
+            // rankが存在すれば優先、なければscoreValueで降順ソート
+            if (a.rank !== b.rank && a.rank > 0 && b.rank > 0) return a.rank - b.rank;
+            return b.scoreValue - a.scoreValue; 
         });
 
         dataArray.forEach(data => {
             const item = document.createElement('div');
             item.className = 'result-item';
             
-            // ★エラー時のCSSクラス付与
             if (data.isError) item.classList.add('error');
             else if (data.isRetired) item.classList.add('retired');
             else if (data.rank === 1) item.classList.add('rank-1');
@@ -265,7 +267,6 @@ window.MinigameUI = {
             const statusEl = document.createElement('div');
             statusEl.className = 'result-status';
             
-            // ★通信エラー時のテキストと色を設定
             if (data.isError) {
                 statusEl.innerText = '通信エラー';
                 statusEl.style.color = '#ff4444';

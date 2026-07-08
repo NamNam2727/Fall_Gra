@@ -1,7 +1,7 @@
 // =====================================
 // minigame_core.js
 // ミニゲーム本編のメインロジックとリザルト管理（3分割の3/3）
-// ★ラグ検知を「毎フレームの絶対時間とタイマーの差分比較」に変更
+// ★プラグインに依存せず、マネージャー側で強制的にランキングを計算・ソートする機能を実装
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -29,10 +29,6 @@ Object.assign(window.MinigameManager, {
                 const diff = Math.abs(this.currentPlugin.remainTime - actualRemainSec);
                 if (diff > 1.0) {
                     this.currentPlugin.remainTime = actualRemainSec;
-                    // （頻繁なログ出力を防ぐため、1秒以上ずれた確実なラグの時のみ修正＆ログ出力）
-                    if (typeof window.addLog === 'function') {
-                        window.addLog('<span style="color:#ffaa00;">[システム] 通信ラグを検知したためタイマーを同期修復しました。</span>', 'sys');
-                    }
                 }
             }
         }
@@ -75,13 +71,14 @@ Object.assign(window.MinigameManager, {
                     cVal = typeof this.currentPlugin.myScore !== 'undefined' ? this.currentPlugin.myScore : 0;
                     cText = `${cVal}枚`;
                 } else if (this.currentProposal.gameId === 'bom_battle') {
-                    cVal = typeof this.currentPlugin.hp !== 'undefined' ? this.currentPlugin.hp : 0;
-                    cText = typeof this.currentPlugin.getHeartsString === 'function' ? this.currentPlugin.getHeartsString(cVal) : `${cVal} HP`;
+                    cVal = typeof this.currentPlugin.getScoreValue === 'function' ? this.currentPlugin.getScoreValue() : 0;
+                    cText = typeof this.currentPlugin.getHeartsString === 'function' ? this.currentPlugin.getHeartsString(this.currentPlugin.hp) : `${cVal} HP`;
                 } else if (this.currentProposal.gameId === 'survival') {
                     const survived = Math.floor((Date.now() - (this.currentPlugin.startTime || this.targetStartTime)) / 1000);
                     let m = Math.floor(survived / 60);
                     let s = Math.floor(survived % 60);
                     cText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                    cVal = survived;
                 }
             }
             myData.scoreValue = cVal;
@@ -131,8 +128,8 @@ Object.assign(window.MinigameManager, {
                 cVal = typeof this.currentPlugin.myScore !== 'undefined' ? this.currentPlugin.myScore : 0;
                 cText = `${cVal}枚`;
             } else if (this.currentProposal.gameId === 'bom_battle') {
-                cVal = typeof this.currentPlugin.hp !== 'undefined' ? this.currentPlugin.hp : 0;
-                cText = typeof this.currentPlugin.getHeartsString === 'function' ? this.currentPlugin.getHeartsString(cVal) : `${cVal} HP`;
+                cVal = typeof this.currentPlugin.getScoreValue === 'function' ? this.currentPlugin.getScoreValue() : 0;
+                cText = typeof this.currentPlugin.getHeartsString === 'function' ? this.currentPlugin.getHeartsString(this.currentPlugin.hp) : `${cVal} HP`;
             } else if (this.currentProposal.gameId === 'survival') {
                 const survived = Math.floor((Date.now() - (this.currentPlugin.startTime || this.targetStartTime)) / 1000);
                 let m = Math.floor(survived / 60);
@@ -265,10 +262,6 @@ Object.assign(window.MinigameManager, {
         const timerUI = document.getElementById('mg-timer-ui');
         if (timerUI) timerUI.style.display = 'none';
 
-        if (this.currentPlugin && typeof this.currentPlugin.end === 'function') {
-            this.currentPlugin.end();
-        }
-
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         const myData = this.resultData.find(d => String(d.id) === myId);
         
@@ -281,13 +274,14 @@ Object.assign(window.MinigameManager, {
                         cText = `${cVal}枚`;
                         cStatus = "タイムアップ";
                     } else if (this.currentProposal.gameId === 'bom_battle') {
-                        cVal = typeof this.currentPlugin.hp !== 'undefined' ? this.currentPlugin.hp : 0;
-                        cText = typeof this.currentPlugin.getHeartsString === 'function' ? this.currentPlugin.getHeartsString(cVal) : `${cVal} HP`;
+                        cVal = typeof this.currentPlugin.getScoreValue === 'function' ? this.currentPlugin.getScoreValue() : 0;
+                        cText = typeof this.currentPlugin.getHeartsString === 'function' ? this.currentPlugin.getHeartsString(this.currentPlugin.hp) : `${cVal} HP`;
                     } else if (this.currentProposal.gameId === 'survival') {
                         const survived = Math.floor((Date.now() - (this.currentPlugin.startTime || this.targetStartTime)) / 1000);
                         let m = Math.floor(survived / 60);
                         let s = Math.floor(survived % 60);
                         cText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                        cVal = survived;
                     }
                 }
                 myData.scoreValue = cVal;
@@ -307,16 +301,42 @@ Object.assign(window.MinigameManager, {
             }
         }
 
-        this.currentPlugin = null;
-
-        // ★ リザルトに本スコア(scoreValue)が届いていない場合はエラー扱いとする
-        // （UI側でエラー表示が適用される）
+        // 未受信スコアのエラー扱い
         this.resultData.forEach(d => {
             if (d.scoreValue === null && !d.isRetired) {
                 d.isError = true;
+                d.scoreValue = -99999; // ソート時にエラーが下に行くようにする保険
             }
         });
 
+        // 各自のスコアが入った状態でプラグイン側を終了させる
+        if (this.currentPlugin && typeof this.currentPlugin.end === 'function') {
+            this.currentPlugin.end();
+        }
+        this.currentPlugin = null;
+
+        // ★マネージャー側での共通ソートとランク強制上書き
+        // エラーは下、リタイアはその次、残りは scoreValue の降順。リタイア同士でも scoreValue の降順。
+        this.resultData.sort((a, b) => {
+            if (a.isError && !b.isError) return 1;
+            if (!a.isError && b.isError) return -1;
+            
+            if (a.isRetired && !b.isRetired) return 1;
+            if (!a.isRetired && b.isRetired) return -1;
+            
+            return b.scoreValue - a.scoreValue; 
+        });
+
+        // ランク割り当て (同スコアなら同順位)
+        let currentRank = 1;
+        for (let i = 0; i < this.resultData.length; i++) {
+            if (i > 0 && this.resultData[i].scoreValue < this.resultData[i-1].scoreValue) {
+                currentRank = i + 1;
+            }
+            this.resultData[i].rank = currentRank;
+        }
+
+        // UIへ表示
         if (window.MinigameUI && typeof window.MinigameUI.showResult === 'function') {
             window.MinigameUI.showResult(this.currentProposal ? this.currentProposal.title : "ミニゲーム", this.resultData);
         }
