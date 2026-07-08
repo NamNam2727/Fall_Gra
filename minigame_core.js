@@ -1,31 +1,33 @@
 // =====================================
 // minigame_core.js
 // ミニゲーム本編のメインロジックとリザルト管理（3分割の3/3）
-// ★ラグ検知、全滅判定（Spectator基準）、リタイア処理、リザルトの即時表示を担当
+// ★3秒以上のラグ検知とタイマーの強制修復処理
+// ★リタイア時のスコア送信と、通信エラー判定の厳密化
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
 
 Object.assign(window.MinigameManager, {
 
-    // ---------------------------------
-    // 🎮 ゲームプレイ中の更新とラグ検知
-    // ---------------------------------
     update: function(delta) {
         if (this.state !== 'PLAYING') return;
 
-        // ★ ラグ検知：バックグラウンド等で1秒以上止まっていたら残り時間を終了予定時刻から強制再計算
-        if (delta > 1.0 && this.targetEndTime > 0) {
-            const remainSec = (this.targetEndTime - Date.now()) / 1000;
-            if (remainSec <= 0) {
+        // ★ ラグ検知：deltaが3.0秒以上あったら強制同期
+        if (delta >= 3.0 && this.targetEndTime > 0) {
+            const actualRemainSec = (this.targetEndTime - Date.now()) / 1000;
+            
+            if (actualRemainSec <= 0) {
                 if (this.currentPlugin && typeof this.currentPlugin.isPlaying !== 'undefined') {
                     this.currentPlugin.isPlaying = false;
                 }
-                this.endGame();
+                if (typeof this.endGame === 'function') this.endGame();
                 return;
             } else {
                 if (this.currentPlugin && typeof this.currentPlugin.remainTime !== 'undefined') {
-                    this.currentPlugin.remainTime = remainSec;
+                    this.currentPlugin.remainTime = actualRemainSec;
+                    if (typeof window.addLog === 'function') {
+                        window.addLog('<span style="color:#ffaa00;">[システム] 通信ラグを検知したためタイマーを同期修復しました。</span>', 'sys');
+                    }
                 }
             }
         }
@@ -35,9 +37,6 @@ Object.assign(window.MinigameManager, {
         }
     },
 
-    // ---------------------------------
-    // リタイア処理とスコアの固定
-    // ---------------------------------
     confirmRetire: function() {
         const popup = document.getElementById('mg-retire-popup');
         if (popup) {
@@ -55,15 +54,14 @@ Object.assign(window.MinigameManager, {
     executeRetire: function() {
         if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">リタイアしました。観戦モードに移行します。</span>', 'sys');
         
-        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
+        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         
-        // プラグイン側のリタイア処理を実行
         if (this.currentPlugin && typeof this.currentPlugin.onRetire === 'function') {
             this.currentPlugin.onRetire(myId);
         }
         
-        // ★ リタイア時のスコアを計算・確定させて固定する
-        const myData = this.resultData.find(d => d.id === myId);
+        // ★ リタイアした瞬間にスコアを計算して確定（固定）させる
+        const myData = this.resultData.find(d => String(d.id) === myId);
         if (myData) {
             myData.isRetired = true;
             let cVal = 0, cText = "", cStatus = "";
@@ -82,11 +80,13 @@ Object.assign(window.MinigameManager, {
                     cText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
                 }
             }
+            // リザルト用とメンバーリスト用の両方を書き込む
             myData.scoreValue = cVal;
             myData.scoreText = cText;
             myData.statusText = cStatus;
+            myData.currentScoreValue = cVal;
+            myData.currentScoreText = cText;
 
-            // 固定したスコアを他プレイヤーに送信
             if (window.MultiplayerManager) {
                 window.MultiplayerManager.sendData({ 
                     type: 'mg_update_score', 
@@ -99,7 +99,6 @@ Object.assign(window.MinigameManager, {
             }
         }
 
-        // アイテム装備のリセット
         if (window.ItemSystem) {
             window.ItemSystem.mySlotItem = null;
             window.ItemSystem.stackedCount = 0;
@@ -109,20 +108,18 @@ Object.assign(window.MinigameManager, {
             window.ItemSystem.updateSlotUI();
         }
 
-        this.enterSpectatorMode();
+        if (typeof this.enterSpectatorMode === 'function') this.enterSpectatorMode();
     },
 
-    // ---------------------------------
-    // スコアの途中経過送信（メンバーリスト用）
-    // ---------------------------------
     replyMyScore: function() {
         if (this.state !== 'PLAYING') return;
-        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
-        const myData = this.resultData.find(d => d.id === myId);
+        
+        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        const myData = this.resultData.find(d => String(d.id) === myId);
 
         let cVal = 0, cText = "", cStatus = "";
 
-        // ★ リタイア済みなら固定されたスコアを返す。生存中なら現在値を計算する。
+        // ★ リタイア済みなら固定されたスコアを返す。生存中なら現在値を計算する
         if (myData && myData.isRetired) {
             cVal = myData.scoreValue;
             cText = myData.scoreText;
@@ -147,8 +144,16 @@ Object.assign(window.MinigameManager, {
             window.MultiplayerManager.sendData({
                 type: 'mg_reply_score',
                 userId: myId,
-                currentScoreText: cText
+                currentScoreText: cText,
+                currentScoreValue: cVal,
+                currentStatusText: cStatus
             });
+        }
+        
+        if (myData) {
+            myData.currentScoreText = cText;
+            myData.currentScoreValue = cVal;
+            myData.currentStatusText = cStatus;
         }
         
         const statusEl = document.getElementById('member-score-' + myId);
@@ -158,9 +163,6 @@ Object.assign(window.MinigameManager, {
         }
     },
 
-    // ---------------------------------
-    // 観戦モードと終了判定
-    // ---------------------------------
     enterSpectatorMode: function() {
         if (!window.isSpectatorMode) {
             window.isSpectatorMode = true;
@@ -188,7 +190,7 @@ Object.assign(window.MinigameManager, {
             }
             if (typeof window.toggleSpectatorUI === 'function') window.toggleSpectatorUI(true);
 
-            this.checkAllSpectators();
+            if (typeof this.checkAllSpectators === 'function') this.checkAllSpectators();
         }
     },
 
@@ -221,7 +223,6 @@ Object.assign(window.MinigameManager, {
         }
     },
 
-    // ★ 初期仕様へ復元: 終了判定は「全員がSpectatorModeになったか」で行う
     checkAllSpectators: function() {
         if (this.state !== 'PLAYING') return;
 
@@ -241,23 +242,20 @@ Object.assign(window.MinigameManager, {
             if (typeof window.addLog === 'function') {
                 window.addLog('<span style="color:#ff3300;">生存者がいなくなりました。ゲームを終了します。</span>', 'sys');
             }
-            this.endGame();
+            if (typeof this.endGame === 'function') this.endGame();
         }
     },
 
     handlePlayerExit: function(userId) {
-        // 退出者をリタイア扱いにする
-        const data = this.resultData.find(d => d.id === userId);
+        const uidStr = String(userId);
+        const data = this.resultData.find(d => String(d.id) === uidStr);
         if (data) data.isRetired = true;
 
         if (this.state === 'PLAYING') {
-            this.checkAllSpectators();
+            if (typeof this.checkAllSpectators === 'function') this.checkAllSpectators();
         }
     },
 
-    // ---------------------------------
-    // 🏆 ゲーム終了とリザルト
-    // ---------------------------------
     endGame: function() {
         if (this.state === 'RESULT') return; 
         this.state = 'RESULT';
@@ -265,17 +263,14 @@ Object.assign(window.MinigameManager, {
         const timerUI = document.getElementById('mg-timer-ui');
         if (timerUI) timerUI.style.display = 'none';
 
-        // 先にプラグインを終了させ、リザルトに最終スコアを書き込ませる
         if (this.currentPlugin && typeof this.currentPlugin.end === 'function') {
             this.currentPlugin.end();
         }
 
-        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
-        const myData = this.resultData.find(d => d.id === myId);
+        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        const myData = this.resultData.find(d => String(d.id) === myId);
         
-        // ★ 自分が参加者でリタイアしていない場合、最終スコアを計算して確定送信する
         if (myData && !myData.isRetired) {
-            // プラグイン側が書き込んでいなかった場合のフォールバック計算
             if (myData.scoreValue === null) {
                 let cVal = 0, cText = "", cStatus = "生存クリア";
                 if (this.currentProposal) {
@@ -298,7 +293,6 @@ Object.assign(window.MinigameManager, {
                 myData.statusText = cStatus;
             }
 
-            // 自分の最終結果を必ず送信する（これが無いと他人は全員通信エラーになってしまう）
             if (window.MultiplayerManager) {
                 window.MultiplayerManager.sendData({ 
                     type: 'mg_update_score', 
@@ -313,14 +307,14 @@ Object.assign(window.MinigameManager, {
 
         this.currentPlugin = null;
 
-        // まだスコアを受信していない人は「通信エラー」扱いにしておく
+        // ★ 通信エラー対策：他人の本スコア(scoreValue)が null のままならエラー扱い
+        // （currentScoreTextはメンバーリスト用なのでリザルトには反映されない）
         this.resultData.forEach(d => {
             if (d.scoreValue === null && !d.isRetired) {
                 d.isError = true;
             }
         });
 
-        // ★ 待たずに即座にリザルトを表示する
         if (window.MinigameUI && typeof window.MinigameUI.showResult === 'function') {
             window.MinigameUI.showResult(this.currentProposal ? this.currentProposal.title : "ミニゲーム", this.resultData);
         }
@@ -335,7 +329,7 @@ Object.assign(window.MinigameManager, {
             mgBtn.innerText = 'ミニゲーム';
         }
 
-        this.exitSpectatorMode();
+        if (typeof this.exitSpectatorMode === 'function') this.exitSpectatorMode();
         
         if (window.ItemSystem) {
             window.ItemSystem.clearAllItems();
@@ -344,7 +338,6 @@ Object.assign(window.MinigameManager, {
             window.ItemSystem.isStackable = false; 
         }
         
-        // 5秒後にIDLEへ戻る
         setTimeout(() => {
             this.state = 'IDLE';
         }, 5000);
