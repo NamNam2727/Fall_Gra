@@ -1,8 +1,7 @@
 // =====================================
 // minigame_flow.js
 // ミニゲームの進行フローとUI遷移管理（3分割の2/3）
-// ★10のカウントダウンが消える不具合（二重ループによる上書き非表示）を修正
-// ★全員が「観戦中」になるバグを修正
+// ★通信を使わず、ローカルのMinigameListから説明文を取得して表示
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -208,6 +207,20 @@ Object.assign(window.MinigameManager, {
         if (!popup) return;
 
         document.getElementById('mg-popup-title').innerText = p.title;
+
+        // ★ 通信データには含めず、ローカルのリストから説明文を検索して表示
+        const descEl = document.getElementById('mg-popup-desc');
+        if (descEl) {
+            const listData = window.MinigameList ? window.MinigameList.find(g => g.id === p.gameId) : null;
+            if (listData && listData.description) {
+                descEl.innerText = listData.description;
+                descEl.style.display = 'block';
+            } else {
+                descEl.innerText = '';
+                descEl.style.display = 'none';
+            }
+        }
+
         document.getElementById('mg-popup-rules').innerText = `制限時間: ${p.settings.time}分 | アイテム: ${p.settings.items}個 | 開始: ${p.settings.pos === 'current' ? '現在地' : '初期地'}`;
         
         const btnContainer = document.getElementById('mg-popup-btns-container');
@@ -261,7 +274,6 @@ Object.assign(window.MinigameManager, {
 
         const updateTimer = () => {
             if (this.state !== 'PROPOSING') {
-                // ★修正: 状態が変わったら display = 'none' にする処理を削除し、COUNTDOWNと干渉しないようにした
                 return;
             }
 
@@ -332,7 +344,6 @@ Object.assign(window.MinigameManager, {
         
         const now = Date.now();
         
-        // 自分のタイムスタンプを含めて一番早い時刻をセット
         if (now < this.earliestReadyTime) {
             this.earliestReadyTime = now;
         }
@@ -428,7 +439,6 @@ Object.assign(window.MinigameManager, {
             let isParticipating = false;
             const uidStr = String(u.user_id);
             
-            // ★修正: Stringに統一して参加者を正確に抽出する
             if (this.currentProposal && this.currentProposal.votes && this.currentProposal.votes[uidStr] === true) {
                 isParticipating = true;
             }
@@ -441,14 +451,12 @@ Object.assign(window.MinigameManager, {
                     id: uidStr,
                     name: u.name,
                     icon: u.portrait,
-                    // リザルト(本スコア)用
                     scoreText: "", 
                     scoreValue: null, 
                     statusText: "", 
                     isRetired: false,
                     isError: false,
                     rank: 0,
-                    // ★追加: メンバーリスト(途中経過)用
                     currentScoreText: "計算中...",
                     currentScoreValue: 0,
                     currentStatusText: ""

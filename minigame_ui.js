@@ -1,7 +1,7 @@
 // =====================================
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
-// ★ランキングのソート処理を「スコアの降順」に厳密化
+// ★申請ポップアップに説明文(description)を表示する要素を追加
 // =====================================
 
 window.MinigameUI = {
@@ -42,6 +42,7 @@ window.MinigameUI = {
             .mg-popup-header { color: #ffaa00; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
             #mg-popup-icon { width: 80px; height: 80px; margin: 0 auto 10px auto; border-radius: 12px; background-size: cover; background-position: center; border: 2px solid #fff; }
             #mg-popup-title { font-size: 20px; color: white; font-weight: bold; margin-bottom: 5px; }
+            #mg-popup-desc { font-size: 12px; color: #aaa; margin-bottom: 10px; line-height: 1.4; word-break: break-all; }
             #mg-popup-rules { font-size: 13px; color: #ccc; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 6px; margin-bottom: 15px; }
             
             .mg-popup-btns { display: flex; gap: 10px; }
@@ -164,6 +165,7 @@ window.MinigameUI = {
             <div class="mg-popup-header">🎮 ゲーム開始申請 🎮</div>
             <div id="mg-popup-icon"></div>
             <div id="mg-popup-title">ゲームタイトル</div>
+            <div id="mg-popup-desc"></div>
             <div id="mg-popup-rules">制限時間: 3分 | アイテム: 1個 | 開始: 現在地</div>
             <div class="mg-popup-btns" id="mg-popup-btns-container"></div>
         `;
@@ -219,14 +221,12 @@ window.MinigameUI = {
         if (!win || !container) return;
         container.innerHTML = '';
 
-        // ★ ランキングの厳密なソート: エラーとリタイアは下。それ以外はスコア(scoreValue)の降順。
         dataArray.sort((a, b) => {
             if (a.isError && !b.isError) return 1;
             if (!a.isError && b.isError) return -1;
             if (a.isRetired && !b.isRetired) return 1;
             if (!a.isRetired && b.isRetired) return -1;
             
-            // rankが存在すれば優先、なければscoreValueで降順ソート
             if (a.rank !== b.rank && a.rank > 0 && b.rank > 0) return a.rank - b.rank;
             return b.scoreValue - a.scoreValue; 
         });
