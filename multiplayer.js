@@ -1,7 +1,8 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★メンバーリストを現在の実際の通信データ(otherPlayers)から動的に構築するよう修正
+// ★メンバーのミニゲーム参加状況（ステータス）を表示可能に修正
+// ★リストを開いた際にスコア情報を要求する処理を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -21,8 +22,9 @@ window.MultiplayerManager = {
             .member-close-btn { background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 5px; }
             .member-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
             .member-item { display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; }
-            .member-icon { width: 40px; height: 40px; border-radius: 50%; background: #ccc; margin-right: 15px; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); display: flex; justify-content: center; align-items: center; font-size: 20px; }
-            .member-name { color: white; font-size: 14px; font-weight: bold; font-family: sans-serif; }
+            .member-icon { width: 40px; height: 40px; border-radius: 50%; background: #ccc; margin-right: 15px; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.5); display: flex; justify-content: center; align-items: center; font-size: 20px; flex-shrink: 0; }
+            .member-name { color: white; font-size: 14px; font-weight: bold; font-family: sans-serif; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .member-status { font-size: 12px; font-weight: bold; padding-left: 10px; white-space: nowrap; text-align: right; }
         `;
         document.head.appendChild(style);
 
@@ -51,21 +53,23 @@ window.MultiplayerManager = {
 
             let allUsers = [];
             
-            // ★修正: 1. まず自分自身を追加
+            const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
+
             if (window.GameState && window.GameState.userInfo) {
                 allUsers.push({
+                    user_id: window.GameState.userInfo.user_id,
                     user_name: window.GameState.userInfo.user_name || window.GameState.userInfo.name || "Player",
                     portrait: window.GameState.userInfo.portrait || window.GameState.userInfo.portait || ""
                 });
             } else {
-                allUsers.push({ user_name: "テストプレイヤー (あなた)", portrait: "" });
+                allUsers.push({ user_id: 'local', user_name: "テストプレイヤー (あなた)", portrait: "" });
             }
 
-            // ★修正: 2. リアルタイムに通信している他プレイヤー情報をリストに追加
             if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
                 for (let id in window.MultiplayerManager.otherPlayers) {
                     let op = window.MultiplayerManager.otherPlayers[id];
                     allUsers.push({
+                        user_id: id,
                         user_name: op.name || "Player",
                         portrait: op.icon || ""
                     });
@@ -90,13 +94,76 @@ window.MultiplayerManager = {
                 name.className = 'member-name';
                 name.innerText = user.user_name || user.name || "Player";
                 
+                // ★追加: ミニゲームの状態表示エリア
+                const statusEl = document.createElement('div');
+                statusEl.className = 'member-status';
+                statusEl.style.color = '#aaa';
+                
+                if (window.MinigameManager) {
+                    const state = window.MinigameManager.state;
+                    const gameUsers = window.MinigameManager.gameUsers || {}; 
+                    const uData = gameUsers[user.user_id]; // Manager側で管理する最新データ
+                    
+                    if (state === 'PROPOSING') {
+                        if (uData) {
+                            if (uData.myVote === true) {
+                                statusEl.innerText = '参加';
+                                statusEl.style.color = '#00ff00';
+                            } else if (uData.myVote === false) {
+                                statusEl.innerText = '不参加';
+                                statusEl.style.color = '#ff4444';
+                            } else {
+                                statusEl.innerText = '考え中...';
+                                statusEl.style.color = '#ffcc00';
+                            }
+                        } else {
+                            statusEl.innerText = '未回答';
+                        }
+                    } else if (state === 'PLAYING') {
+                        if (uData && uData.myVote === true) {
+                            if (uData.isRetired) {
+                                statusEl.innerText = 'リタイア';
+                                statusEl.style.color = '#ff4444';
+                            } else {
+                                statusEl.id = 'member-score-' + user.user_id; // 後からスコアを差し込むためのID
+                                statusEl.innerText = 'スコア取得中...';
+                                statusEl.style.color = '#00ffff';
+                            }
+                        } else {
+                            statusEl.innerText = '観戦中';
+                        }
+                    }
+                }
+
                 item.appendChild(icon);
                 item.appendChild(name);
+                item.appendChild(statusEl);
                 listEl.appendChild(item);
             });
         };
 
-        memberBtn.addEventListener('click', () => { window.updateMemberList(); memberWindow.style.display = 'flex'; });
+        let lastScoreRequestTime = 0;
+
+        memberBtn.addEventListener('click', () => { 
+            window.updateMemberList(); 
+            memberWindow.style.display = 'flex'; 
+
+            // ★追加: リストを開いた時に、PLAYING中なら一回だけ全員にスコア(途中経過)を要求する
+            if (window.MinigameManager && window.MinigameManager.state === 'PLAYING') {
+                const now = Date.now();
+                if (now - lastScoreRequestTime > 3000) { // 3秒のクールタイムで連続送信を防止
+                    lastScoreRequestTime = now;
+                    if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
+                        window.MultiplayerManager.sendData({ type: 'mg_request_score' });
+                        // 自分のスコアも即座にリストに反映
+                        if (typeof window.MinigameManager.replyMyScore === 'function') {
+                            window.MinigameManager.replyMyScore(); 
+                        }
+                    }
+                }
+            }
+        });
+
         memberBtn.addEventListener('mousedown', preventTouch);
         memberBtn.addEventListener('touchstart', preventTouch, {passive: false});
 
@@ -117,7 +184,7 @@ window.MultiplayerManager = {
     
     forceSendPos: function() {
         if (typeof player === 'undefined' || !player) return;
-        if (window.isSpectatorMode) return; // 観戦モード中は送信しない
+        if (window.isSpectatorMode) return; 
         
         const nowTime = Date.now();
         player.lastMoveTime = nowTime;
@@ -157,7 +224,6 @@ window.MultiplayerManager = {
 
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
-            // hasReceivedFirstPos が false の間（初回ワープ前）は lerp による移動を無効化する
             if (p.mesh && p.targetPos && p.hasReceivedFirstPos !== false) {
                 p.mesh.position.lerp(p.targetPos, 15 * delta);
                 if (p.targetQuat) {
@@ -195,6 +261,11 @@ window.MultiplayerManager = {
             }
             this.removePlayer(data);
             
+            // ★追加: ミニゲーム中であれば退出処理を伝える
+            if (window.MinigameManager && typeof window.MinigameManager.handlePlayerExit === 'function') {
+                window.MinigameManager.handlePlayerExit(data.user_id);
+            }
+            
         } else if (type === 'aitools_game_sendmsg') {
             try {
                 const msgData = JSON.parse(data.msg_data);
@@ -219,6 +290,8 @@ window.MultiplayerManager = {
                         this.sendData({ type: 'mg_spectator', isSpectator: true });
                     }
 
+                    // 途中入室者に対するステート同期は次回 manager 側で行います。
+                    // ここでの処理は残しておいても大丈夫です。
                     if (window.MinigameManager && window.MinigameManager.state !== 'IDLE' && window.MinigameManager.currentProposal) {
                         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'host_123';
                         if (window.MinigameManager.currentProposal.proposerId === myId) {
@@ -226,7 +299,8 @@ window.MultiplayerManager = {
                                 type: 'mg_sync_state',
                                 state: window.MinigameManager.state,
                                 targetStartTime: window.MinigameManager.targetStartTime,
-                                proposal: window.MinigameManager.currentProposal
+                                proposal: window.MinigameManager.currentProposal,
+                                gameUsers: window.MinigameManager.gameUsers // 次回導入するリスト
                             });
                         }
                     }
@@ -267,7 +341,6 @@ window.MultiplayerManager = {
         const mesh = this.createPlayerMesh(user);
         scene.add(mesh);
 
-        // ミニゲームのリザルト等で使うため、名前とアイコンをここで保持しておく
         this.otherPlayers[user.user_id] = {
             id: user.user_id,
             name: user.user_name || user.name || "Player",
@@ -276,7 +349,7 @@ window.MultiplayerManager = {
             targetPos: new THREE.Vector3(0, 20, 0),
             targetQuat: new THREE.Quaternion(),
             lastMoveTime: 0,
-            hasReceivedFirstPos: false, // 初回の位置ワープ用フラグ
+            hasReceivedFirstPos: false, 
             isSpectator: false
         };
     },
@@ -298,7 +371,6 @@ window.MultiplayerManager = {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
                 
-                // 初回の位置データを受信した時だけ即座にワープ
                 if (!p.hasReceivedFirstPos) {
                     p.mesh.position.copy(p.targetPos);
                     if (data.qw !== undefined) p.mesh.quaternion.copy(p.targetQuat);
