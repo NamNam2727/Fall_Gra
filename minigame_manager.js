@@ -1,15 +1,15 @@
 // =====================================
 // minigame_manager.js
 // ミニゲームの進行、リタイア機能、多数決管理
-// ★PROPOSING(60秒待機)とCOUNTDOWN(10秒同期)の2段階フェーズへ完全移行
-// ★バックグラウンド移行時の大きなラグ(delta)を検知し、終了予定時間から再計算する機能を追加
-// ★未回答者、途中入室者、通信エラー(スコア未着)の処理を完璧に整備
+// ★カウントダウンのタイムスタンプ同期を「一番早い時刻優先」で堅牢化
+// ★ゲーム終了判定とリザルト(resultData)の管理を初期の安定仕様に復元
+// ★終了時の最終スコア送信を徹底し、全員が通信エラーになるバグを解消
 // =====================================
 
 window.MinigameManager = {
     state: 'IDLE', // IDLE, PROPOSING, COUNTDOWN, PLAYING, RESULT
     currentProposal: null,
-    gameUsers: {}, // ルーム内の全プレイヤーの状態と参加意志を管理
+    gameUsers: {}, 
     
     proposeEndTime: 0,
     targetStartTime: 0, 
@@ -119,17 +119,14 @@ window.MinigameManager = {
         return activeBtn ? activeBtn.dataset.val : null;
     },
 
-    // 参加者リストの初期化
     initGameUsers: function() {
         this.gameUsers = {};
         
         const addToUsers = (id, name, icon) => {
             this.gameUsers[id] = {
                 id: id, name: name, icon: icon,
-                myVote: null, // null(未回答), true(参加), false(不参加)
-                isRetired: false,
-                scoreValue: null, scoreText: "", statusText: "", isError: false,
-                currentScoreValue: 0, currentScoreText: "", currentStatusText: "" // 途中経過用
+                myVote: null, 
+                currentScoreValue: 0, currentScoreText: "", currentStatusText: ""
             };
         };
 
@@ -146,7 +143,6 @@ window.MinigameManager = {
         }
     },
 
-    // ゲーム申請（ホスト役）
     proposeGame: function(game) {
         const time = this.getToggleValue('mg-toggle-time');
         const items = this.getToggleValue('mg-toggle-item');
@@ -166,13 +162,13 @@ window.MinigameManager = {
 
         this.state = 'PROPOSING';
         this.initGameUsers();
-        this.gameUsers[myId].myVote = true; // 申請者は強制参加
+        this.gameUsers[myId].myVote = true; 
 
-        this.proposeEndTime = timestamp + 60000; // 60秒後
+        this.proposeEndTime = timestamp + 60000; 
+        this.earliestReadyTime = Infinity;
         
         const totalUsers = Object.keys(this.gameUsers).length;
 
-        // UIボタンの変更
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
             mgBtn.innerText = 'ゲーム詳細';
@@ -194,7 +190,6 @@ window.MinigameManager = {
         }
     },
 
-    // ネットワークメッセージのハンドリング
     handleNetworkMessage: function(msg) {
         if (msg.type === 'mg_propose') {
             this.receiveProposal(msg.proposal);
@@ -214,8 +209,8 @@ window.MinigameManager = {
                 this.currentPlugin.handleNetwork(msg.data);
             }
         } else if (msg.type === 'mg_update_score') {
-            // 確定スコア（リタイア・終了時）
-            const data = this.gameUsers[msg.userId];
+            // ★ リザルト用データ(resultData)を更新するように初期仕様へ復元
+            const data = this.resultData.find(d => d.id === msg.userId);
             if (data) {
                 if (msg.isRetired && !data.isRetired && typeof window.addLog === 'function') {
                     window.addLog(`<span style="color:#ff3300;">${data.name} がリタイアしました。</span>`, 'sys');
@@ -226,17 +221,14 @@ window.MinigameManager = {
                 data.isRetired = msg.isRetired;
             }
         } else if (msg.type === 'mg_request_score') {
-            // 途中経過の要求を受信
             this.replyMyScore();
         } else if (msg.type === 'mg_reply_score') {
-            // 途中経過の回答を受信
             const data = this.gameUsers[msg.userId];
             if (data && msg.currentScoreText) {
                 data.currentScoreValue = msg.currentScoreValue;
                 data.currentScoreText = msg.currentScoreText;
                 data.currentStatusText = msg.currentStatusText;
                 
-                // メンバーリストが開いていればUIを更新
                 const statusEl = document.getElementById('member-score-' + msg.userId);
                 if (statusEl) {
                     statusEl.innerText = msg.currentScoreText;
@@ -246,7 +238,6 @@ window.MinigameManager = {
         }
     },
 
-    // 他人の申請を受信
     receiveProposal: function(proposal) {
         if (this.state !== 'IDLE') {
             if (this.state === 'PROPOSING' && this.currentProposal && proposal.timestamp < this.currentProposal.timestamp) {
@@ -259,6 +250,7 @@ window.MinigameManager = {
         this.state = 'PROPOSING';
         this.currentProposal = proposal;
         this.initGameUsers();
+        this.earliestReadyTime = Infinity;
         
         const proposer = this.gameUsers[proposal.proposerId];
         if (proposer) proposer.myVote = true;
@@ -275,19 +267,16 @@ window.MinigameManager = {
         this.startProposingTimer();
     },
 
-    // 途中入室時の同期処理
     syncState: function(remoteState, targetStartTime, proposal, remoteGameUsers) {
         if (this.state !== 'IDLE' && this.state !== 'PROPOSING') return;
 
         this.currentProposal = proposal;
         
-        // リモートのgameUsersをローカルにマージする
         if (remoteGameUsers) {
             if (!this.gameUsers || Object.keys(this.gameUsers).length === 0) this.initGameUsers();
             for (let uid in remoteGameUsers) {
                 if (this.gameUsers[uid]) {
                     this.gameUsers[uid].myVote = remoteGameUsers[uid].myVote;
-                    this.gameUsers[uid].isRetired = remoteGameUsers[uid].isRetired;
                 }
             }
         }
@@ -311,7 +300,7 @@ window.MinigameManager = {
 
         } else if (remoteState === 'COUNTDOWN' || remoteState === 'PLAYING') {
             this.state = remoteState;
-            if (this.gameUsers[myId]) this.gameUsers[myId].myVote = false; // 途中入室は強制不参加(観戦)
+            if (this.gameUsers[myId]) this.gameUsers[myId].myVote = false; 
             
             this.closeAllViews();
 
@@ -335,7 +324,6 @@ window.MinigameManager = {
         }
     },
 
-    // ポップアップの表示（動的ボタン）
     showProposalPopup: function() {
         if (!this.currentProposal || this.state !== 'PROPOSING') return;
         const p = this.currentProposal;
@@ -353,7 +341,6 @@ window.MinigameManager = {
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         
         if (p.proposerId === myId) {
-            // 申請者の場合
             const cancelBtn = document.createElement('button');
             cancelBtn.className = 'mg-popup-btn cancel';
             cancelBtn.innerText = '申請を取り下げる';
@@ -364,7 +351,6 @@ window.MinigameManager = {
             };
             btnContainer.appendChild(cancelBtn);
         } else {
-            // 他ユーザー（途中入室者含む）の場合
             const joinBtn = document.createElement('button');
             joinBtn.className = 'mg-popup-btn join';
             joinBtn.innerText = '参加する';
@@ -411,6 +397,8 @@ window.MinigameManager = {
         this.gameUsers = {};
         
         this.closeAllViews();
+        const overlay = document.getElementById('mg-countdown-overlay');
+        if (overlay) overlay.style.display = 'none';
         
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
@@ -422,7 +410,6 @@ window.MinigameManager = {
         this.exitSpectatorMode();
     },
 
-    // PROPOSING(60秒)のタイマー処理と監視
     startProposingTimer: function() {
         const overlay = document.getElementById('mg-countdown-overlay');
         const countText = document.getElementById('mg-countdown-text');
@@ -439,7 +426,6 @@ window.MinigameManager = {
 
             const remain = Math.ceil((this.proposeEndTime - Date.now()) / 1000);
             
-            // ポップアップ内のタイマーも更新
             const popTimer = document.getElementById('mg-popup-timer');
             if (popTimer) popTimer.innerText = `残り受付時間: ${Math.max(0, remain)}秒`;
 
@@ -447,63 +433,65 @@ window.MinigameManager = {
                 countText.innerText = remain;
                 requestAnimationFrame(updateTimer);
             } else {
-                // 60秒終了時の処理
-                overlay.style.display = 'none';
-                
-                // 未回答のユーザーを不参加(false)に強制変更
-                for (let uid in this.gameUsers) {
-                    if (this.gameUsers[uid].myVote === null) {
-                        this.gameUsers[uid].myVote = false;
-                    }
-                }
-                
-                // 参加者がいるかチェック
-                let joinCount = 0;
-                let isProposerJoined = false;
-                for (let uid in this.gameUsers) {
-                    if (this.gameUsers[uid].myVote === true) {
-                        joinCount++;
-                        if (this.currentProposal && uid === this.currentProposal.proposerId) isProposerJoined = true;
-                    }
-                }
-
-                if (joinCount >= 2 || (joinCount === 1 && isProposerJoined && Object.keys(this.gameUsers).length === 1)) {
-                    this.startCountdownPrepare();
-                } else {
-                    if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_cancel', reason: '参加者が集まりませんでした。（申請者のみ）' });
-                    this.cancelProposal("参加者が集まりませんでした。（申請者のみ）");
-                }
+                this.endProposingAndPrepare();
             }
         };
         updateTimer();
     },
 
-    // 全員回答したかのチェック
     checkProposingStatus: function() {
         if (this.state !== 'PROPOSING') return;
 
         let allAnswered = true;
-        let joinCount = 0;
-        
         for (let uid in this.gameUsers) {
             if (this.gameUsers[uid].myVote === null) allAnswered = false;
-            if (this.gameUsers[uid].myVote === true) joinCount++;
         }
 
         if (allAnswered) {
-            // 全員回答済みなら60秒を待たずに次へ
             this.proposeEndTime = 0; 
+            this.endProposingAndPrepare();
         }
     },
 
-    // COUNTDOWN(10秒)への移行準備（全員で一番早い送信時刻を決める）
+    endProposingAndPrepare: function() {
+        if (this.state !== 'PROPOSING') return; 
+        const overlay = document.getElementById('mg-countdown-overlay');
+        if (overlay) overlay.style.display = 'none';
+
+        for (let uid in this.gameUsers) {
+            if (this.gameUsers[uid].myVote === null) {
+                this.gameUsers[uid].myVote = false;
+            }
+        }
+        
+        let joinCount = 0;
+        let isProposerJoined = false;
+        for (let uid in this.gameUsers) {
+            if (this.gameUsers[uid].myVote === true) {
+                joinCount++;
+                if (this.currentProposal && uid === this.currentProposal.proposerId) isProposerJoined = true;
+            }
+        }
+
+        if (joinCount >= 2 || (joinCount === 1 && isProposerJoined && Object.keys(this.gameUsers).length === 1)) {
+            this.startCountdownPrepare();
+        } else {
+            if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'mg_cancel', reason: '参加者が集まりませんでした。（申請者のみ）' });
+            this.cancelProposal("参加者が集まりませんでした。（申請者のみ）");
+        }
+    },
+
     startCountdownPrepare: function() {
         if (this.state === 'COUNTDOWN') return;
         this.state = 'COUNTDOWN';
         this.closeAllViews();
         
         const now = Date.now();
-        this.earliestReadyTime = now;
+        
+        // ★ カウントダウンの同期: 自分の送信時刻を含め、一番早い時刻を優先する
+        if (now < this.earliestReadyTime) {
+            this.earliestReadyTime = now;
+        }
         
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         if (window.MultiplayerManager) {
@@ -514,21 +502,22 @@ window.MinigameManager = {
             });
         }
         
-        // 自分自身で計算
         this.calcTargetTimes();
         this.startCountdown();
     },
 
+    // ★ 同期ズレ修正: PROPOSING中であっても受け取ったタイムスタンプが早ければ保持・更新する
     receiveReady: function(userId, timestamp) {
-        if (this.state !== 'COUNTDOWN' && this.state !== 'PLAYING') return;
+        if (this.state === 'IDLE' || this.state === 'RESULT') return; 
         if (timestamp < this.earliestReadyTime) {
             this.earliestReadyTime = timestamp;
-            this.calcTargetTimes();
+            if (this.state === 'COUNTDOWN') {
+                this.calcTargetTimes();
+            }
         }
     },
 
     calcTargetTimes: function() {
-        // 最も早いready送信時刻から10秒後をゲーム開始時間とする
         this.targetStartTime = this.earliestReadyTime + 10000;
         
         if (this.currentProposal && this.currentProposal.settings && this.currentProposal.settings.time) {
@@ -555,7 +544,11 @@ window.MinigameManager = {
         }
     },
 
-    startCountdown: function() {
+    startCountdown: function(forcedTargetTime) {
+        if (forcedTargetTime) {
+            this.targetStartTime = forcedTargetTime;
+            this.state = 'COUNTDOWN';
+        }
         this.loadPlugin();
 
         const overlay = document.getElementById('mg-countdown-overlay');
@@ -584,14 +577,66 @@ window.MinigameManager = {
     startGame: function() {
         this.state = 'PLAYING';
         
+        // ★ リザルト用配列の生成タイミングを初期仕様(開始時)に復元
+        this.resultData = [];
+        let allUsers = [];
+        
+        if (window.GameState && window.GameState.userInfo) {
+            allUsers.push({
+                user_id: window.GameState.userInfo.user_id,
+                name: window.GameState.userInfo.name || window.GameState.userInfo.user_name || "Player",
+                portrait: window.GameState.userInfo.portrait || window.GameState.userInfo.portait || ""
+            });
+        } else {
+            allUsers.push({ user_id: 'local', name: 'Player', portrait: '' });
+        }
+
+        if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
+            for (let id in window.MultiplayerManager.otherPlayers) {
+                let op = window.MultiplayerManager.otherPlayers[id];
+                allUsers.push({
+                    user_id: op.id,
+                    name: op.name || "Player",
+                    portrait: op.icon || ""
+                });
+            }
+        }
+
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
-        const myData = this.gameUsers[myId];
+
+        allUsers.forEach(u => {
+            if (!u) return;
+            let isParticipating = false;
+            
+            if (this.gameUsers && this.gameUsers[u.user_id] && this.gameUsers[u.user_id].myVote === true) {
+                isParticipating = true;
+            }
+            if (u.user_id === 'local' && this.gameUsers[myId] && this.gameUsers[myId].myVote === true) {
+                isParticipating = true;
+            }
+            
+            if (isParticipating) {
+                this.resultData.push({
+                    id: u.user_id,
+                    name: u.name,
+                    icon: u.portrait,
+                    scoreText: "", 
+                    scoreValue: null, 
+                    statusText: "", 
+                    isRetired: false,
+                    isError: false,
+                    rank: 0
+                });
+            }
+        });
+        
+        const myData = this.resultData.find(d => d.id === myId);
         
         const mgBtn = document.getElementById('minigame-btn');
         if (mgBtn) {
             mgBtn.classList.remove('detail-mode');
             mgBtn.classList.add('abort-mode');
-            if (myData && myData.myVote === true) {
+            if (myData) {
                 mgBtn.innerText = 'リタイア';
                 window.isSpectatorMode = false;
             } else {
@@ -623,7 +668,6 @@ window.MinigameManager = {
             }
         }
 
-        // START演出
         const centerMsg = document.createElement('div');
         centerMsg.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); font-size:100px; color:white; font-weight:bold; text-shadow:0 0 20px #ffaa00; z-index:10000; pointer-events:none;';
         document.body.appendChild(centerMsg);
@@ -652,22 +696,19 @@ window.MinigameManager = {
         }, 1000);
     },
 
-    // PLAYING中の更新とラグ検知
     update: function(delta) {
         if (this.state !== 'PLAYING') return;
 
-        // ★ラグ検知：deltaが1.0(1秒)を超えた場合、ブラウザがバックグラウンドに行っていたと判断し再計算
+        // ラグ検知（バックグラウンド等で1秒以上止まっていたら残り時間を再計算）
         if (delta > 1.0 && this.targetEndTime > 0) {
             const remainSec = (this.targetEndTime - Date.now()) / 1000;
             if (remainSec <= 0) {
-                // 既に終了時間を過ぎていれば即終了
                 if (this.currentPlugin && typeof this.currentPlugin.isPlaying !== 'undefined') {
                     this.currentPlugin.isPlaying = false;
                 }
                 this.endGame();
                 return;
             } else {
-                // プラグイン側の残り時間を強制上書き
                 if (this.currentPlugin && typeof this.currentPlugin.remainTime !== 'undefined') {
                     this.currentPlugin.remainTime = remainSec;
                 }
@@ -698,10 +739,11 @@ window.MinigameManager = {
         
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
         
+        // ★ リザルト用データを更新する初期の仕様へ復元
         if (this.currentPlugin && typeof this.currentPlugin.onRetire === 'function') {
             this.currentPlugin.onRetire(myId);
         } else {
-            const myData = this.gameUsers[myId];
+            const myData = this.resultData.find(d => d.id === myId);
             if (myData) {
                 myData.isRetired = true;
                 myData.scoreText = "";
@@ -710,7 +752,7 @@ window.MinigameManager = {
             }
         }
         
-        const updatedData = this.gameUsers[myId];
+        const updatedData = this.resultData.find(d => d.id === myId);
         if (window.MultiplayerManager && updatedData) {
             window.MultiplayerManager.sendData({ 
                 type: 'mg_update_score', 
@@ -734,7 +776,6 @@ window.MinigameManager = {
         this.enterSpectatorMode();
     },
 
-    // 途中経過スコアの送信（メンバーリストを開かれた時）
     replyMyScore: function() {
         if (this.state !== 'PLAYING') return;
         const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
@@ -767,7 +808,6 @@ window.MinigameManager = {
             });
         }
         
-        // 自分のUIも更新
         if (this.gameUsers[myId]) {
             this.gameUsers[myId].currentScoreText = cText;
             const statusEl = document.getElementById('member-score-' + myId);
@@ -836,6 +876,7 @@ window.MinigameManager = {
         }
     },
 
+    // ★ 終了判定を初期仕様（isSpectatorModeに基づく全滅判定）に復元
     checkAllSpectators: function() {
         if (this.state !== 'PLAYING') return;
 
@@ -863,6 +904,13 @@ window.MinigameManager = {
         if (this.gameUsers[userId]) {
             this.gameUsers[userId].isRetired = true;
         }
+        
+        // 退出者をリザルト上でもリタイア扱いにする
+        const data = this.resultData.find(d => d.id === userId);
+        if (data) {
+            data.isRetired = true;
+        }
+
         if (this.state === 'PROPOSING') {
             this.checkProposingStatus();
         } else if (this.state === 'PLAYING') {
@@ -871,57 +919,98 @@ window.MinigameManager = {
     },
 
     endGame: function() {
+        if (this.state === 'RESULT') return; 
         this.state = 'RESULT';
         
         const timerUI = document.getElementById('mg-timer-ui');
         if (timerUI) timerUI.style.display = 'none';
 
+        // 先にプラグインを終了させ、リザルトに最終スコアを書き込ませる
         if (this.currentPlugin && typeof this.currentPlugin.end === 'function') {
             this.currentPlugin.end();
         }
-        this.currentPlugin = null;
 
-        // ★リザルト用データの生成
-        // gameUsersから myVote === true の人を抽出
-        this.resultData = [];
-        for (let uid in this.gameUsers) {
-            let u = this.gameUsers[uid];
-            if (u.myVote === true) {
-                // スコアがnull（確定送信が来ていない）ならエラー扱い
-                if (u.scoreValue === null && !u.isRetired) {
-                    u.isError = true;
+        const myId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
+        const myData = this.resultData.find(d => d.id === myId);
+        
+        // ★ バグ修正: 自分の最終スコアを確定させて全員に送信する
+        if (myData && !myData.isRetired) {
+            // プラグインが書き込んでいなかった場合のフォールバック
+            if (myData.scoreValue === null) {
+                let cVal = 0, cText = "", cStatus = "生存クリア";
+                if (this.currentProposal) {
+                    if (this.currentProposal.gameId === 'coin_rush') {
+                        cVal = typeof this.currentPlugin.myScore !== 'undefined' ? this.currentPlugin.myScore : 0;
+                        cText = `${cVal}枚`;
+                        cStatus = "タイムアップ";
+                    } else if (this.currentProposal.gameId === 'bom_battle') {
+                        cVal = typeof this.currentPlugin.hp !== 'undefined' ? this.currentPlugin.hp : 0;
+                        cText = typeof this.currentPlugin.getHeartsString === 'function' ? this.currentPlugin.getHeartsString(cVal) : `${cVal} HP`;
+                    } else if (this.currentProposal.gameId === 'survival') {
+                        const survived = Math.floor((Date.now() - (this.currentPlugin.startTime || this.targetStartTime)) / 1000);
+                        let m = Math.floor(survived / 60);
+                        let s = Math.floor(survived % 60);
+                        cText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                    }
                 }
-                this.resultData.push(u);
+                myData.scoreValue = cVal;
+                myData.scoreText = cText;
+                myData.statusText = cStatus;
+            }
+
+            // 自分の最終結果を必ず送信する（これが無いと他人は全員通信エラーになってしまう）
+            if (window.MultiplayerManager) {
+                window.MultiplayerManager.sendData({ 
+                    type: 'mg_update_score', 
+                    userId: myId, 
+                    scoreValue: myData.scoreValue, 
+                    scoreText: myData.scoreText,
+                    statusText: myData.statusText,
+                    isRetired: myData.isRetired
+                });
             }
         }
 
-        if (window.MinigameUI && typeof window.MinigameUI.showResult === 'function') {
-            window.MinigameUI.showResult(this.currentProposal ? this.currentProposal.title : "ミニゲーム", this.resultData);
-        }
+        this.currentPlugin = null;
 
-        this.currentProposal = null;
-        
-        const mgBtn = document.getElementById('minigame-btn');
-        if (mgBtn) {
-            mgBtn.classList.remove('abort-mode');
-            mgBtn.classList.remove('spectator-mode');
-            mgBtn.classList.remove('detail-mode');
-            mgBtn.innerText = 'ミニゲーム';
-        }
-
-        this.exitSpectatorMode();
-        
-        if (window.ItemSystem) {
-            window.ItemSystem.clearAllItems();
-            window.ItemSystem.canPickup = true; 
-            window.ItemSystem.forceItemType = null; 
-            window.ItemSystem.isStackable = false; 
-        }
-        
+        // ★ 通信エラー対策: 他人の最終スコアを受信する猶予として2秒待機する
         setTimeout(() => {
-            this.state = 'IDLE';
-            this.gameUsers = {};
-        }, 5000);
+            
+            // 待ってもスコアがnullのまま（受信できなかった）人は通信エラー扱いにする
+            this.resultData.forEach(d => {
+                if (d.scoreValue === null && !d.isRetired) {
+                    d.isError = true;
+                }
+            });
+
+            if (window.MinigameUI && typeof window.MinigameUI.showResult === 'function') {
+                window.MinigameUI.showResult(this.currentProposal ? this.currentProposal.title : "ミニゲーム", this.resultData);
+            }
+
+            this.currentProposal = null;
+            
+            const mgBtn = document.getElementById('minigame-btn');
+            if (mgBtn) {
+                mgBtn.classList.remove('abort-mode');
+                mgBtn.classList.remove('spectator-mode');
+                mgBtn.classList.remove('detail-mode');
+                mgBtn.innerText = 'ミニゲーム';
+            }
+
+            this.exitSpectatorMode();
+            
+            if (window.ItemSystem) {
+                window.ItemSystem.clearAllItems();
+                window.ItemSystem.canPickup = true; 
+                window.ItemSystem.forceItemType = null; 
+                window.ItemSystem.isStackable = false; 
+            }
+            
+            setTimeout(() => {
+                this.state = 'IDLE';
+                this.gameUsers = {};
+            }, 5000);
+        }, 2000);
     }
 };
 
