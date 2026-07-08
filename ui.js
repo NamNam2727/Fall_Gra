@@ -277,10 +277,15 @@ function initUI() {
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 
+    // ★各モジュールのUI初期化の呼び出し
     if (window.MultiplayerManager && typeof window.MultiplayerManager.initUI === 'function') {
         window.MultiplayerManager.initUI();
     }
     if (window.MinigameUI && typeof window.MinigameUI.initUI === 'function') {
         window.MinigameUI.initUI();
+    }
+    // ★追加: 「あそびかた」UIの初期化呼び出し
+    if (window.HowToPlay && typeof window.HowToPlay.initUI === 'function') {
+        window.HowToPlay.initUI();
     }
 }

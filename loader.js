@@ -19,6 +19,7 @@
         'minigame_flow.js',     // ★ 2/3
         'minigame_core.js',     // ★ 3/3
         'minigame_ui.js',
+        'how_to_play.js',       // ★追加: あそびかたUI
         'mapGenerator.js',
         'map.js',
         'player.js',
