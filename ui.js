@@ -1,7 +1,7 @@
 // =====================================
 // ui.js
 // 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
-// ★チャット欄のデフォルト高さを220pxに拡張
+// ★チャット欄のデフォルト高さを200pxに微調整
 // =====================================
 
 function initUI() {
@@ -52,8 +52,8 @@ function initUI() {
         .bottom-tab-btn { background-color: rgba(40, 40, 40, 0.9); border: 2px solid #555; border-bottom: none; color: #ccc; font-size: 12px; padding: 6px 15px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: bold; margin-right: -1px; -webkit-tap-highlight-color: transparent; outline: none; }
         .bottom-tab-btn.active { background-color: rgba(20, 20, 20, 0.85); color: #fff; border-color: #777; z-index: 2; }
         
-        /* ★ チャット欄の高さを220pxに拡張 */
-        #bottomContentArea { height: 220px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; transition: height 0.3s ease-in-out, border-width 0.3s ease-in-out; }
+        /* ★ チャット欄の高さを200pxに変更 */
+        #bottomContentArea { height: 200px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; transition: height 0.3s ease-in-out, border-width 0.3s ease-in-out; }
         .bottom-content { flex: 1; display: none; flex-direction: column; padding: 5px; overflow: hidden; }
         .bottom-content.active { display: flex; }
         #chatLogContent { flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.5; color: #ddd; display: flex; flex-direction: column; }
@@ -162,8 +162,8 @@ function initUI() {
     const chatTabBtn = bottomUI.querySelector('.bottom-tab-btn[data-target="chat"]');
     
     let isChatMinimized = false;
-    // ★ デフォルトの高さを220に変更
-    const DEFAULT_CHAT_HEIGHT = 220;
+    // ★ デフォルトの高さを200に変更
+    const DEFAULT_CHAT_HEIGHT = 200;
     let currentChatHeight = DEFAULT_CHAT_HEIGHT;
 
     function openChat() {
@@ -247,7 +247,7 @@ function initUI() {
         const tabsHeight = document.getElementById('bottomTabs').offsetHeight || 30;
         const maxH = window.innerHeight - 10 - tabsHeight - maxLimitY;
         
-        // ★ 最低高さを220pxに変更
+        // ★ 最低高さを200pxに制限
         newHeight = Math.max(DEFAULT_CHAT_HEIGHT, Math.min(newHeight, maxH));
         currentChatHeight = newHeight;
         
