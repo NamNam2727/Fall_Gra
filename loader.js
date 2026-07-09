@@ -37,7 +37,8 @@
     // ==========================================
     const loadingScreen = document.createElement('div');
     loadingScreen.id = 'game-loading-screen';
-    loadingScreen.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:#1a1a2e; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#fff; font-family:sans-serif; transition: opacity 0.5s ease;';
+    // 背景を画像に変更
+    loadingScreen.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background: url('https://namnam2727.github.io/Fall_Gra/title.PNG') center/cover no-repeat; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#fff; font-family:sans-serif; transition: opacity 0.5s ease;";
     
     const title = document.createElement('h1');
     title.innerText = "Loading Game...";
@@ -50,7 +51,7 @@
     barFill.style.cssText = 'width:0%; height:100%; background:linear-gradient(90deg, #ffaa00, #ffea00); transition: width 0.1s ease-out;';
     
     const progressText = document.createElement('div');
-    progressText.style.cssText = 'font-size:15px; color:#ddd; font-weight:bold; font-family: monospace;';
+    progressText.style.cssText = 'font-size:15px; color:#ddd; font-weight:bold; font-family: monospace; text-shadow: 1px 1px 2px black;'; // 文字が見えやすいように影を追加
     progressText.innerText = `0 / ${coreScripts.length} scripts loaded`;
 
     barContainer.appendChild(barFill);
@@ -146,3 +147,4 @@
     // 読み込み開始
     loadNext();
 })();
+
