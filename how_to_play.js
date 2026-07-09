@@ -335,6 +335,7 @@ window.HowToPlay = {
         this.demo.floorTexture = new THREE.CanvasTexture(canvas);
         this.demo.floorTexture.wrapS = THREE.RepeatWrapping;
         this.demo.floorTexture.wrapT = THREE.RepeatWrapping;
+        // マス目を4x4サイズに合わせる
         this.demo.floorTexture.repeat.set(250, 250); 
 
         const floorGeo = new THREE.PlaneGeometry(1000, 1000);
@@ -414,7 +415,7 @@ window.HowToPlay = {
             cameraHeight: 5      // デモ用の接近カメラ高さ（本編設定を上書き）
         };
 
-        // デモ開始前にプレイヤーを安全な位置(空中の中心)へ配置（本編ロジックが着地させてくれる）
+        // デモ開始前にプレイヤーを安全な位置(空中の中心)へ配置
         this.demo.player.position.set(0, 20, 0);
 
         this.demo.clock = new THREE.Clock();
@@ -436,6 +437,12 @@ window.HowToPlay = {
         if (!this.demo.scene || this.demo.isRunning) return;
         this.demo.isRunning = true;
         this.demo.clock.start();
+        
+        // 開始時にカメラを瞬時に適切な位置へスナップさせる
+        if (typeof window.updateCamera === 'function') {
+            window.updateCamera(true, 0.016, this.demo.context);
+        }
+        
         this.animateDemo();
         window.dispatchEvent(new Event('resize'));
     },
@@ -515,7 +522,7 @@ window.HowToPlay = {
             this.demo.player.quaternion.slerp(rotQuat, 6 * delta);
             this.demo.context.currentFacingAngle = targetAngle; // Context側の状態も揃える
             
-            // ★追加: 停止中はカメラも背後(0)へ戻す
+            // 停止中はカメラも背後(0)へ戻す
             let diffCam = 0 - this.demo.context.cameraAngle;
             while (diffCam > Math.PI) diffCam -= Math.PI * 2;
             while (diffCam < -Math.PI) diffCam += Math.PI * 2;
@@ -530,11 +537,23 @@ window.HowToPlay = {
             window.updateCamera(false, delta, this.demo.context);
         }
 
-        // 無限ループ対策（キャラクターの座標を定期的に中心付近へ巻き戻す）
-        while (this.demo.player.position.x > 20) { this.demo.player.position.x -= 20; this.demo.floorTexture.offset.x += (20/200)*20; }
-        while (this.demo.player.position.x < -20) { this.demo.player.position.x += 20; this.demo.floorTexture.offset.x -= (20/200)*20; }
-        while (this.demo.player.position.z > 20) { this.demo.player.position.z -= 20; this.demo.floorTexture.offset.y += (20/200)*20; }
-        while (this.demo.player.position.z < -20) { this.demo.player.position.z += 20; this.demo.floorTexture.offset.y -= (20/200)*20; }
+        // --- ★無限ループ（リングバッファ的）対策 ---
+        // 床の模様サイズ(4)の倍数でプレイヤーとカメラを同時に巻き戻すことで、
+        // 画面上は1ミリも変化せずに無限の空間を走り続けることができます。
+        const WARP_UNIT = 20; 
+        let warpX = 0, warpZ = 0;
+        
+        while (this.demo.player.position.x > WARP_UNIT) warpX -= WARP_UNIT;
+        while (this.demo.player.position.x < -WARP_UNIT) warpX += WARP_UNIT;
+        while (this.demo.player.position.z > WARP_UNIT) warpZ -= WARP_UNIT;
+        while (this.demo.player.position.z < -WARP_UNIT) warpZ += WARP_UNIT;
+
+        if (warpX !== 0 || warpZ !== 0) {
+            this.demo.player.position.x += warpX;
+            this.demo.player.position.z += warpZ;
+            this.demo.camera.position.x += warpX;
+            this.demo.camera.position.z += warpZ;
+        }
 
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
