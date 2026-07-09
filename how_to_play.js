@@ -2,6 +2,7 @@
 // how_to_play.js
 // 「あそびかた」ウィンドウの生成、外部JSの動的ロード、
 // および3Dデモ画面のレンダリングエンジン
+// ★ ワープ時に外部オブジェクトを同期させる onWarp フックを追加
 // =====================================
 
 window.HowToPlay = {
@@ -137,7 +138,6 @@ window.HowToPlay = {
                 <!-- 目次画面 -->
                 <div id="htp-index" class="htp-page active">
                     <button class="htp-menu-btn" data-script="htp_basic.js" data-obj="HTP_Basic" data-title="1. 基本操作">1. 基本操作</button>
-                    <!-- ★ アイテムのリンクを追加 -->
                     <button class="htp-menu-btn" data-script="htp_item.js" data-obj="HTP_Item" data-title="2. アイテム">2. アイテム</button>
                     <button class="htp-menu-btn" onclick="alert('次回実装予定です')">3. ミニゲーム</button>
                     <button class="htp-menu-btn" onclick="alert('次回実装予定です')">4. コミュニケーション</button>
@@ -197,7 +197,6 @@ window.HowToPlay = {
         this.currentPageObj = null;
     },
 
-    // ★ 外部JSを動的にロードし、ページを展開する関数
     openPage: function(scriptName, objName, title) {
         document.getElementById('htp-title').innerText = title;
         document.getElementById('htp-back-btn').style.visibility = 'visible';
@@ -236,9 +235,6 @@ window.HowToPlay = {
         }
     },
 
-    // ==========================================
-    // 3Dレンダリングエンジン部
-    // ==========================================
     initDemo3D: function() {
         if (typeof THREE === 'undefined') return;
 
@@ -248,7 +244,7 @@ window.HowToPlay = {
 
         this.demo.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
         this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.demo.renderer.shadowMap.enabled = true;
+        this.demo.renderer.shadowMap.enabled = true; 
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.demo.scene.add(ambientLight);
@@ -427,8 +423,14 @@ window.HowToPlay = {
             this.demo.player.position.z += warpZ;
             this.demo.camera.position.x += warpX;
             this.demo.camera.position.z += warpZ;
+            
+            // ★追加: 外部のシナリオオブジェクトにもワープを通知してダミーキャラを同期させる
+            if (this.currentPageObj && typeof this.currentPageObj.onWarp === 'function') {
+                this.currentPageObj.onWarp(warpX, warpZ);
+            }
         }
 
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
 };
+
