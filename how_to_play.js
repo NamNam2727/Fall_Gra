@@ -307,13 +307,9 @@ window.HowToPlay = {
         // シーン、カメラ、レンダラー
         this.demo.scene = new THREE.Scene();
         this.demo.scene.background = new THREE.Color(0x87CEEB);
-        this.demo.scene.fog = new THREE.Fog(0x87CEEB, 10, 80);
+        this.demo.scene.fog = new THREE.Fog(0x87CEEB, 5, 40);
 
         this.demo.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
-        
-        // 本編と同じ位置関係を模倣（距離22、高さ18。ただし少しズームして見やすくする）
-        this.demo.camera.position.set(0, 14, 16); 
-        this.demo.camera.lookAt(0, 1, 0);
 
         this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.demo.renderer.setSize(width, height);
@@ -328,7 +324,7 @@ window.HowToPlay = {
         dirLight.castShadow = true;
         this.demo.scene.add(dirLight);
 
-        // 無限ループ平面マップ（市松模様）
+        // 無限ループ平面マップ（巨大なPlane）
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
@@ -340,16 +336,16 @@ window.HowToPlay = {
         this.demo.floorTexture = new THREE.CanvasTexture(canvas);
         this.demo.floorTexture.wrapS = THREE.RepeatWrapping;
         this.demo.floorTexture.wrapT = THREE.RepeatWrapping;
-        this.demo.floorTexture.repeat.set(20, 20); 
+        this.demo.floorTexture.repeat.set(250, 250); // 1000/4 = 250 (4x4サイズに合わせる)
 
-        const floorGeo = new THREE.PlaneGeometry(200, 200);
+        const floorGeo = new THREE.PlaneGeometry(1000, 1000);
         const floorMat = new THREE.MeshStandardMaterial({ map: this.demo.floorTexture, roughness: 0.8 });
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
         floorMesh.rotation.x = -Math.PI / 2;
         floorMesh.receiveShadow = true;
         this.demo.scene.add(floorMesh);
 
-        // プレイヤーキャラクター生成（本編の実装を模倣）
+        // プレイヤーキャラクター生成
         const pRadius = 1.2;
         this.demo.player = new THREE.Group();
         
@@ -359,9 +355,28 @@ window.HowToPlay = {
         baseMesh.position.y = 0.1; baseMesh.castShadow = true;
         this.demo.player.add(baseMesh);
 
-        const topGeo = new THREE.CylinderGeometry(pRadius, pRadius, 0.2, 32);
+        // ★ 本編のプレイヤーからロード済みアイコン画像を強奪してTextureを再生成する
         let iconTexture = null;
-        if (typeof window.createIconTexture === 'function') iconTexture = window.createIconTexture();
+        if (typeof player !== 'undefined' && player) {
+            player.children.forEach(child => {
+                if (child.isMesh && Array.isArray(child.material) && child.material.length === 3) {
+                    if (child.material[1].map && child.material[1].map.image) {
+                        const img = child.material[1].map.image;
+                        iconTexture = new THREE.Texture(img);
+                        iconTexture.center.set(0.5, 0.5);
+                        iconTexture.rotation = -Math.PI / 2;
+                        iconTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                        iconTexture.magFilter = THREE.LinearFilter;
+                        iconTexture.needsUpdate = true;
+                    }
+                }
+            });
+        }
+        if (!iconTexture && typeof window.createIconTexture === 'function') {
+            iconTexture = window.createIconTexture();
+        }
+
+        const topGeo = new THREE.CylinderGeometry(pRadius, pRadius, 0.2, 32);
         const sideMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
         const topMat = new THREE.MeshStandardMaterial({ map: iconTexture, roughness: 0.7 });
         const bottomMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
@@ -370,8 +385,8 @@ window.HowToPlay = {
         this.demo.player.add(topMesh);
 
         let userName = "Player";
-        if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.name) {
-            userName = window.GameState.userInfo.name;
+        if (window.GameState && window.GameState.userInfo) {
+            userName = window.GameState.userInfo.name || window.GameState.userInfo.user_name || "Player";
         }
 
         if (typeof window.createNameSprite === 'function') {
@@ -380,21 +395,6 @@ window.HowToPlay = {
         }
         
         this.demo.scene.add(this.demo.player);
-
-        // ★ SDKからのアイコン画像の読み込みと適用
-        if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.portrait) {
-            const imageUrl = window.GameState.userInfo.portrait;
-            const loader = new THREE.TextureLoader();
-            loader.setCrossOrigin('anonymous');
-            loader.load(imageUrl, (loadedTexture) => {
-                loadedTexture.center.set(0.5, 0.5);
-                loadedTexture.rotation = -Math.PI / 2;
-                loadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
-                loadedTexture.magFilter = THREE.LinearFilter;
-                topMesh.material[1].map = loadedTexture;
-                topMesh.material[1].needsUpdate = true;
-            });
-        }
 
         this.demo.clock = new THREE.Clock();
 
@@ -428,7 +428,6 @@ window.HowToPlay = {
         }
     },
 
-    // Javascriptによるフレーム単位でのデモ同期アニメーション
     animateDemo: function() {
         if (!this.demo.isRunning) return;
         this.demo.reqId = requestAnimationFrame(() => this.animateDemo());
@@ -436,24 +435,50 @@ window.HowToPlay = {
         const delta = this.demo.clock.getDelta();
         const time = this.demo.clock.getElapsedTime();
 
-        // 8秒周期の移動シナリオ
-        const cycle = time % 8.0;
-        let inputX = 0, inputY = 0; // X:1(右), Y:1(前)
+        // 10秒周期の移動シナリオ
+        const cycle = time % 10.0;
+        let inputX = 0, inputY = 0; // X:右(1), Y:前(1)
         let isMoving = false;
         let isTouching = false;
 
         if (cycle > 0.5 && cycle <= 2.0) {
-            inputX = 0; inputY = 1.0; // 前進
+            inputX = 0; inputY = 1.0; // 1. 前進
             isMoving = true; isTouching = true;
         } else if (cycle > 2.5 && cycle <= 4.5) {
-            inputX = 0.707; inputY = 0.707; // 右斜め前
+            inputX = 0.707; inputY = 0.707; // 2. 右斜め前
             isMoving = true; isTouching = true;
         } else if (cycle > 5.0 && cycle <= 7.0) {
+            inputX = -0.707; inputY = 0.707; // 3. 左斜め前
+            isMoving = true; isTouching = true;
+        } else if (cycle > 7.5 && cycle <= 9.5) {
+            // ※周期が10秒に変更された場合の想定コード（現在は8秒周期なのでスキップされます）
+        } else if (cycle > 7.5 || cycle <= 0.2) {
+            // 本来はここに後ろを入れたいが、8秒周期なので時間を調整
+        }
+        
+        // --- ★ 再調整した 10秒周期のシナリオ ---
+        const scenarioCycle = time % 10.0;
+        isMoving = false; isTouching = false;
+        inputX = 0; inputY = 0;
+        
+        if (scenarioCycle > 0.5 && scenarioCycle <= 2.0) {
+            inputX = 0; inputY = 1.0; // 前進
+            isMoving = true; isTouching = true;
+        } else if (scenarioCycle > 2.5 && scenarioCycle <= 4.5) {
+            inputX = 0.707; inputY = 0.707; // 右斜め前
+            isMoving = true; isTouching = true;
+        } else if (scenarioCycle > 5.0 && scenarioCycle <= 7.0) {
             inputX = -0.707; inputY = 0.707; // 左斜め前
             isMoving = true; isTouching = true;
+        } else if (scenarioCycle > 7.5 && scenarioCycle <= 9.5) {
+            inputX = 0; inputY = -1.0; // 後退
+            isMoving = true; isTouching = true;
         } else {
-            // 止まっている間でも、移動開始の少し前に指を下ろす表現を入れる
-            if ((cycle > 0.3 && cycle <= 0.5) || (cycle > 2.3 && cycle <= 2.5) || (cycle > 4.8 && cycle <= 5.0)) {
+            // 指をタッチする予備動作
+            if ((scenarioCycle > 0.3 && scenarioCycle <= 0.5) || 
+                (scenarioCycle > 2.3 && scenarioCycle <= 2.5) || 
+                (scenarioCycle > 4.8 && scenarioCycle <= 5.0) ||
+                (scenarioCycle > 7.3 && scenarioCycle <= 7.5)) {
                 isTouching = true;
             }
         }
@@ -461,7 +486,7 @@ window.HowToPlay = {
         // --- UI（ジョイスティックと指）の更新 ---
         const maxStickDist = 20; 
         const stickX = inputX * maxStickDist;
-        const stickY = -inputY * maxStickDist; // 画面のY座標は上がマイナス
+        const stickY = -inputY * maxStickDist; // 画面上は上がマイナスY
         
         this.demo.stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
         
@@ -479,26 +504,40 @@ window.HowToPlay = {
             this.demo.finger.style.transform = 'scale(1.1) translateY(5px)';
         }
 
-        // --- 3D（プレイヤーと床）の更新 ---
+        // --- 3D（プレイヤーとカメラ）の更新 ---
         if (isMoving) {
-            // キャラクターの向き
-            this.demo.targetAngle = Math.atan2(inputX, inputY);
+            // 物理的に前進＝Z軸マイナス、右＝X軸プラス
+            const moveDirX = inputX;
+            const moveDirZ = -inputY;
+            
+            // 目標角度 (atan2 の引数は(X, Z)で求まる)
+            this.demo.targetAngle = Math.atan2(moveDirX, moveDirZ);
+            
             const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.demo.targetAngle);
             this.demo.player.quaternion.slerp(rotQuat, 12 * delta);
 
-            // 正確な床のスクロール処理（本編のmoveSpeed=16に準拠）
+            // キャラクターを移動させる
             const speed = 16.0 * delta;
-            const textureSpeed = speed / 200.0 * 20; 
+            this.demo.player.position.x += moveDirX * speed;
+            this.demo.player.position.z += moveDirZ * speed;
             
-            // Xプラス(右)へ進む ＝ 床のU(x)座標を増やす（画像が左へ流れる）
-            // Yプラス(前・奥)へ進む ＝ 床のV(y)座標を増やす（画像が手前へ流れる）
-            this.demo.floorTexture.offset.x += inputX * textureSpeed;
-            this.demo.floorTexture.offset.y += inputY * textureSpeed;
+            // 無限ループ対策：中心から遠ざかりすぎたらリセット
+            if (Math.abs(this.demo.player.position.x) > 50 || Math.abs(this.demo.player.position.z) > 50) {
+                this.demo.player.position.set(0, 0, 0);
+            }
         } else {
-            // 止まっている時は正面を向かせる
-            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0);
+            // 止まっている時は正面（奥＝Z軸マイナス＝180度）を向かせる
+            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
             this.demo.player.quaternion.slerp(rotQuat, 10 * delta);
         }
+
+        // カメラをプレイヤーに追従させる（距離と高さを縮めて拡大表示）
+        const camOffset = new THREE.Vector3(0, 5, 8); 
+        this.demo.camera.position.copy(this.demo.player.position).add(camOffset);
+        
+        let lookTarget = this.demo.player.position.clone();
+        lookTarget.y += 1.0;
+        this.demo.camera.lookAt(lookTarget);
 
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
