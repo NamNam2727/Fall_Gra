@@ -1,7 +1,7 @@
 // =====================================
 // ui.js
 // 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
-// ★チャット欄のデフォルト高さを200pxに微調整
+// ★▼ボタンでのリサイズ対応と、最小高さ制限の解除(50pxまで縮小可能に)
 // =====================================
 
 function initUI() {
@@ -52,7 +52,6 @@ function initUI() {
         .bottom-tab-btn { background-color: rgba(40, 40, 40, 0.9); border: 2px solid #555; border-bottom: none; color: #ccc; font-size: 12px; padding: 6px 15px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: bold; margin-right: -1px; -webkit-tap-highlight-color: transparent; outline: none; }
         .bottom-tab-btn.active { background-color: rgba(20, 20, 20, 0.85); color: #fff; border-color: #777; z-index: 2; }
         
-        /* ★ チャット欄の高さを200pxに変更 */
         #bottomContentArea { height: 200px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; transition: height 0.3s ease-in-out, border-width 0.3s ease-in-out; }
         .bottom-content { flex: 1; display: none; flex-direction: column; padding: 5px; overflow: hidden; }
         .bottom-content.active { display: flex; }
@@ -134,7 +133,6 @@ function initUI() {
 
     const preventTouch = (e) => e.stopPropagation();
 
-    // オートカメラ専用の設定
     window.cameraSliderValue = 0.5;
     window.isCameraAuto = true; 
 
@@ -156,13 +154,11 @@ function initUI() {
     bottomUI.addEventListener('pointerdown', preventTouch);
     bottomUI.addEventListener('mousedown', preventTouch);
 
-    // ★ チャットUIの開閉とリサイズ（ドラッグ）処理
     const chatToggleBtn = bottomUI.querySelector('#chatToggleBtn');
     const bottomContentArea = bottomUI.querySelector('#bottomContentArea');
     const chatTabBtn = bottomUI.querySelector('.bottom-tab-btn[data-target="chat"]');
     
     let isChatMinimized = false;
-    // ★ デフォルトの高さを200に変更
     const DEFAULT_CHAT_HEIGHT = 200;
     let currentChatHeight = DEFAULT_CHAT_HEIGHT;
 
@@ -175,32 +171,13 @@ function initUI() {
         bottomContentArea.style.borderWidth = '2px';
     }
 
-    chatToggleBtn.addEventListener('click', () => {
-        isChatMinimized = !isChatMinimized;
-        if (isChatMinimized) {
-            bottomContentArea.style.height = '0px';
-            bottomContentArea.style.borderWidth = '0px'; 
-            chatToggleBtn.innerText = '▲';
-        } else {
-            // ▲ボタンで開く時は初期の高さにリセットする
-            currentChatHeight = DEFAULT_CHAT_HEIGHT;
-            bottomContentArea.style.height = currentChatHeight + 'px';
-            bottomContentArea.style.borderWidth = '2px';
-            chatToggleBtn.innerText = '▼';
-        }
-    });
-
     bottomUI.querySelectorAll('.bottom-tab-btn[data-target]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const target = btn.getAttribute('data-target');
-            
-            // ショートカットタブを選んだら高さをリセットする
             if (target === 'shortcut') {
                 currentChatHeight = DEFAULT_CHAT_HEIGHT;
             }
-            
             openChat(); 
-            
             bottomUI.querySelectorAll('.bottom-tab-btn[data-target]').forEach(b => b.classList.remove('active'));
             bottomUI.querySelectorAll('.bottom-content').forEach(c => c.classList.remove('active'));
             btn.classList.add('active');
@@ -208,17 +185,21 @@ function initUI() {
         });
     });
 
-    // ★ チャットタブのドラッグ処理
+    // ★ チャットタブ・▼タブ両対応のドラッグリサイズ処理
     let isDraggingChat = false;
+    let dragHasMoved = false; // クリックとドラッグの競合を防ぐフラグ
     let dragStartY = 0;
     let dragStartHeight = 0;
 
     function onDragStart(e) {
-        if (!chatTabBtn.classList.contains('active') || isChatMinimized) return;
+        if (!chatTabBtn.classList.contains('active')) return;
 
         isDraggingChat = true;
+        dragHasMoved = false;
         dragStartY = e.clientY || (e.touches && e.touches[0].clientY);
-        dragStartHeight = currentChatHeight;
+        
+        // 閉じている状態からドラッグ開始した場合は高さを0から計算
+        dragStartHeight = isChatMinimized ? 0 : currentChatHeight;
         
         bottomContentArea.style.transition = 'none';
         
@@ -230,10 +211,24 @@ function initUI() {
 
     function onDragMove(e) {
         if (!isDraggingChat) return;
-        e.preventDefault(); 
         
         let clientY = e.clientY || (e.touches && e.touches[0].clientY);
         let dy = dragStartY - clientY; 
+        
+        // 5px以上動かしたらドラッグ操作と判定
+        if (Math.abs(dy) > 5) {
+            dragHasMoved = true;
+            // 閉じている状態から上に引っ張った場合は開く処理を挟む
+            if (isChatMinimized && dy > 0) {
+                isChatMinimized = false;
+                chatToggleBtn.innerText = '▼';
+                bottomContentArea.style.borderWidth = '2px';
+            }
+        }
+
+        if (!dragHasMoved) return;
+
+        e.preventDefault(); 
         
         let newHeight = dragStartHeight + dy;
         
@@ -247,8 +242,8 @@ function initUI() {
         const tabsHeight = document.getElementById('bottomTabs').offsetHeight || 30;
         const maxH = window.innerHeight - 10 - tabsHeight - maxLimitY;
         
-        // ★ 最低高さを200pxに制限
-        newHeight = Math.max(DEFAULT_CHAT_HEIGHT, Math.min(newHeight, maxH));
+        // ★ 最低高さを50pxに変更（デフォルトの200より下げられるように）
+        newHeight = Math.max(50, Math.min(newHeight, maxH));
         currentChatHeight = newHeight;
         
         bottomContentArea.style.height = currentChatHeight + 'px';
@@ -264,10 +259,34 @@ function initUI() {
         document.removeEventListener('mouseup', onDragEnd);
         document.removeEventListener('touchmove', onDragMove);
         document.removeEventListener('touchend', onDragEnd);
+
+        // クリックイベントで誤爆しないように、少し遅延させてからフラグを降ろす
+        setTimeout(() => { dragHasMoved = false; }, 50);
     }
 
+    // チャットタブと▼ボタンの両方にドラッグイベントを登録
     chatTabBtn.addEventListener('mousedown', onDragStart);
     chatTabBtn.addEventListener('touchstart', onDragStart, {passive: false});
+    chatToggleBtn.addEventListener('mousedown', onDragStart);
+    chatToggleBtn.addEventListener('touchstart', onDragStart, {passive: false});
+
+    // ▼ボタンのクリック（開閉）処理
+    chatToggleBtn.addEventListener('click', () => {
+        if (dragHasMoved) return; // ドラッグ操作が行われていた場合は開閉をキャンセル
+        
+        isChatMinimized = !isChatMinimized;
+        if (isChatMinimized) {
+            bottomContentArea.style.height = '0px';
+            bottomContentArea.style.borderWidth = '0px'; 
+            chatToggleBtn.innerText = '▲';
+        } else {
+            // 開く時は前回の高さを復元（ただし低すぎる場合はデフォルトに戻す）
+            if (currentChatHeight < 50) currentChatHeight = DEFAULT_CHAT_HEIGHT;
+            bottomContentArea.style.height = currentChatHeight + 'px';
+            bottomContentArea.style.borderWidth = '2px';
+            chatToggleBtn.innerText = '▼';
+        }
+    });
 
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
