@@ -542,11 +542,14 @@ window.HowToPlay = {
         // 画面上は1ミリも変化せずに無限の空間を走り続けることができます。
         const WARP_UNIT = 20; 
         let warpX = 0, warpZ = 0;
+        let px = this.demo.player.position.x;
+        let pz = this.demo.player.position.z;
         
-        while (this.demo.player.position.x > WARP_UNIT) warpX -= WARP_UNIT;
-        while (this.demo.player.position.x < -WARP_UNIT) warpX += WARP_UNIT;
-        while (this.demo.player.position.z > WARP_UNIT) warpZ -= WARP_UNIT;
-        while (this.demo.player.position.z < -WARP_UNIT) warpZ += WARP_UNIT;
+        // ★修正: ループ判定で元の変数を増減させて無限ループを防止
+        while (px > WARP_UNIT) { px -= WARP_UNIT; warpX -= WARP_UNIT; }
+        while (px < -WARP_UNIT) { px += WARP_UNIT; warpX += WARP_UNIT; }
+        while (pz > WARP_UNIT) { pz -= WARP_UNIT; warpZ -= WARP_UNIT; }
+        while (pz < -WARP_UNIT) { pz += WARP_UNIT; warpZ += WARP_UNIT; }
 
         if (warpX !== 0 || warpZ !== 0) {
             this.demo.player.position.x += warpX;
