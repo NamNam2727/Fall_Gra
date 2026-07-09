@@ -18,7 +18,6 @@ window.HowToPlay = {
     },
 
     initUI: function() {
-        // --- ウィンドウやデモ用の共通CSS ---
         const style = document.createElement('style');
         style.innerHTML = `
             #how-to-play-btn { 
@@ -73,11 +72,11 @@ window.HowToPlay = {
             #htp-demo-canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
             
             .htp-demo-jump {
-                position: absolute; bottom: 10px; right: 15px; width: 50px; height: 50px;
+                position: absolute; bottom: 10px; right: 15px; width: 60px; height: 60px;
                 background: rgba(255, 255, 255, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); 
-                border-radius: 50%; color: #333; font-weight: bold; font-family: sans-serif; font-size: 11px;
+                border-radius: 50%; color: #333; font-weight: bold; font-family: sans-serif; font-size: 12px;
                 display: flex; justify-content: center; align-items: center;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10; transition: transform 0.1s, background 0.1s;
             }
             .htp-demo-joystick-base {
                 position: absolute; bottom: 10px; left: 15px; width: 70px; height: 70px;
@@ -97,7 +96,7 @@ window.HowToPlay = {
                 opacity: 0; transition: opacity 0.1s, transform 0.1s linear;
             }
             .htp-demo-finger {
-                position: absolute; top: 15px; left: 10px; font-size: 30px;
+                position: absolute; top: 15px; left: 10px; font-size: 30px; pointer-events: none;
                 filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5)); transform: scale(1.1) translateY(5px); transition: transform 0.1s;
             }
 
@@ -137,7 +136,8 @@ window.HowToPlay = {
             <div class="htp-content" id="htp-content-area">
                 <!-- 目次画面 -->
                 <div id="htp-index" class="htp-page active">
-                    <button class="htp-menu-btn" data-script="htp_basic_move.js" data-obj="HTP_BasicMove" data-title="1. 基本操作">1. 基本操作</button>
+                    <!-- ★ 1つのファイルに統合 -->
+                    <button class="htp-menu-btn" data-script="htp_basic.js" data-obj="HTP_Basic" data-title="1. 基本操作">1. 基本操作</button>
                     <!-- 後日実装予定の項目 -->
                     <button class="htp-menu-btn" onclick="alert('次回実装予定です')">2. アイテム</button>
                     <button class="htp-menu-btn" onclick="alert('次回実装予定です')">3. ミニゲーム</button>
@@ -218,7 +218,6 @@ window.HowToPlay = {
             contentArea.innerHTML = '';
             this.currentPageObj = window[objName];
             if (this.currentPageObj && typeof this.currentPageObj.init === 'function') {
-                // 読み込んだオブジェクトに初期化とDOM生成を依頼
                 this.currentPageObj.init(contentArea, this);
             } else {
                 contentArea.innerHTML = '<div class="htp-temp-text">コンテンツの読み込みに失敗しました。</div>';
@@ -226,7 +225,7 @@ window.HowToPlay = {
         };
 
         if (window[objName]) {
-            loadAndInit(); // 既にロード済みならそのまま展開
+            loadAndInit(); 
         } else {
             const script = document.createElement('script');
             script.src = this.baseURL + scriptName + '?v=' + Date.now();
@@ -239,7 +238,7 @@ window.HowToPlay = {
     },
 
     // ==========================================
-    // 3Dレンダリングエンジン部 (メインループなど)
+    // 3Dレンダリングエンジン部
     // ==========================================
     initDemo3D: function() {
         if (typeof THREE === 'undefined') return;
@@ -248,7 +247,6 @@ window.HowToPlay = {
         this.demo.scene.background = new THREE.Color(0x87CEEB);
         this.demo.scene.fog = new THREE.Fog(0x87CEEB, 5, 40);
 
-        // とりあえず初期サイズで作っておき、配置された時にリサイズする
         this.demo.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
         this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.demo.renderer.shadowMap.enabled = true;
@@ -260,7 +258,6 @@ window.HowToPlay = {
         dirLight.castShadow = true;
         this.demo.scene.add(dirLight);
 
-        // 床の生成
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
@@ -282,7 +279,6 @@ window.HowToPlay = {
         this.demo.floorMesh.userData.isTerrain = true; 
         this.demo.scene.add(this.demo.floorMesh);
 
-        // プレイヤーの生成
         const pRadius = 1.2;
         this.demo.player = new THREE.Group();
         
@@ -332,7 +328,6 @@ window.HowToPlay = {
         
         this.demo.scene.add(this.demo.player);
 
-        // 本編呼び出し用ダミーコンテキスト
         this.demo.context = {
             player: this.demo.player, scene: this.demo.scene, camera: this.demo.camera,
             moveVector: new THREE.Vector2(0, 0),
@@ -396,14 +391,13 @@ window.HowToPlay = {
         const delta = this.demo.clock.getDelta();
         const time = this.demo.clock.getElapsedTime();
 
-        // 外部からロードしたページオブジェクトにシナリオ更新を委譲
+        // 外部JSのシナリオ更新を呼び出し
         if (this.currentPageObj && typeof this.currentPageObj.updateScenario === 'function') {
             this.currentPageObj.updateScenario(time, delta, this.demo);
         } else {
             this.demo.context.moveVector.set(0, 0);
         }
 
-        // 本編コアロジックの呼び出し
         if (typeof window.updatePlayer === 'function') {
             window.updatePlayer(delta, this.demo.context);
         }
@@ -411,7 +405,6 @@ window.HowToPlay = {
             window.updateCamera(false, delta, this.demo.context);
         }
 
-        // 無限ループのリングバッファ処理
         const WARP_UNIT = 20; 
         let warpX = 0, warpZ = 0;
         let px = this.demo.player.position.x;
