@@ -1,9 +1,18 @@
 // =====================================
 // how_to_play.js
-// 「あそびかた」ウィンドウの生成とページ遷移の管理
+// 「あそびかた」ウィンドウの生成とページ遷移、
+// 3Dデモ画面のレンダリング管理
 // =====================================
 
 window.HowToPlay = {
+    demo: {
+        scene: null, camera: null, renderer: null,
+        player: null, floorTexture: null,
+        clock: null, reqId: null, isRunning: false,
+        container: null, stick: null, arrow: null, finger: null,
+        targetAngle: 0, currentAngle: 0
+    },
+
     initUI: function() {
         const style = document.createElement('style');
         style.innerHTML = `
@@ -61,13 +70,12 @@ window.HowToPlay = {
             /* --- 映像エリア（デモ）のCSS --- */
             .htp-demo-area {
                 width: 100%; height: 200px;
-                background: #87CEEB; /* 空色 */
+                background: #87CEEB; 
                 position: relative; border-radius: 8px; overflow: hidden;
                 border: 2px solid #555; box-sizing: border-box; flex-shrink: 0;
             }
-            .htp-demo-area::after {
-                content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 60%;
-                background: #66cc66; /* 芝生 */ border-top: 2px solid #55aa55; z-index: 0;
+            #htp-demo-canvas-container {
+                position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             }
             
             /* UI模倣 */
@@ -89,69 +97,18 @@ window.HowToPlay = {
                 position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; 
                 background: rgba(255, 255, 255, 0.9); border-radius: 50%; 
                 box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-                animation: demoStickMove 8s infinite ease-in-out;
+                transform: translate(-50%, -50%);
             }
             .htp-demo-arrow {
                 position: absolute; top: 50%; left: 50%; width: 0; height: 0;
                 border-left: 10px solid transparent; border-right: 10px solid transparent;
-                border-bottom: 16px solid #ffcc00; margin-left: -10px; margin-top: -16px;
+                border-bottom: 16px solid #ffaa00; margin-left: -10px; margin-top: -16px;
                 transform-origin: 50% 100%; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
-                animation: demoArrowMove 8s infinite;
+                opacity: 0;
             }
             .htp-demo-finger {
                 position: absolute; top: 15px; left: 10px; font-size: 30px;
                 filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5));
-                animation: demoFingerTap 8s infinite;
-            }
-
-            /* キャラクター模倣 */
-            .htp-demo-player {
-                position: absolute; top: 50%; left: 50%; width: 40px; height: 40px;
-                margin-top: -10px; margin-left: -20px; /* 少し下からスタート */
-                background: #111; border-radius: 50%;
-                display: flex; justify-content: center; align-items: center;
-                box-shadow: 0 4px 5px rgba(0,0,0,0.5); z-index: 10;
-                animation: demoPlayerMove 8s infinite ease-in-out;
-            }
-            .htp-demo-player-inner {
-                width: 34px; height: 34px; background: #FFDD88; 
-                border: 2px solid #FFAA00; border-radius: 50%;
-                display: flex; justify-content: center; align-items: center;
-                font-size: 18px; position: relative; box-sizing: border-box;
-            }
-            .htp-demo-player-dir {
-                position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
-                width: 8px; height: 8px; background: #ff4400; border-radius: 50%;
-            }
-
-            /* --- デモ用のアニメーション --- */
-            @keyframes demoStickMove {
-                0%, 5%, 30%, 35%, 65%, 70%, 100% { transform: translate(-50%, -50%); }
-                10%, 25% { transform: translate(-50%, -120%); } /* 前（上） */
-                45%, 60% { transform: translate(30%, -100%); } /* 右斜め前 */
-                80%, 95% { transform: translate(-100%, 30%); } /* 左斜め後ろ（戻る） */
-            }
-            @keyframes demoArrowMove {
-                0%, 5%, 25%, 35%, 60%, 70%, 95%, 100% { opacity: 0; }
-                10%, 20% { opacity: 1; transform: rotate(0deg) translateY(-25px); }
-                45%, 55% { opacity: 1; transform: rotate(45deg) translateY(-25px); }
-                80%, 90% { opacity: 1; transform: rotate(225deg) translateY(-25px); }
-            }
-            @keyframes demoFingerTap {
-                0%, 5%, 30%, 35%, 65%, 70%, 100% { transform: scale(1.1) translateY(5px); }
-                10%, 25%, 45%, 60%, 80%, 95% { transform: scale(1.0) translateY(0); }
-            }
-            @keyframes demoPlayerMove {
-                0%, 10% { transform: translate(0px, 0px) rotate(0deg); }
-                15% { transform: translate(0px, -20px) rotate(0deg); } /* 前へ */
-                20%, 35% { transform: translate(0px, -40px) rotate(0deg); } 
-                40% { transform: translate(0px, -40px) rotate(45deg); } /* 向きを右へ */
-                45% { transform: translate(25px, -65px) rotate(45deg); } 
-                55%, 70% { transform: translate(50px, -90px) rotate(45deg); } 
-                75% { transform: translate(50px, -90px) rotate(-135deg); } /* 向きを左後ろへ */
-                80% { transform: translate(25px, -45px) rotate(-135deg); } 
-                90%, 95% { transform: translate(0px, 0px) rotate(-135deg); } 
-                100% { transform: translate(0px, 0px) rotate(0deg); } /* 正面へリセット */
             }
 
             /* 説明テキストとナビゲーション */
@@ -171,7 +128,6 @@ window.HowToPlay = {
                 border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;
             }
             .htp-nav-btn:active { transform: scale(0.95); }
-            
             .htp-temp-text { color: #aaa; text-align: center; margin-top: 20px; font-size: 14px; line-height: 1.5; }
         `;
         document.head.appendChild(style);
@@ -212,13 +168,11 @@ window.HowToPlay = {
                 <!-- ＝＝＝ 1. 基本操作 (移動) ＝＝＝ -->
                 <div id="htp-page-basic" class="htp-page">
                     <div class="htp-demo-area">
-                        <div class="htp-demo-player">
-                            <div class="htp-demo-player-inner">👤<div class="htp-demo-player-dir"></div></div>
-                        </div>
+                        <div id="htp-demo-canvas-container"></div>
                         <div class="htp-demo-joystick-base">
-                            <div class="htp-demo-arrow"></div>
-                            <div class="htp-demo-joystick-stick">
-                                <div class="htp-demo-finger">👆</div>
+                            <div class="htp-demo-arrow" id="htp-demo-arrow"></div>
+                            <div class="htp-demo-joystick-stick" id="htp-demo-stick">
+                                <div class="htp-demo-finger" id="htp-demo-finger">👆</div>
                             </div>
                         </div>
                         <div class="htp-demo-jump">JUMP</div>
@@ -276,6 +230,7 @@ window.HowToPlay = {
         
         document.getElementById('htp-close-btn').addEventListener('click', () => {
             htpWindow.style.display = 'none';
+            this.stopDemo(); // ウィンドウを閉じたらデモを停止
         });
         
         document.getElementById('htp-back-btn').addEventListener('click', () => {
@@ -294,10 +249,14 @@ window.HowToPlay = {
         const navBtns = htpWindow.querySelectorAll('.htp-nav-btn');
         navBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                // 基本操作カテゴリ内の移動なので、タイトルは「1. 基本操作」で固定
                 this.showPage(btn.getAttribute('data-target'), "1. 基本操作");
             });
         });
+
+        // デモ環境の初期化
+        setTimeout(() => {
+            this.initDemo3D();
+        }, 1000);
     },
     
     // 目次に戻る
@@ -308,6 +267,8 @@ window.HowToPlay = {
         const pages = document.querySelectorAll('.htp-page');
         pages.forEach(p => p.classList.remove('active'));
         document.getElementById('htp-index').classList.add('active');
+        
+        this.stopDemo(); // 目次ではデモ不要
     },
     
     // 指定したページを表示する
@@ -318,5 +279,194 @@ window.HowToPlay = {
         const pages = document.querySelectorAll('.htp-page');
         pages.forEach(p => p.classList.remove('active'));
         document.getElementById(pageId).classList.add('active');
+
+        // 移動のページならデモ開始、それ以外は停止
+        if (pageId === 'htp-page-basic') {
+            this.startDemo();
+        } else {
+            this.stopDemo();
+        }
+    },
+
+    // ==========================================
+    // 3Dデモ映像の管理
+    // ==========================================
+    initDemo3D: function() {
+        this.demo.container = document.getElementById('htp-demo-canvas-container');
+        this.demo.stick = document.getElementById('htp-demo-stick');
+        this.demo.arrow = document.getElementById('htp-demo-arrow');
+        this.demo.finger = document.getElementById('htp-demo-finger');
+        if (!this.demo.container || typeof THREE === 'undefined') return;
+
+        const width = this.demo.container.clientWidth;
+        const height = this.demo.container.clientHeight;
+
+        // シーン、カメラ、レンダラー
+        this.demo.scene = new THREE.Scene();
+        this.demo.scene.background = new THREE.Color(0x87CEEB);
+        this.demo.scene.fog = new THREE.Fog(0x87CEEB, 10, 80);
+
+        this.demo.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
+        
+        // 本編と同じ位置関係を模倣（距離22、高さ18。ただし少しズームして見やすくする）
+        this.demo.camera.position.set(0, 14, 16); 
+        this.demo.camera.lookAt(0, 1, 0);
+
+        this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.demo.renderer.setSize(width, height);
+        this.demo.renderer.shadowMap.enabled = true;
+        this.demo.container.appendChild(this.demo.renderer.domElement);
+
+        // ライト
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        this.demo.scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 40, 20);
+        dirLight.castShadow = true;
+        this.demo.scene.add(dirLight);
+
+        // 無限ループ平面マップ（市松模様）
+        const canvas = document.createElement('canvas');
+        canvas.width = 512; canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#81C784'; ctx.fillRect(0, 0, 512, 512); // 明るい緑
+        ctx.fillStyle = '#4CAF50'; // 濃い緑
+        ctx.fillRect(0, 0, 256, 256);
+        ctx.fillRect(256, 256, 256, 256);
+        
+        this.demo.floorTexture = new THREE.CanvasTexture(canvas);
+        this.demo.floorTexture.wrapS = THREE.RepeatWrapping;
+        this.demo.floorTexture.wrapT = THREE.RepeatWrapping;
+        this.demo.floorTexture.repeat.set(20, 20); // 敷き詰める
+
+        const floorGeo = new THREE.PlaneGeometry(200, 200);
+        const floorMat = new THREE.MeshStandardMaterial({ map: this.demo.floorTexture, roughness: 0.8 });
+        const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+        floorMesh.rotation.x = -Math.PI / 2;
+        floorMesh.receiveShadow = true;
+        this.demo.scene.add(floorMesh);
+
+        // プレイヤーキャラクター生成（本編の実装を模倣）
+        const pRadius = 1.2;
+        this.demo.player = new THREE.Group();
+        
+        const baseGeo = new THREE.CylinderGeometry(pRadius, pRadius, 0.2, 32);
+        const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
+        const baseMesh = new THREE.Mesh(baseGeo, blackMat);
+        baseMesh.position.y = 0.1; baseMesh.castShadow = true;
+        this.demo.player.add(baseMesh);
+
+        const topGeo = new THREE.CylinderGeometry(pRadius, pRadius, 0.2, 32);
+        let iconTexture = null;
+        if (typeof window.createIconTexture === 'function') iconTexture = window.createIconTexture();
+        const sideMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
+        const topMat = new THREE.MeshStandardMaterial({ map: iconTexture, roughness: 0.7 });
+        const bottomMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
+        const topMesh = new THREE.Mesh(topGeo, [sideMat, topMat, bottomMat]);
+        topMesh.position.y = 0.3; topMesh.castShadow = true;
+        this.demo.player.add(topMesh);
+
+        if (typeof window.createNameSprite === 'function') {
+            const nameSprite = window.createNameSprite("DemoPlayer");
+            this.demo.player.add(nameSprite);
+        }
+        
+        this.demo.scene.add(this.demo.player);
+        this.demo.clock = new THREE.Clock();
+
+        // リサイズ対応
+        window.addEventListener('resize', () => {
+            if (this.demo.container && this.demo.camera && this.demo.renderer) {
+                const w = this.demo.container.clientWidth;
+                const h = this.demo.container.clientHeight;
+                if (w > 0 && h > 0) {
+                    this.demo.camera.aspect = w / h;
+                    this.demo.camera.updateProjectionMatrix();
+                    this.demo.renderer.setSize(w, h);
+                }
+            }
+        });
+    },
+
+    startDemo: function() {
+        if (!this.demo.scene || this.demo.isRunning) return;
+        this.demo.isRunning = true;
+        this.demo.clock.start();
+        this.animateDemo();
+        
+        // リサイズを一度叩いてサイズを合わせる
+        window.dispatchEvent(new Event('resize'));
+    },
+
+    stopDemo: function() {
+        this.demo.isRunning = false;
+        if (this.demo.reqId) {
+            cancelAnimationFrame(this.demo.reqId);
+            this.demo.reqId = null;
+        }
+    },
+
+    animateDemo: function() {
+        if (!this.demo.isRunning) return;
+        this.demo.reqId = requestAnimationFrame(() => this.animateDemo());
+
+        const delta = this.demo.clock.getDelta();
+        const time = this.demo.clock.getElapsedTime();
+
+        // 8秒周期のアニメーションシナリオ
+        const cycle = time % 8.0;
+        let inputX = 0, inputY = 0; // 上下がY (前=1, 後=-1)
+        let isMoving = false;
+
+        if (cycle < 2.0) {
+            inputX = 0; inputY = 1.0; // 前へ
+            isMoving = true;
+        } else if (cycle > 2.5 && cycle < 4.5) {
+            inputX = 0.7; inputY = 0.7; // 右斜め前へ
+            isMoving = true;
+        } else if (cycle > 5.0 && cycle < 7.0) {
+            inputX = -0.7; inputY = -0.7; // 左斜め後ろへ
+            isMoving = true;
+        }
+
+        // --- UI（ジョイスティックと指）の更新 ---
+        const maxStickDist = 20; 
+        const stickX = inputX * maxStickDist;
+        const stickY = -inputY * maxStickDist; // 画面上は上がマイナスY
+        this.demo.stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
+        
+        if (isMoving) {
+            this.demo.arrow.style.opacity = '1';
+            const arrowAngle = Math.atan2(stickY, stickX) * (180 / Math.PI) + 90;
+            this.demo.arrow.style.transform = `rotate(${arrowAngle}deg) translateY(-22px)`;
+            this.demo.finger.style.transform = 'scale(1.0) translateY(0)';
+        } else {
+            this.demo.arrow.style.opacity = '0';
+            this.demo.finger.style.transform = 'scale(1.1) translateY(5px)';
+        }
+
+        // --- 3D（プレイヤーと床）の更新 ---
+        if (isMoving) {
+            // 本編に合わせて前方は -Z
+            const moveDirX = inputX;
+            const moveDirZ = -inputY; 
+            
+            // 目標角度
+            this.demo.targetAngle = Math.atan2(moveDirX, moveDirZ);
+            
+            // プレイヤーの向きを滑らかに回転 (slerp)
+            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.demo.targetAngle);
+            this.demo.player.quaternion.slerp(rotQuat, 12 * delta);
+
+            // 床をスクロールさせて移動を表現（本編のmoveSpeed=16に準拠）
+            const speed = 16.0 * delta;
+            // CanvasTextureは全体サイズが(幅1,高さ1)として扱われる。repeatが20なので縮尺を考慮
+            const textureSpeed = speed / 200.0 * 20; 
+            this.demo.floorTexture.offset.x -= moveDirX * textureSpeed;
+            this.demo.floorTexture.offset.y -= moveDirZ * textureSpeed;
+        }
+
+        this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
 };
+
