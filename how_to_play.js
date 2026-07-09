@@ -136,7 +136,6 @@ window.HowToPlay = {
             <div class="htp-content" id="htp-content-area">
                 <!-- 目次画面 -->
                 <div id="htp-index" class="htp-page active">
-                    <!-- ★ 1つのファイルに統合 -->
                     <button class="htp-menu-btn" data-script="htp_basic.js" data-obj="HTP_Basic" data-title="1. 基本操作">1. 基本操作</button>
                     <!-- 後日実装予定の項目 -->
                     <button class="htp-menu-btn" onclick="alert('次回実装予定です')">2. アイテム</button>
@@ -249,13 +248,25 @@ window.HowToPlay = {
 
         this.demo.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
         this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.demo.renderer.shadowMap.enabled = true;
+        this.demo.renderer.shadowMap.enabled = true; // シャドウマップ有効化
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.demo.scene.add(ambientLight);
+        
+        // ★ 影を落とすディレクショナルライトの設定（影の計算範囲を指定）
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
         dirLight.position.set(20, 40, 20);
         dirLight.castShadow = true;
+        
+        // 影の計算領域（シャドウカメラ）を広く設定して、画面内に影を描画させる
+        const d = 40;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        
         this.demo.scene.add(dirLight);
 
         const canvas = document.createElement('canvas');
@@ -275,7 +286,7 @@ window.HowToPlay = {
         const floorMat = new THREE.MeshStandardMaterial({ map: this.demo.floorTexture, roughness: 0.8 });
         this.demo.floorMesh = new THREE.Mesh(floorGeo, floorMat);
         this.demo.floorMesh.rotation.x = -Math.PI / 2;
-        this.demo.floorMesh.receiveShadow = true;
+        this.demo.floorMesh.receiveShadow = true; // 床が影を受ける
         this.demo.floorMesh.userData.isTerrain = true; 
         this.demo.scene.add(this.demo.floorMesh);
 
@@ -285,7 +296,8 @@ window.HowToPlay = {
         const baseGeo = new THREE.CylinderGeometry(pRadius, pRadius, 0.2, 32);
         const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
         const baseMesh = new THREE.Mesh(baseGeo, blackMat);
-        baseMesh.position.y = 0.1; baseMesh.castShadow = true;
+        baseMesh.position.y = 0.1; 
+        baseMesh.castShadow = true; // プレイヤーのベースが影を落とす
         this.demo.player.add(baseMesh);
 
         let iconTexture = null;
@@ -313,7 +325,8 @@ window.HowToPlay = {
         const topMat = new THREE.MeshStandardMaterial({ map: iconTexture, roughness: 0.7 });
         const bottomMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.7 });
         const topMesh = new THREE.Mesh(topGeo, [sideMat, topMat, bottomMat]);
-        topMesh.position.y = 0.3; topMesh.castShadow = true;
+        topMesh.position.y = 0.3; 
+        topMesh.castShadow = true; // プレイヤーのトップが影を落とす
         this.demo.player.add(topMesh);
 
         let userName = "Player";
