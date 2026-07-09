@@ -21,6 +21,10 @@ window.HTP_Item = {
     // ダミー3Dオブジェクト
     dummyItem: null, enemy: null, bombGroup: null, netMesh: null,
     expGroup: null, expSphere: null, expRing: null, expTimer: 0,
+    
+    // アイテム獲得用変数
+    itemCount: 0,
+    respawnTimer: 0,
 
     init: function(container, htpManager) {
         // --- デモ空間専用のCSS ---
@@ -54,7 +58,6 @@ window.HTP_Item = {
                     <span id="htp-demo-slot-icon"></span>
                     <div class="htp-demo-item-timer" id="htp-demo-slot-timer"></div>
                 </div>
-                <!-- ★スロット用の指の座標を修正 -->
                 <div class="htp-demo-finger" id="htp-demo-finger-slot" style="position:absolute; bottom:85px; right:20px; display:none; z-index:15;">👆</div>
 
                 <div class="htp-demo-jump" id="htp-demo-jump-btn">JUMP</div>
@@ -117,7 +120,7 @@ window.HTP_Item = {
                     <div>
                         使用すると、自分がいる地面に透明な罠（ネット）を設置します。<br><br>
                         <span style="color:#ffaa00; font-weight:bold;">ライバルが罠を踏むと捕まり、5秒間だけ移動やジャンプができなくなります！</span><br>
-                        設置後1秒間は自分にも引っかかるので、置き逃げ推奨です。
+                        設置後1秒以降は自分にも引っかかるので、置き逃げ推奨です。
                     </div>
                 </div>
                 <div class="htp-page-footer">
@@ -179,6 +182,8 @@ window.HTP_Item = {
         this.jumpedThisCycle = false;
         this.bombPlaced = false;
         this.netPlaced = false;
+        this.itemCount = 0;
+        this.respawnTimer = 0;
 
         // モード別初期配置
         if (mode === 'pickup') {
@@ -186,7 +191,6 @@ window.HTP_Item = {
             this.dummyItem.position.set(0, 1.5, htpManager.demo.player.position.z - 12);
         } else if (mode === 'bomb' || mode === 'net') {
             this.enemy.visible = true;
-            // プレイヤーが後退（+Z方向）へ逃げるため、敵は奥（-Z方向）に配置して追いかけさせる
             this.enemy.position.set(0, 1.2, htpManager.demo.player.position.z - 15);
             this.enemy.isFlying = false;
             this.enemy.speed = 16.0;
@@ -267,16 +271,16 @@ window.HTP_Item = {
     updateScenario: function(time, delta, demo) {
         this.scenarioTime += delta;
 
-        // ★ ワープ対策 (前進・後退どちらのワープにも対応しチラつきを防止)
+        // ワープ対策
         if (this.lastPlayerZ !== undefined) {
             const diff = demo.player.position.z - this.lastPlayerZ;
-            if (diff < -10) { // 後退していてワープで一気に減った時
+            if (diff < -10) { 
                 this.dummyItem.position.z -= 20;
                 this.enemy.position.z -= 20;
                 this.bombGroup.position.z -= 20;
                 this.netMesh.position.z -= 20;
                 this.expGroup.position.z -= 20;
-            } else if (diff > 10) { // 前進していてワープで一気に増えた時
+            } else if (diff > 10) { 
                 this.dummyItem.position.z += 20;
                 this.enemy.position.z += 20;
                 this.bombGroup.position.z += 20;
@@ -288,7 +292,6 @@ window.HTP_Item = {
 
         const mode = this.modes[this.modeIdx];
         
-        // プレイヤーの移動方向決定 (ボムとネットは後退、それ以外は前進)
         let inputY = 1.0; 
         if (mode === 'bomb' || mode === 'net') inputY = -1.0;
         
@@ -328,14 +331,15 @@ window.HTP_Item = {
         else if (mode === 'net') this.updateNet(delta, demo);
     },
 
-    // 1. 取得
+    // 1. 取得 (連続取得の表現)
     updatePickup: function(delta, demo) {
-        if (this.scenarioTime > 8) {
-            this.scenarioTime = 0;
-            this.dummyItem.visible = true;
-            this.dummyItem.position.set(0, 1.5, demo.player.position.z - 15);
-            this.slotIcon.innerText = '';
-            this.slotUI.classList.remove('active');
+        // アイテムが非表示ならタイマーを進めて再出現させる
+        if (!this.dummyItem.visible) {
+            this.respawnTimer -= delta;
+            if (this.respawnTimer <= 0) {
+                this.dummyItem.visible = true;
+                this.dummyItem.position.set(0, 1.5, demo.player.position.z - 15);
+            }
         }
         
         if (this.dummyItem.visible) {
@@ -344,10 +348,18 @@ window.HTP_Item = {
             
             if (demo.player.position.distanceTo(this.dummyItem.position) < 3.0) {
                 this.dummyItem.visible = false;
-                this.slotIcon.innerText = '❓';
-                this.slotUI.classList.add('active');
-                this.slotUI.style.transform = 'scale(1.3)';
-                setTimeout(() => { if (this.slotUI) this.slotUI.style.transform = 'scale(1.0)'; }, 150);
+                this.respawnTimer = 1.2; // 1.2秒後に次のアイテムを出現させる
+                
+                // アイテムを順番に切り替える
+                const itemIcons = ['💣', '🪽', '🕸️'];
+                this.slotIcon.innerText = itemIcons[this.itemCount % itemIcons.length];
+                this.itemCount++;
+                
+                if (this.slotUI) {
+                    this.slotUI.classList.add('active');
+                    this.slotUI.style.transform = 'scale(1.3)';
+                    setTimeout(() => { if (this.slotUI) this.slotUI.style.transform = 'scale(1.0)'; }, 150);
+                }
             }
         }
     },
@@ -417,9 +429,18 @@ window.HTP_Item = {
             this.bombPlaced = false;
         }
 
-        // 敵はZ+方向（手前）へ追いかけてくる
+        // 敵は手前へ追いかけてくるが、ボムの近くまで来たら気付いて立ち止まる
         if (this.enemy.visible && !this.enemy.isFlying) {
-            this.enemy.position.z += this.enemy.speed * delta;
+            let shouldMove = true;
+            if (this.bombPlaced) {
+                const distToBomb = Math.hypot(this.enemy.position.x - this.bombGroup.position.x, this.enemy.position.z - this.bombGroup.position.z);
+                if (distToBomb < 2.0) {
+                    shouldMove = false; // ボムの近くで停止
+                }
+            }
+            if (shouldMove) {
+                this.enemy.position.z += this.enemy.speed * delta;
+            }
         }
         
         if (this.scenarioTime < 2.0) {
