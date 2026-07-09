@@ -514,6 +514,12 @@ window.HowToPlay = {
             const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetAngle);
             this.demo.player.quaternion.slerp(rotQuat, 6 * delta);
             this.demo.context.currentFacingAngle = targetAngle; // Context側の状態も揃える
+            
+            // ★追加: 停止中はカメラも背後(0)へ戻す
+            let diffCam = 0 - this.demo.context.cameraAngle;
+            while (diffCam > Math.PI) diffCam -= Math.PI * 2;
+            while (diffCam < -Math.PI) diffCam += Math.PI * 2;
+            this.demo.context.cameraAngle += diffCam * 4.0 * delta;
         }
 
         // ★★★ ここで本編(main.js)のコアロジックを呼び出し、計算をすべて任せる ★★★

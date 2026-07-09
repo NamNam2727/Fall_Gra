@@ -498,7 +498,8 @@ window.updateCamera = function(instant, delta = 0.016, ctx = window.mainContext)
         }
     }
 
-    const targetCamPos = getCameraPosBySlider(ctx.cameraSliderValue, cAngle, ctx);
+    // ★修正箇所：引数に ctx.player.position を渡し忘れていたためNaNになり落ちていたバグを修正
+    const targetCamPos = getCameraPosBySlider(ctx.cameraSliderValue, cAngle, ctx.player.position, ctx);
     
     if (instant) ctx.camera.position.copy(targetCamPos);
     else ctx.camera.position.lerp(targetCamPos, 0.1);
