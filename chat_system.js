@@ -1,6 +1,7 @@
 // =========================================================
 // chat_system.js
 // チャット機能、ログ表示、定型文（ショートカット）管理
+// ★ショートカット枠を4つ追加し、合計10個に拡張
 // =========================================================
 
 window.addLog = function(htmlText, type = 'sys') {
@@ -153,9 +154,11 @@ window.initChatSystem = function() {
         shortcuts = null;
     }
     
+    // ★ デフォルトのショートカットを6個から10個に拡張
     if (!shortcuts || shortcuts.length === 0) {
         shortcuts = [
-            "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！"
+            "こんにちは！", "よろしく！", "ありがとう", "ごめん！", "たすけて！", "お疲れ様！",
+            "ナイス！", "どんまい！", "こっちだよ！", "了解！"
         ];
     } else {
         let modified = false;
@@ -165,6 +168,12 @@ window.initChatSystem = function() {
                 modified = true;
             }
         }
+        // ★ 古いバージョン（6個）のセーブデータが残っていたら、自動的に4つ追加して10個にする
+        if (shortcuts.length === 6) {
+            shortcuts.push("ナイス！", "どんまい！", "こっちだよ！", "了解！");
+            modified = true;
+        }
+        
         if (modified) {
             localStorage.setItem('fallGraShortcuts', JSON.stringify(shortcuts));
         }
@@ -218,11 +227,10 @@ window.initChatSystem = function() {
 
     renderShortcuts();
     
-    // ★追加: 自分がルーム作成者だった場合、ゲーム開始時に案内文をチャットに表示する
     if (window.GameState && window.GameState.isHost && window.GameState.currentRoomId && !window.GameState.isLocalMode) {
         setTimeout(() => {
             const roomId = window.GameState.currentRoomId;
             window.addLog(`<span style="color:#00ffff; font-size:13px; display:block; padding: 4px; border: 1px solid rgba(0,255,255,0.5); border-radius: 4px; background: rgba(0,255,255,0.1);">新規ルームを作成しました。<br>ルームIDは「${roomId}」です。<br>右側のメンバーリストからルームIDをコピーすることが可能です。</span>`, 'sys');
-        }, 2000); // UI構築などが落ち着いた2秒後に表示
+        }, 2000); 
     }
 };

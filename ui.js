@@ -1,8 +1,7 @@
 // =====================================
 // ui.js
 // 基礎的なUI要素（移動、ジャンプ、チャット等）を生成
-// ★オートカメラの完成に伴い、手動カメラスライダーのUIを削除
-// ★チャットタブを上にドラッグして高さをリサイズできる機能を実装
+// ★チャット欄のデフォルト高さを220pxに拡張
 // =====================================
 
 function initUI() {
@@ -52,7 +51,9 @@ function initUI() {
         #bottomTabs { display: flex; pointer-events: auto; }
         .bottom-tab-btn { background-color: rgba(40, 40, 40, 0.9); border: 2px solid #555; border-bottom: none; color: #ccc; font-size: 12px; padding: 6px 15px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: bold; margin-right: -1px; -webkit-tap-highlight-color: transparent; outline: none; }
         .bottom-tab-btn.active { background-color: rgba(20, 20, 20, 0.85); color: #fff; border-color: #777; z-index: 2; }
-        #bottomContentArea { height: 140px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; transition: height 0.3s ease-in-out, border-width 0.3s ease-in-out; }
+        
+        /* ★ チャット欄の高さを220pxに拡張 */
+        #bottomContentArea { height: 220px; background-color: rgba(20, 20, 20, 0.85); border: 2px solid #777; border-bottom: none; border-radius: 0 8px 0 0; pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; transition: height 0.3s ease-in-out, border-width 0.3s ease-in-out; }
         .bottom-content { flex: 1; display: none; flex-direction: column; padding: 5px; overflow: hidden; }
         .bottom-content.active { display: flex; }
         #chatLogContent { flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.5; color: #ddd; display: flex; flex-direction: column; }
@@ -161,7 +162,8 @@ function initUI() {
     const chatTabBtn = bottomUI.querySelector('.bottom-tab-btn[data-target="chat"]');
     
     let isChatMinimized = false;
-    const DEFAULT_CHAT_HEIGHT = 140;
+    // ★ デフォルトの高さを220に変更
+    const DEFAULT_CHAT_HEIGHT = 220;
     let currentChatHeight = DEFAULT_CHAT_HEIGHT;
 
     function openChat() {
@@ -212,14 +214,12 @@ function initUI() {
     let dragStartHeight = 0;
 
     function onDragStart(e) {
-        // 非アクティブ時や最小化時はドラッグを無効化
         if (!chatTabBtn.classList.contains('active') || isChatMinimized) return;
 
         isDraggingChat = true;
         dragStartY = e.clientY || (e.touches && e.touches[0].clientY);
         dragStartHeight = currentChatHeight;
         
-        // ドラッグ中はスムーズに動くようにCSSアニメーションを無効化
         bottomContentArea.style.transition = 'none';
         
         document.addEventListener('mousemove', onDragMove);
@@ -230,26 +230,24 @@ function initUI() {
 
     function onDragMove(e) {
         if (!isDraggingChat) return;
-        e.preventDefault(); // スワイプ時の画面スクロールを防止
+        e.preventDefault(); 
         
         let clientY = e.clientY || (e.touches && e.touches[0].clientY);
-        let dy = dragStartY - clientY; // 上に持ち上げるとプラスになる
+        let dy = dragStartY - clientY; 
         
         let newHeight = dragStartHeight + dy;
         
-        // 最大高さ（ミニゲームボタンの高さ）を計算
         const minigameBtn = document.getElementById('minigame-btn');
         let maxLimitY = 50; 
         if (minigameBtn) {
             const rect = minigameBtn.getBoundingClientRect();
-            maxLimitY = rect.bottom + 10; // ミニゲームボタンの少し下まで
+            maxLimitY = rect.bottom + 10; 
         }
         
-        // 画面の下端から利用可能な高さを割り出す
         const tabsHeight = document.getElementById('bottomTabs').offsetHeight || 30;
         const maxH = window.innerHeight - 10 - tabsHeight - maxLimitY;
         
-        // 最低は140px、最大はミニゲームボタン下まで
+        // ★ 最低高さを220pxに変更
         newHeight = Math.max(DEFAULT_CHAT_HEIGHT, Math.min(newHeight, maxH));
         currentChatHeight = newHeight;
         
@@ -260,7 +258,6 @@ function initUI() {
         if (!isDraggingChat) return;
         isDraggingChat = false;
         
-        // ドラッグが終わったらCSSアニメーションを元に戻す
         bottomContentArea.style.transition = 'height 0.3s ease-in-out, border-width 0.3s ease-in-out';
         
         document.removeEventListener('mousemove', onDragMove);
@@ -269,22 +266,18 @@ function initUI() {
         document.removeEventListener('touchend', onDragEnd);
     }
 
-    // チャットタブにドラッグイベントを登録
     chatTabBtn.addEventListener('mousedown', onDragStart);
     chatTabBtn.addEventListener('touchstart', onDragStart, {passive: false});
-    // ----------------------------------------------------
 
     uiLayer.appendChild(bottomUI);
     document.body.appendChild(uiLayer);
 
-    // ★各モジュールのUI初期化の呼び出し
     if (window.MultiplayerManager && typeof window.MultiplayerManager.initUI === 'function') {
         window.MultiplayerManager.initUI();
     }
     if (window.MinigameUI && typeof window.MinigameUI.initUI === 'function') {
         window.MinigameUI.initUI();
     }
-    // ★追加: 「あそびかた」UIの初期化呼び出し
     if (window.HowToPlay && typeof window.HowToPlay.initUI === 'function') {
         window.HowToPlay.initUI();
     }
