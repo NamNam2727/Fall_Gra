@@ -96,8 +96,8 @@ window.HowToPlay = {
                 opacity: 0; transition: opacity 0.1s, transform 0.1s linear;
             }
             .htp-demo-finger {
-                position: absolute; top: 15px; left: 10px; font-size: 30px; pointer-events: none;
-                filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5)); transform: scale(1.1) translateY(5px); transition: transform 0.1s;
+                position: absolute; font-size: 30px; pointer-events: none; z-index: 15;
+                filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5)); transform: scale(1.1) translateY(5px); transition: transform 0.1s, opacity 0.2s;
             }
 
             .htp-desc-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.5); border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.6; }
@@ -248,7 +248,7 @@ window.HowToPlay = {
 
         this.demo.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
         this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.demo.renderer.shadowMap.enabled = true; // シャドウマップ有効化
+        this.demo.renderer.shadowMap.enabled = true;
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.demo.scene.add(ambientLight);
