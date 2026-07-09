@@ -10,6 +10,7 @@ window.HTP_Item = {
     jumpedThisCycle: false,
     bombPlaced: false,
     netPlaced: false,
+    playerKbz: 0, // プレイヤー用のノックバック速度
 
     // UI要素
     stick: null, arrow: null, fingerMove: null,
@@ -36,7 +37,14 @@ window.HTP_Item = {
             }
             .htp-demo-item-slot.active { background: rgba(255, 255, 255, 0.9); }
             .htp-demo-item-slot.cooling { background: rgba(0, 0, 0, 0.8); }
-            .htp-demo-item-timer { position: absolute; bottom: -5px; right: -5px; font-size: 16px; font-weight: bold; color: white; text-shadow: 1px 1px 2px black; font-family: sans-serif; display: none; }
+            
+            /* ★カウントダウンタイマーを中央に配置するよう修正 */
+            .htp-demo-item-timer { 
+                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                font-size: 26px; font-weight: bold; color: white; text-shadow: 1px 1px 4px black, -1px -1px 4px black; 
+                font-family: sans-serif; display: none; z-index: 20; pointer-events: none;
+            }
+            
             .htp-sub-panel { display: none; flex-direction: column; flex: 1; }
             .htp-sub-panel.active { display: flex; }
         `;
@@ -56,7 +64,6 @@ window.HTP_Item = {
                     <span id="htp-demo-slot-icon"></span>
                     <div class="htp-demo-item-timer" id="htp-demo-slot-timer"></div>
                 </div>
-                <!-- ★スロット用の指の座標を修正 -->
                 <div class="htp-demo-finger" id="htp-demo-finger-slot" style="position:absolute; bottom:85px; right:20px; display:none; z-index:15;">👆</div>
 
                 <div class="htp-demo-jump" id="htp-demo-jump-btn">JUMP</div>
@@ -182,13 +189,13 @@ window.HTP_Item = {
         this.netPlaced = false;
         this.itemCount = 0;
         this.respawnTimer = 0;
+        this.playerKbz = 0;
 
         // モード別初期配置
         if (mode === 'pickup') {
             this.dummyItem.visible = true;
             this.dummyItem.position.set(0, 1.5, htpManager.demo.player.position.z - 12);
         } else if (mode === 'bomb' || mode === 'net') {
-            // ボムやネットが入っている状態からスタート
             this.slotIcon.innerText = mode === 'bomb' ? '💣' : '🕸️';
             this.slotUI.classList.add('active');
             
@@ -199,7 +206,6 @@ window.HTP_Item = {
         }
     },
 
-    // --- ワープ時に呼ばれ、すべてのダミーオブジェクトをプレイヤーに追従させる ---
     onWarp: function(warpX, warpZ) {
         if (this.dummyItem) { this.dummyItem.position.x += warpX; this.dummyItem.position.z += warpZ; }
         if (this.enemy) { this.enemy.position.x += warpX; this.enemy.position.z += warpZ; }
@@ -274,7 +280,6 @@ window.HTP_Item = {
         
         let inputY = 1.0; 
         
-        // ★ボム使用時の演出：ボムを置いた後、少しの間立ち止まって爆発を見届ける
         if (mode === 'bomb') {
             if (this.scenarioTime >= 2.2 && this.scenarioTime < 6.5) {
                 inputY = 0.0; // 停止
@@ -282,7 +287,7 @@ window.HTP_Item = {
                 inputY = -1.0; // 手前へ移動
             }
         } else if (mode === 'net') {
-            inputY = -1.0; // ネットは常に手前へ走りながら逃げる
+            inputY = -1.0; 
         }
         
         demo.context.moveVector.set(0, -inputY);
@@ -311,12 +316,23 @@ window.HTP_Item = {
                 this.enemy.position.y += this.enemy.verticalVelocity * delta;
                 this.enemy.position.z += this.enemy.vz * delta;
                 this.enemy.rotation.x -= 10 * delta; 
+                
+                // ★着地処理（バウンドさせずに摩擦で横滑りさせる）
+                if (this.enemy.position.y <= 1.2) {
+                    this.enemy.position.y = 1.2;
+                    this.enemy.verticalVelocity = 0;
+                    this.enemy.vz *= 0.85; // 滑りながら減速
+                    if (Math.abs(this.enemy.vz) < 1.0) {
+                        this.enemy.isFlying = false;
+                        this.enemy.vz = 0;
+                        this.enemy.rotation.x = 0;
+                    }
+                }
             } else {
                 this.enemy.position.y = 1.2; 
                 this.enemy.rotation.x = 0;
                 
                 let shouldMove = true;
-                // ★ボムの時は、ボムの近くまで来たら気付いて立ち止まらせる
                 if (mode === 'bomb' && this.bombPlaced) {
                     const distToBomb = Math.hypot(this.enemy.position.x - this.bombGroup.position.x, this.enemy.position.z - this.bombGroup.position.z);
                     if (distToBomb < 2.0) {
@@ -324,25 +340,23 @@ window.HTP_Item = {
                     }
                 }
                 
-                if (this.enemy.speed === 0) shouldMove = false; // ネット拘束中
+                if (this.enemy.speed === 0) shouldMove = false;
 
                 if (shouldMove) {
-                    this.enemy.position.z += this.enemy.speed * delta; // 奥から手前へ追いかけてくる
+                    this.enemy.position.z += this.enemy.speed * delta;
                 } else {
-                    this.enemy.position.x = Math.sin(time * 30) * 0.1; // もがく/怯える表現
+                    this.enemy.position.x = Math.sin(time * 30) * 0.1;
                     this.enemy.rotation.y = Math.sin(time * 20) * 0.2;
                 }
             }
         }
 
-        // モード別分岐
         if (mode === 'pickup') this.updatePickup(delta, demo);
         else if (mode === 'fly') this.updateFly(delta, demo);
         else if (mode === 'bomb') this.updateBomb(delta, demo);
         else if (mode === 'net') this.updateNet(delta, demo);
     },
 
-    // 1. 取得 (永遠に連続取得し続ける)
     updatePickup: function(delta, demo) {
         if (!this.dummyItem.visible) {
             this.respawnTimer -= delta;
@@ -358,7 +372,7 @@ window.HTP_Item = {
             
             if (demo.player.position.distanceTo(this.dummyItem.position) < 3.0) {
                 this.dummyItem.visible = false;
-                this.respawnTimer = 1.5; // 1.5秒後に次のアイテムを出現させる
+                this.respawnTimer = 1.5;
                 
                 const itemIcons = ['💣', '🪽', '🕸️'];
                 this.slotIcon.innerText = itemIcons[this.itemCount % itemIcons.length];
@@ -373,7 +387,6 @@ window.HTP_Item = {
         }
     },
 
-    // 2. 🪽 フライ
     updateFly: function(delta, demo) {
         if (this.scenarioTime > 10) this.scenarioTime = 0;
         
@@ -426,7 +439,6 @@ window.HTP_Item = {
         }
     },
 
-    // 3. 💣 ボム
     updateBomb: function(delta, demo) {
         if (this.scenarioTime > 10) {
             this.scenarioTime = 0;
@@ -470,10 +482,23 @@ window.HTP_Item = {
                 this.expGroup.position.copy(this.bombGroup.position);
                 this.expTimer = 0.5;
                 
+                // ★敵を水平方向メインで強く奥へ吹き飛ばす
                 this.enemy.isFlying = true;
-                this.enemy.verticalVelocity = 40;
-                this.enemy.vz = -20; // 奥へ吹き飛ぶ
+                this.enemy.verticalVelocity = 15; 
+                this.enemy.vz = -35; 
+                
+                // ★プレイヤーを水平方向メインで手前（+Z）へ吹き飛ばす
+                demo.context.isJumping = true;
+                demo.context.verticalVelocity = 15;
+                this.playerKbz = 35; 
             }
+        }
+        
+        // プレイヤーのノックバック処理
+        if (this.playerKbz > 0) {
+            demo.player.position.z += this.playerKbz * delta;
+            this.playerKbz -= 70 * delta; // 摩擦で徐々に減速
+            if (this.playerKbz < 0) this.playerKbz = 0;
         }
         
         if (this.expGroup.visible) {
@@ -493,7 +518,6 @@ window.HTP_Item = {
         }
     },
 
-    // 4. 🕸️ ネット
     updateNet: function(delta, demo) {
         if (this.scenarioTime > 10) {
             this.scenarioTime = 0;
