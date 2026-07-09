@@ -10,7 +10,7 @@ window.HowToPlay = {
         player: null, floorTexture: null,
         clock: null, reqId: null, isRunning: false,
         container: null, stick: null, arrow: null, finger: null,
-        targetAngle: 0
+        targetAngle: Math.PI, currentCamAngle: Math.PI
     },
 
     initUI: function() {
@@ -324,7 +324,7 @@ window.HowToPlay = {
         dirLight.castShadow = true;
         this.demo.scene.add(dirLight);
 
-        // 無限ループ平面マップ（巨大なPlane）
+        // 床（巨大な平面）
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
@@ -336,7 +336,8 @@ window.HowToPlay = {
         this.demo.floorTexture = new THREE.CanvasTexture(canvas);
         this.demo.floorTexture.wrapS = THREE.RepeatWrapping;
         this.demo.floorTexture.wrapT = THREE.RepeatWrapping;
-        this.demo.floorTexture.repeat.set(250, 250); // 1000/4 = 250 (4x4サイズに合わせる)
+        // マス目を4x4サイズに合わせる
+        this.demo.floorTexture.repeat.set(250, 250); 
 
         const floorGeo = new THREE.PlaneGeometry(1000, 1000);
         const floorMat = new THREE.MeshStandardMaterial({ map: this.demo.floorTexture, roughness: 0.8 });
@@ -355,7 +356,7 @@ window.HowToPlay = {
         baseMesh.position.y = 0.1; baseMesh.castShadow = true;
         this.demo.player.add(baseMesh);
 
-        // ★ 本編のプレイヤーからロード済みアイコン画像を強奪してTextureを再生成する
+        // 本編のプレイヤーからアイコン画像を直接コピー
         let iconTexture = null;
         if (typeof player !== 'undefined' && player) {
             player.children.forEach(child => {
@@ -395,10 +396,8 @@ window.HowToPlay = {
         }
         
         this.demo.scene.add(this.demo.player);
-
         this.demo.clock = new THREE.Clock();
 
-        // リサイズ対応
         window.addEventListener('resize', () => {
             if (this.demo.container && this.demo.camera && this.demo.renderer) {
                 const w = this.demo.container.clientWidth;
@@ -451,34 +450,14 @@ window.HowToPlay = {
             inputX = -0.707; inputY = 0.707; // 3. 左斜め前
             isMoving = true; isTouching = true;
         } else if (cycle > 7.5 && cycle <= 9.5) {
-            // ※周期が10秒に変更された場合の想定コード（現在は8秒周期なのでスキップされます）
-        } else if (cycle > 7.5 || cycle <= 0.2) {
-            // 本来はここに後ろを入れたいが、8秒周期なので時間を調整
-        }
-        
-        // --- ★ 再調整した 10秒周期のシナリオ ---
-        const scenarioCycle = time % 10.0;
-        isMoving = false; isTouching = false;
-        inputX = 0; inputY = 0;
-        
-        if (scenarioCycle > 0.5 && scenarioCycle <= 2.0) {
-            inputX = 0; inputY = 1.0; // 前進
-            isMoving = true; isTouching = true;
-        } else if (scenarioCycle > 2.5 && scenarioCycle <= 4.5) {
-            inputX = 0.707; inputY = 0.707; // 右斜め前
-            isMoving = true; isTouching = true;
-        } else if (scenarioCycle > 5.0 && scenarioCycle <= 7.0) {
-            inputX = -0.707; inputY = 0.707; // 左斜め前
-            isMoving = true; isTouching = true;
-        } else if (scenarioCycle > 7.5 && scenarioCycle <= 9.5) {
-            inputX = 0; inputY = -1.0; // 後退
+            inputX = 0; inputY = -1.0; // 4. 後退
             isMoving = true; isTouching = true;
         } else {
             // 指をタッチする予備動作
-            if ((scenarioCycle > 0.3 && scenarioCycle <= 0.5) || 
-                (scenarioCycle > 2.3 && scenarioCycle <= 2.5) || 
-                (scenarioCycle > 4.8 && scenarioCycle <= 5.0) ||
-                (scenarioCycle > 7.3 && scenarioCycle <= 7.5)) {
+            if ((cycle > 0.3 && cycle <= 0.5) || 
+                (cycle > 2.3 && cycle <= 2.5) || 
+                (cycle > 4.8 && cycle <= 5.0) ||
+                (cycle > 7.3 && cycle <= 7.5)) {
                 isTouching = true;
             }
         }
@@ -510,7 +489,7 @@ window.HowToPlay = {
             const moveDirX = inputX;
             const moveDirZ = -inputY;
             
-            // 目標角度 (atan2 の引数は(X, Z)で求まる)
+            // 目標角度
             this.demo.targetAngle = Math.atan2(moveDirX, moveDirZ);
             
             const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.demo.targetAngle);
@@ -521,18 +500,37 @@ window.HowToPlay = {
             this.demo.player.position.x += moveDirX * speed;
             this.demo.player.position.z += moveDirZ * speed;
             
-            // 無限ループ対策：中心から遠ざかりすぎたらリセット
-            if (Math.abs(this.demo.player.position.x) > 50 || Math.abs(this.demo.player.position.z) > 50) {
-                this.demo.player.position.set(0, 0, 0);
-            }
+            // ★シームレスなループ（床の模様サイズ=4なので4の倍数でワープさせる）
+            while (this.demo.player.position.x > 20) this.demo.player.position.x -= 20;
+            while (this.demo.player.position.x < -20) this.demo.player.position.x += 20;
+            while (this.demo.player.position.z > 20) this.demo.player.position.z -= 20;
+            while (this.demo.player.position.z < -20) this.demo.player.position.z += 20;
+            
         } else {
-            // 止まっている時は正面（奥＝Z軸マイナス＝180度）を向かせる
-            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
-            this.demo.player.quaternion.slerp(rotQuat, 10 * delta);
+            // 止まっている時は、次のシナリオに向けて徐々に正面（奥）を向くようにリセット
+            this.demo.targetAngle = Math.PI; 
+            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.demo.targetAngle);
+            this.demo.player.quaternion.slerp(rotQuat, 6 * delta);
         }
 
-        // カメラをプレイヤーに追従させる（距離と高さを縮めて拡大表示）
-        const camOffset = new THREE.Vector3(0, 5, 8); 
+        // --- ★オートカメラ（背後への回り込み）の計算 ---
+        if (this.demo.currentCamAngle === undefined) {
+            this.demo.currentCamAngle = this.demo.targetAngle;
+        }
+
+        // 目標角度に向けてなめらかに追従（最短距離で回転）
+        let diff = this.demo.targetAngle - this.demo.currentCamAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        this.demo.currentCamAngle += diff * 3.0 * delta;
+
+        // カメラ位置の適用（Zマイナスを正面とした時、背後はZプラス側）
+        const camDist = 8;
+        const camHeight = 5;
+        const offsetX = -Math.sin(this.demo.currentCamAngle) * camDist;
+        const offsetZ = -Math.cos(this.demo.currentCamAngle) * camDist;
+        
+        const camOffset = new THREE.Vector3(offsetX, camHeight, offsetZ); 
         this.demo.camera.position.copy(this.demo.player.position).add(camOffset);
         
         let lookTarget = this.demo.player.position.clone();
