@@ -434,7 +434,7 @@ window.HowToPlay = {
         const delta = this.demo.clock.getDelta();
         const time = this.demo.clock.getElapsedTime();
 
-        // 10秒周期の移動シナリオ
+        // 10秒周期の移動シナリオ（★後退の前に正面・前進を配置してカメラの曲がりを解消）
         const cycle = time % 10.0;
         let inputX = 0, inputY = 0; // X:右(1), Y:前(1)
         let isMoving = false;
@@ -443,21 +443,21 @@ window.HowToPlay = {
         if (cycle > 0.5 && cycle <= 2.0) {
             inputX = 0; inputY = 1.0; // 1. 前進
             isMoving = true; isTouching = true;
-        } else if (cycle > 2.5 && cycle <= 4.5) {
-            inputX = 0.707; inputY = 0.707; // 2. 右斜め前
+        } else if (cycle > 2.5 && cycle <= 4.0) {
+            inputX = 0; inputY = -1.0; // 2. 後退
             isMoving = true; isTouching = true;
-        } else if (cycle > 5.0 && cycle <= 7.0) {
-            inputX = -0.707; inputY = 0.707; // 3. 左斜め前
+        } else if (cycle > 4.5 && cycle <= 6.5) {
+            inputX = 0.707; inputY = 0.707; // 3. 右斜め前
             isMoving = true; isTouching = true;
-        } else if (cycle > 7.5 && cycle <= 9.5) {
-            inputX = 0; inputY = -1.0; // 4. 後退
+        } else if (cycle > 7.0 && cycle <= 9.0) {
+            inputX = -0.707; inputY = 0.707; // 4. 左斜め前
             isMoving = true; isTouching = true;
         } else {
             // 指をタッチする予備動作
             if ((cycle > 0.3 && cycle <= 0.5) || 
                 (cycle > 2.3 && cycle <= 2.5) || 
-                (cycle > 4.8 && cycle <= 5.0) ||
-                (cycle > 7.3 && cycle <= 7.5)) {
+                (cycle > 4.3 && cycle <= 4.5) ||
+                (cycle > 6.8 && cycle <= 7.0)) {
                 isTouching = true;
             }
         }
@@ -522,7 +522,7 @@ window.HowToPlay = {
             let mvY = -inputY; // ジョイスティックY
             let mvX = inputX;  // ジョイスティックX
             
-            // ★本編(main.js)の条件式に準拠：前進(mvYが0以下)や横移動の時だけカメラが追従し、後退時は追従しない
+            // 本編(main.js)の条件式に準拠：前進(mvYが0以下)や横移動の時だけカメラが追従し、後退時は追従しない
             if (mvY <= 0.2 && Math.abs(mvX) > 0.05) {
                 // targetAngleがMath.PI(前進)の時、カメラは背後(0)に配置したいのでPIを引く
                 let targetCamAngle = this.demo.targetAngle - Math.PI;
@@ -532,11 +532,11 @@ window.HowToPlay = {
                 this.demo.cameraAngle += diff * 3.0 * delta;
             }
         } else {
-            // 停止時は次のループに向けてカメラを背後(0)へ徐々に戻す
+            // 停止時は次のループに向けてカメラを背後(0)へスムーズに戻す
             let diff = 0 - this.demo.cameraAngle;
             while (diff > Math.PI) diff -= Math.PI * 2;
             while (diff < -Math.PI) diff += Math.PI * 2;
-            this.demo.cameraAngle += diff * 2.0 * delta;
+            this.demo.cameraAngle += diff * 4.0 * delta;
         }
 
         const camDist = 8;
