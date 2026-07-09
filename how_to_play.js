@@ -10,7 +10,7 @@ window.HowToPlay = {
         player: null, floorTexture: null,
         clock: null, reqId: null, isRunning: false,
         container: null, stick: null, arrow: null, finger: null,
-        targetAngle: Math.PI, currentCamAngle: Math.PI
+        targetAngle: Math.PI, cameraAngle: 0
     },
 
     initUI: function() {
@@ -500,7 +500,7 @@ window.HowToPlay = {
             this.demo.player.position.x += moveDirX * speed;
             this.demo.player.position.z += moveDirZ * speed;
             
-            // ★シームレスなループ（床の模様サイズ=4なので4の倍数でワープさせる）
+            // シームレスなループ（床の模様サイズ=4なので4の倍数でワープさせる）
             while (this.demo.player.position.x > 20) this.demo.player.position.x -= 20;
             while (this.demo.player.position.x < -20) this.demo.player.position.x += 20;
             while (this.demo.player.position.z > 20) this.demo.player.position.z -= 20;
@@ -514,21 +514,36 @@ window.HowToPlay = {
         }
 
         // --- ★オートカメラ（背後への回り込み）の計算 ---
-        if (this.demo.currentCamAngle === undefined) {
-            this.demo.currentCamAngle = this.demo.targetAngle;
+        if (this.demo.cameraAngle === undefined) {
+            this.demo.cameraAngle = 0; // 初期値（背後）
         }
 
-        // 目標角度に向けてなめらかに追従（最短距離で回転）
-        let diff = this.demo.targetAngle - this.demo.currentCamAngle;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        this.demo.currentCamAngle += diff * 3.0 * delta;
+        if (isMoving) {
+            let mvY = -inputY; // ジョイスティックY
+            let mvX = inputX;  // ジョイスティックX
+            
+            // ★本編(main.js)の条件式に準拠：前進(mvYが0以下)や横移動の時だけカメラが追従し、後退時は追従しない
+            if (mvY <= 0.2 && Math.abs(mvX) > 0.05) {
+                // targetAngleがMath.PI(前進)の時、カメラは背後(0)に配置したいのでPIを引く
+                let targetCamAngle = this.demo.targetAngle - Math.PI;
+                let diff = targetCamAngle - this.demo.cameraAngle;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                this.demo.cameraAngle += diff * 3.0 * delta;
+            }
+        } else {
+            // 停止時は次のループに向けてカメラを背後(0)へ徐々に戻す
+            let diff = 0 - this.demo.cameraAngle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            this.demo.cameraAngle += diff * 2.0 * delta;
+        }
 
-        // カメラ位置の適用（Zマイナスを正面とした時、背後はZプラス側）
         const camDist = 8;
         const camHeight = 5;
-        const offsetX = -Math.sin(this.demo.currentCamAngle) * camDist;
-        const offsetZ = -Math.cos(this.demo.currentCamAngle) * camDist;
+        // cAngle=0の時、背後(Zプラス)にカメラを置く
+        const offsetX = Math.sin(this.demo.cameraAngle) * camDist;
+        const offsetZ = Math.cos(this.demo.cameraAngle) * camDist;
         
         const camOffset = new THREE.Vector3(offsetX, camHeight, offsetZ); 
         this.demo.camera.position.copy(this.demo.player.position).add(camOffset);
