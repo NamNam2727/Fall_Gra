@@ -1,21 +1,24 @@
 // =====================================
 // how_to_play.js
-// 「あそびかた」ウィンドウの生成とページ遷移、
-// 3Dデモ画面のレンダリング管理
-// ★ main.js の制御ロジックを流用する構造へリファクタリング
+// 「あそびかた」ウィンドウの生成、外部JSの動的ロード、
+// および3Dデモ画面のレンダリングエンジン
 // =====================================
 
 window.HowToPlay = {
+    // ★ サブフォルダのパス（ご自身の環境に合わせて変更可能です）
+    baseURL: 'https://namnam2727.github.io/Fall_Gra/htp_pages/',
+    
+    currentPageObj: null,
+
     demo: {
         scene: null, camera: null, renderer: null,
         player: null, floorTexture: null, floorMesh: null,
         clock: null, reqId: null, isRunning: false,
-        container: null, stick: null, arrow: null, finger: null,
-        // Context用のダミーデータ群
-        context: null
+        container: null, context: null
     },
 
     initUI: function() {
+        // --- ウィンドウやデモ用の共通CSS ---
         const style = document.createElement('style');
         style.innerHTML = `
             #how-to-play-btn { 
@@ -55,32 +58,20 @@ window.HowToPlay = {
                 padding: 15px; border-radius: 8px; color: white; font-size: 16px; font-weight: bold;
                 text-align: left; cursor: pointer; transition: 0.2s; display: flex; align-items: center;
             }
-            .htp-menu-btn::after {
-                content: "▶"; margin-left: auto; color: #3296ff; font-size: 14px;
-            }
-            .htp-menu-btn:active {
-                background: rgba(255,255,255,0.2); border-color: #3296ff; transform: scale(0.98);
-            }
+            .htp-menu-btn::after { content: "▶"; margin-left: auto; color: #3296ff; font-size: 14px; }
+            .htp-menu-btn:active { background: rgba(255,255,255,0.2); border-color: #3296ff; transform: scale(0.98); }
             
-            .htp-page {
-                display: none; flex-direction: column; gap: 10px; height: 100%;
-            }
-            .htp-page.active {
-                display: flex;
-            }
+            .htp-page { display: none; flex-direction: column; gap: 10px; height: 100%; }
+            .htp-page.active { display: flex; }
 
-            /* --- 映像エリア（デモ）のCSS --- */
+            /* 外部JSからも利用するデモUI共通クラス */
             .htp-demo-area {
-                width: 100%; height: 200px;
-                background: #87CEEB; 
+                width: 100%; height: 200px; background: #87CEEB; 
                 position: relative; border-radius: 8px; overflow: hidden;
                 border: 2px solid #555; box-sizing: border-box; flex-shrink: 0;
             }
-            #htp-demo-canvas-container {
-                position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            }
+            #htp-demo-canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
             
-            /* UI模倣 */
             .htp-demo-jump {
                 position: absolute; bottom: 10px; right: 15px; width: 50px; height: 50px;
                 background: rgba(255, 255, 255, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); 
@@ -88,19 +79,15 @@ window.HowToPlay = {
                 display: flex; justify-content: center; align-items: center;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10;
             }
-            
             .htp-demo-joystick-base {
                 position: absolute; bottom: 10px; left: 15px; width: 70px; height: 70px;
                 border: 2px solid rgba(255, 255, 255, 0.6); border-radius: 50%; 
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.3) 100%);
-                z-index: 10;
+                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.3) 100%); z-index: 10;
             }
             .htp-demo-joystick-stick {
                 position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; 
                 background: rgba(255, 255, 255, 0.9); border-radius: 50%; 
-                box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-                transform: translate(-50%, -50%);
-                transition: transform 0.1s linear;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.4); transform: translate(-50%, -50%); transition: transform 0.1s linear;
             }
             .htp-demo-arrow {
                 position: absolute; top: 50%; left: 50%; width: 0; height: 0;
@@ -111,28 +98,15 @@ window.HowToPlay = {
             }
             .htp-demo-finger {
                 position: absolute; top: 15px; left: 10px; font-size: 30px;
-                filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5));
-                transform: scale(1.1) translateY(5px);
-                transition: transform 0.1s;
+                filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5)); transform: scale(1.1) translateY(5px); transition: transform 0.1s;
             }
 
-            /* 説明テキストとナビゲーション */
-            .htp-desc-area {
-                flex: 1; overflow-y: auto; background: rgba(0,0,0,0.5);
-                border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.6;
-            }
-            .htp-desc-title {
-                color: #3296ff; font-weight: bold; font-size: 16px; margin-bottom: 8px;
-                border-bottom: 1px solid #3296ff; padding-bottom: 5px;
-            }
-            .htp-page-footer {
-                display: flex; justify-content: flex-end; margin-top: auto; padding-top: 10px;
-            }
-            .htp-nav-btn {
-                background: #3296ff; color: white; border: none; padding: 8px 15px;
-                border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;
-            }
+            .htp-desc-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.5); border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.6; }
+            .htp-desc-title { color: #3296ff; font-weight: bold; font-size: 16px; margin-bottom: 8px; border-bottom: 1px solid #3296ff; padding-bottom: 5px; }
+            .htp-page-footer { display: flex; justify-content: space-between; margin-top: auto; padding-top: 10px; }
+            .htp-nav-btn { background: #3296ff; color: white; border: none; padding: 8px 15px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
             .htp-nav-btn:active { transform: scale(0.95); }
+            .htp-nav-btn.back { background: #555; }
             .htp-temp-text { color: #aaa; text-align: center; margin-top: 20px; font-size: 14px; line-height: 1.5; }
         `;
         document.head.appendChild(style);
@@ -161,61 +135,16 @@ window.HowToPlay = {
                 <button class="htp-header-btn" id="htp-close-btn">❌</button>
             </div>
             <div class="htp-content" id="htp-content-area">
-                
-                <!-- ＝＝＝ 目次画面 ＝＝＝ -->
+                <!-- 目次画面 -->
                 <div id="htp-index" class="htp-page active">
-                    <button class="htp-menu-btn" data-target="htp-page-basic">1. 基本操作</button>
-                    <button class="htp-menu-btn" data-target="htp-page-item">2. アイテム</button>
-                    <button class="htp-menu-btn" data-target="htp-page-minigame">3. ミニゲーム</button>
-                    <button class="htp-menu-btn" data-target="htp-page-comm">4. コミュニケーション</button>
+                    <button class="htp-menu-btn" data-script="htp_basic_move.js" data-obj="HTP_BasicMove" data-title="1. 基本操作">1. 基本操作</button>
+                    <!-- 後日実装予定の項目 -->
+                    <button class="htp-menu-btn" onclick="alert('次回実装予定です')">2. アイテム</button>
+                    <button class="htp-menu-btn" onclick="alert('次回実装予定です')">3. ミニゲーム</button>
+                    <button class="htp-menu-btn" onclick="alert('次回実装予定です')">4. コミュニケーション</button>
                 </div>
-
-                <!-- ＝＝＝ 1. 基本操作 (移動) ＝＝＝ -->
-                <div id="htp-page-basic" class="htp-page">
-                    <div class="htp-demo-area">
-                        <div id="htp-demo-canvas-container"></div>
-                        <div class="htp-demo-joystick-base">
-                            <div class="htp-demo-arrow" id="htp-demo-arrow"></div>
-                            <div class="htp-demo-joystick-stick" id="htp-demo-stick">
-                                <div class="htp-demo-finger" id="htp-demo-finger">👆</div>
-                            </div>
-                        </div>
-                        <div class="htp-demo-jump">JUMP</div>
-                    </div>
-                    
-                    <div class="htp-desc-area">
-                        <div class="htp-desc-title">移動とカメラ</div>
-                        <div>
-                            画面の左側をドラッグ（指でなぞる）すると、ジョイスティックが現れます。<br>
-                            動かしたい方向へ指をスライドさせると、キャラクターがその方向へ進みます。<br><br>
-                            <span style="color:#ffcc00; font-weight:bold;">※カメラは自動で背後を追いかけるため、手動での視点操作は不要です！</span>
-                        </div>
-                    </div>
-                    
-                    <div class="htp-page-footer">
-                        <button class="htp-nav-btn" data-target="htp-page-jump">つぎへ ▶</button>
-                    </div>
-                </div>
-
-                <!-- ＝＝＝ 1. 基本操作 (ジャンプ) - 枠のみ ＝＝＝ -->
-                <div id="htp-page-jump" class="htp-page">
-                    <div class="htp-temp-text">ここにジャンプのデモと説明が入ります。<br>※次回実装</div>
-                    <div class="htp-page-footer" style="justify-content: space-between;">
-                        <button class="htp-nav-btn" data-target="htp-page-basic" style="background:#555;">◀ まえへ</button>
-                    </div>
-                </div>
-
-                <!-- ＝＝＝ 他のページ（仮枠） ＝＝＝ -->
-                <div id="htp-page-item" class="htp-page">
-                    <div class="htp-temp-text">ここに「2. アイテム」<br>（ボム・羽・ネットの効果など）<br>の画像や説明が入ります。<br><br>※次回実装</div>
-                </div>
-                <div id="htp-page-minigame" class="htp-page">
-                    <div class="htp-temp-text">ここに「3. ミニゲーム」<br>（開始方法・観戦モードなど）<br>の画像や説明が入ります。<br><br>※次回実装</div>
-                </div>
-                <div id="htp-page-comm" class="htp-page">
-                    <div class="htp-temp-text">ここに「4. コミュニケーション」<br>（チャット・ルームIDコピーなど）<br>の画像や説明が入ります。<br><br>※次回実装</div>
-                </div>
-
+                <!-- 外部JSが読み込まれてDOMを展開する専用コンテナ -->
+                <div id="htp-dynamic-area" class="htp-page"></div>
             </div>
         `;
         uiLayer.appendChild(htpWindow);
@@ -242,80 +171,87 @@ window.HowToPlay = {
             this.showIndex();
         });
         
-        // 目次ボタンを押したときのページ遷移処理
-        const menuBtns = htpWindow.querySelectorAll('.htp-menu-btn');
+        const menuBtns = htpWindow.querySelectorAll('.htp-menu-btn[data-script]');
         menuBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                this.showPage(btn.getAttribute('data-target'), btn.innerText);
-            });
-        });
-        
-        // 「つぎへ」「まえへ」ボタンの処理
-        const navBtns = htpWindow.querySelectorAll('.htp-nav-btn');
-        navBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.showPage(btn.getAttribute('data-target'), "1. 基本操作");
+                this.openPage(btn.getAttribute('data-script'), btn.getAttribute('data-obj'), btn.getAttribute('data-title'));
             });
         });
 
-        // デモ環境の初期化
-        setTimeout(() => {
-            this.initDemo3D();
-        }, 1000);
+        // 裏側で3D空間だけ生成しておく
+        setTimeout(() => { this.initDemo3D(); }, 1000);
+        
+        window.addEventListener('resize', () => { this.resizeDemo(); });
     },
     
-    // 目次に戻る
     showIndex: function() {
         document.getElementById('htp-title').innerText = 'あそびかた';
         document.getElementById('htp-back-btn').style.visibility = 'hidden';
         
-        const pages = document.querySelectorAll('.htp-page');
-        pages.forEach(p => p.classList.remove('active'));
+        document.getElementById('htp-dynamic-area').classList.remove('active');
         document.getElementById('htp-index').classList.add('active');
         
         this.stopDemo(); 
+        if (this.currentPageObj && typeof this.currentPageObj.cleanup === 'function') {
+            this.currentPageObj.cleanup(this);
+        }
+        this.currentPageObj = null;
     },
-    
-    // 指定したページを表示する
-    showPage: function(pageId, title) {
+
+    // ★ 外部JSを動的にロードし、ページを展開する関数
+    openPage: function(scriptName, objName, title) {
         document.getElementById('htp-title').innerText = title;
         document.getElementById('htp-back-btn').style.visibility = 'visible';
         
-        const pages = document.querySelectorAll('.htp-page');
-        pages.forEach(p => p.classList.remove('active'));
-        document.getElementById(pageId).classList.add('active');
+        document.getElementById('htp-index').classList.remove('active');
+        const contentArea = document.getElementById('htp-dynamic-area');
+        contentArea.classList.add('active');
+        contentArea.innerHTML = '<div class="htp-temp-text">読み込み中...</div>';
 
-        // 移動のページならデモ開始、それ以外は停止
-        if (pageId === 'htp-page-basic') {
-            this.startDemo();
+        this.stopDemo();
+        if (this.currentPageObj && typeof this.currentPageObj.cleanup === 'function') {
+            this.currentPageObj.cleanup(this);
+        }
+        this.currentPageObj = null;
+
+        const loadAndInit = () => {
+            contentArea.innerHTML = '';
+            this.currentPageObj = window[objName];
+            if (this.currentPageObj && typeof this.currentPageObj.init === 'function') {
+                // 読み込んだオブジェクトに初期化とDOM生成を依頼
+                this.currentPageObj.init(contentArea, this);
+            } else {
+                contentArea.innerHTML = '<div class="htp-temp-text">コンテンツの読み込みに失敗しました。</div>';
+            }
+        };
+
+        if (window[objName]) {
+            loadAndInit(); // 既にロード済みならそのまま展開
         } else {
-            this.stopDemo();
+            const script = document.createElement('script');
+            script.src = this.baseURL + scriptName + '?v=' + Date.now();
+            script.onload = loadAndInit;
+            script.onerror = () => {
+                contentArea.innerHTML = '<div class="htp-temp-text">スクリプトの読み込みに失敗しました。</div>';
+            };
+            document.head.appendChild(script);
         }
     },
 
     // ==========================================
-    // 3Dデモ映像の管理
+    // 3Dレンダリングエンジン部 (メインループなど)
     // ==========================================
     initDemo3D: function() {
-        this.demo.container = document.getElementById('htp-demo-canvas-container');
-        this.demo.stick = document.getElementById('htp-demo-stick');
-        this.demo.arrow = document.getElementById('htp-demo-arrow');
-        this.demo.finger = document.getElementById('htp-demo-finger');
-        if (!this.demo.container || typeof THREE === 'undefined') return;
-
-        const width = this.demo.container.clientWidth;
-        const height = this.demo.container.clientHeight;
+        if (typeof THREE === 'undefined') return;
 
         this.demo.scene = new THREE.Scene();
         this.demo.scene.background = new THREE.Color(0x87CEEB);
         this.demo.scene.fog = new THREE.Fog(0x87CEEB, 5, 40);
 
-        this.demo.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
-
+        // とりあえず初期サイズで作っておき、配置された時にリサイズする
+        this.demo.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
         this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.demo.renderer.setSize(width, height);
         this.demo.renderer.shadowMap.enabled = true;
-        this.demo.container.appendChild(this.demo.renderer.domElement);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.demo.scene.add(ambientLight);
@@ -324,6 +260,7 @@ window.HowToPlay = {
         dirLight.castShadow = true;
         this.demo.scene.add(dirLight);
 
+        // 床の生成
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
@@ -335,7 +272,6 @@ window.HowToPlay = {
         this.demo.floorTexture = new THREE.CanvasTexture(canvas);
         this.demo.floorTexture.wrapS = THREE.RepeatWrapping;
         this.demo.floorTexture.wrapT = THREE.RepeatWrapping;
-        // マス目を4x4サイズに合わせる
         this.demo.floorTexture.repeat.set(250, 250); 
 
         const floorGeo = new THREE.PlaneGeometry(1000, 1000);
@@ -343,10 +279,10 @@ window.HowToPlay = {
         this.demo.floorMesh = new THREE.Mesh(floorGeo, floorMat);
         this.demo.floorMesh.rotation.x = -Math.PI / 2;
         this.demo.floorMesh.receiveShadow = true;
-        this.demo.floorMesh.userData.isTerrain = true; // ★ 本編の地形判定ロジックに認識させるためのタグ
+        this.demo.floorMesh.userData.isTerrain = true; 
         this.demo.scene.add(this.demo.floorMesh);
 
-        // プレイヤーキャラクター生成
+        // プレイヤーの生成
         const pRadius = 1.2;
         this.demo.player = new THREE.Group();
         
@@ -356,7 +292,6 @@ window.HowToPlay = {
         baseMesh.position.y = 0.1; baseMesh.castShadow = true;
         this.demo.player.add(baseMesh);
 
-        // 本編のプレイヤーからアイコン画像を直接コピー
         let iconTexture = null;
         if (typeof player !== 'undefined' && player) {
             player.children.forEach(child => {
@@ -397,54 +332,49 @@ window.HowToPlay = {
         
         this.demo.scene.add(this.demo.player);
 
-        // ★ 本編の制御ロジックに渡すための、デモ専用コンテキストオブジェクトを作成
+        // 本編呼び出し用ダミーコンテキスト
         this.demo.context = {
-            player: this.demo.player,
-            scene: this.demo.scene,
-            camera: this.demo.camera,
+            player: this.demo.player, scene: this.demo.scene, camera: this.demo.camera,
             moveVector: new THREE.Vector2(0, 0),
-            isJumping: false,
-            verticalVelocity: 0,
-            cameraAngle: 0,
-            currentFacingAngle: Math.PI,
-            cameraSliderValue: 0.5,
-            isCameraAuto: true,
-            isSpectatorMode: false,
-            isDemo: true,        // マルチプレイ通信やエラー終了などを防ぐフラグ
-            cameraDistance: 8,   // デモ用の接近カメラ距離（本編設定を上書き）
-            cameraHeight: 5      // デモ用の接近カメラ高さ（本編設定を上書き）
+            isJumping: false, verticalVelocity: 0,
+            cameraAngle: 0, currentFacingAngle: Math.PI, cameraSliderValue: 0.5,
+            isCameraAuto: true, isSpectatorMode: false, isDemo: true,
+            cameraDistance: 8, cameraHeight: 5
         };
 
-        // デモ開始前にプレイヤーを安全な位置(空中の中心)へ配置
         this.demo.player.position.set(0, 20, 0);
-
         this.demo.clock = new THREE.Clock();
+    },
 
-        window.addEventListener('resize', () => {
-            if (this.demo.container && this.demo.camera && this.demo.renderer) {
-                const w = this.demo.container.clientWidth;
-                const h = this.demo.container.clientHeight;
-                if (w > 0 && h > 0) {
-                    this.demo.camera.aspect = w / h;
-                    this.demo.camera.updateProjectionMatrix();
-                    this.demo.renderer.setSize(w, h);
-                }
+    resizeDemo: function() {
+        if (this.demo.container && this.demo.camera && this.demo.renderer) {
+            const w = this.demo.container.clientWidth;
+            const h = this.demo.container.clientHeight;
+            if (w > 0 && h > 0) {
+                this.demo.camera.aspect = w / h;
+                this.demo.camera.updateProjectionMatrix();
+                this.demo.renderer.setSize(w, h);
             }
-        });
+        }
     },
 
     startDemo: function() {
         if (!this.demo.scene || this.demo.isRunning) return;
+        
+        const container = document.getElementById('htp-demo-canvas-container');
+        if (container) {
+            this.demo.container = container;
+            container.appendChild(this.demo.renderer.domElement);
+            this.resizeDemo();
+        }
+
         this.demo.isRunning = true;
         this.demo.clock.start();
         
-        // 開始時にカメラを瞬時に適切な位置へスナップさせる
         if (typeof window.updateCamera === 'function') {
             window.updateCamera(true, 0.016, this.demo.context);
         }
-        
         this.animateDemo();
-        window.dispatchEvent(new Event('resize'));
     },
 
     stopDemo: function() {
@@ -453,6 +383,10 @@ window.HowToPlay = {
             cancelAnimationFrame(this.demo.reqId);
             this.demo.reqId = null;
         }
+        if (this.demo.container && this.demo.renderer.domElement.parentNode === this.demo.container) {
+            this.demo.container.removeChild(this.demo.renderer.domElement);
+        }
+        this.demo.container = null;
     },
 
     animateDemo: function() {
@@ -462,74 +396,14 @@ window.HowToPlay = {
         const delta = this.demo.clock.getDelta();
         const time = this.demo.clock.getElapsedTime();
 
-        const cycle = time % 10.0;
-        let inputX = 0, inputY = 0; // X:右(1), Y:前(1)
-        let isMoving = false;
-        let isTouching = false;
-
-        if (cycle > 0.5 && cycle <= 2.0) {
-            inputX = 0; inputY = 1.0; 
-            isMoving = true; isTouching = true;
-        } else if (cycle > 2.5 && cycle <= 4.0) {
-            inputX = 0; inputY = -1.0; 
-            isMoving = true; isTouching = true;
-        } else if (cycle > 4.5 && cycle <= 6.5) {
-            inputX = 0.707; inputY = 0.707; 
-            isMoving = true; isTouching = true;
-        } else if (cycle > 7.0 && cycle <= 9.0) {
-            inputX = -0.707; inputY = 0.707; 
-            isMoving = true; isTouching = true;
-        } else {
-            if ((cycle > 0.3 && cycle <= 0.5) || 
-                (cycle > 2.3 && cycle <= 2.5) || 
-                (cycle > 4.3 && cycle <= 4.5) ||
-                (cycle > 6.8 && cycle <= 7.0)) {
-                isTouching = true;
-            }
-        }
-
-        // --- UI（ジョイスティックと指）の更新 ---
-        const maxStickDist = 20; 
-        const stickX = inputX * maxStickDist;
-        const stickY = -inputY * maxStickDist; 
-        
-        this.demo.stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
-        
-        if (isMoving) {
-            this.demo.arrow.style.opacity = '1';
-            const arrowAngle = Math.atan2(stickY, stickX) * (180 / Math.PI) + 90;
-            this.demo.arrow.style.transform = `rotate(${arrowAngle}deg) translateY(-22px)`;
-        } else {
-            this.demo.arrow.style.opacity = '0';
-        }
-
-        if (isTouching) {
-            this.demo.finger.style.transform = 'scale(1.0) translateY(0)';
-        } else {
-            this.demo.finger.style.transform = 'scale(1.1) translateY(5px)';
-        }
-
-        // --- 3Dロジックの更新（★本編ロジックへの入力委譲） ---
-        if (isMoving) {
-            // 本編のジョイスティック入力仕様は「画面の上(前進)がマイナスY」のため、-inputY を渡す
-            this.demo.context.moveVector.set(inputX, -inputY);
+        // 外部からロードしたページオブジェクトにシナリオ更新を委譲
+        if (this.currentPageObj && typeof this.currentPageObj.updateScenario === 'function') {
+            this.currentPageObj.updateScenario(time, delta, this.demo);
         } else {
             this.demo.context.moveVector.set(0, 0);
-            
-            // 止まっている時は、正面（奥）を向くようにリセット
-            const targetAngle = Math.PI; 
-            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetAngle);
-            this.demo.player.quaternion.slerp(rotQuat, 6 * delta);
-            this.demo.context.currentFacingAngle = targetAngle; // Context側の状態も揃える
-            
-            // 停止中はカメラも背後(0)へ戻す
-            let diffCam = 0 - this.demo.context.cameraAngle;
-            while (diffCam > Math.PI) diffCam -= Math.PI * 2;
-            while (diffCam < -Math.PI) diffCam += Math.PI * 2;
-            this.demo.context.cameraAngle += diffCam * 4.0 * delta;
         }
 
-        // ★★★ ここで本編(main.js)のコアロジックを呼び出し、計算をすべて任せる ★★★
+        // 本編コアロジックの呼び出し
         if (typeof window.updatePlayer === 'function') {
             window.updatePlayer(delta, this.demo.context);
         }
@@ -537,15 +411,12 @@ window.HowToPlay = {
             window.updateCamera(false, delta, this.demo.context);
         }
 
-        // --- ★無限ループ（リングバッファ的）対策 ---
-        // 床の模様サイズ(4)の倍数でプレイヤーとカメラを同時に巻き戻すことで、
-        // 画面上は1ミリも変化せずに無限の空間を走り続けることができます。
+        // 無限ループのリングバッファ処理
         const WARP_UNIT = 20; 
         let warpX = 0, warpZ = 0;
         let px = this.demo.player.position.x;
         let pz = this.demo.player.position.z;
         
-        // ★修正: ループ判定で元の変数を増減させて無限ループを防止
         while (px > WARP_UNIT) { px -= WARP_UNIT; warpX -= WARP_UNIT; }
         while (px < -WARP_UNIT) { px += WARP_UNIT; warpX += WARP_UNIT; }
         while (pz > WARP_UNIT) { pz -= WARP_UNIT; warpZ -= WARP_UNIT; }
