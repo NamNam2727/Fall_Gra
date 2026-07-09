@@ -1,14 +1,12 @@
 // =====================================
 // htp_item.js
 // あそびかた：2. アイテム (取得, 🪽, 💣, 🕸️)
-// サブフォルダ (htp_pages) から動的に読み込まれます
 // =====================================
 
 window.HTP_Item = {
     modeIdx: 0,
     modes: ['pickup', 'fly', 'bomb', 'net'],
     scenarioTime: 0,
-    lastPlayerZ: undefined,
     jumpedThisCycle: false,
     bombPlaced: false,
     netPlaced: false,
@@ -58,6 +56,7 @@ window.HTP_Item = {
                     <span id="htp-demo-slot-icon"></span>
                     <div class="htp-demo-item-timer" id="htp-demo-slot-timer"></div>
                 </div>
+                <!-- ★スロット用の指の座標を修正 -->
                 <div class="htp-demo-finger" id="htp-demo-finger-slot" style="position:absolute; bottom:85px; right:20px; display:none; z-index:15;">👆</div>
 
                 <div class="htp-demo-jump" id="htp-demo-jump-btn">JUMP</div>
@@ -163,7 +162,6 @@ window.HTP_Item = {
         htpManager.demo.context.moveVector.set(0, 0);
         htpManager.demo.context.cameraAngle = 0;
         htpManager.demo.context.currentFacingAngle = Math.PI;
-        this.lastPlayerZ = htpManager.demo.player.position.z;
 
         this.dummyItem.visible = false;
         this.enemy.visible = false;
@@ -190,6 +188,10 @@ window.HTP_Item = {
             this.dummyItem.visible = true;
             this.dummyItem.position.set(0, 1.5, htpManager.demo.player.position.z - 12);
         } else if (mode === 'bomb' || mode === 'net') {
+            // ボムやネットが入っている状態からスタート
+            this.slotIcon.innerText = mode === 'bomb' ? '💣' : '🕸️';
+            this.slotUI.classList.add('active');
+            
             this.enemy.visible = true;
             this.enemy.position.set(0, 1.2, htpManager.demo.player.position.z - 15);
             this.enemy.isFlying = false;
@@ -197,13 +199,18 @@ window.HTP_Item = {
         }
     },
 
-    // ------------------------------------------
-    // ダミー3Dオブジェクト群の生成
-    // ------------------------------------------
+    // --- ワープ時に呼ばれ、すべてのダミーオブジェクトをプレイヤーに追従させる ---
+    onWarp: function(warpX, warpZ) {
+        if (this.dummyItem) { this.dummyItem.position.x += warpX; this.dummyItem.position.z += warpZ; }
+        if (this.enemy) { this.enemy.position.x += warpX; this.enemy.position.z += warpZ; }
+        if (this.bombGroup) { this.bombGroup.position.x += warpX; this.bombGroup.position.z += warpZ; }
+        if (this.netMesh) { this.netMesh.position.x += warpX; this.netMesh.position.z += warpZ; }
+        if (this.expGroup) { this.expGroup.position.x += warpX; this.expGroup.position.z += warpZ; }
+    },
+
     create3DObjects: function(htpManager) {
         const scene = htpManager.demo.scene;
 
-        // ❓アイテム
         this.dummyItem = new THREE.Group();
         const sphereGeo = new THREE.SphereGeometry(1.2, 16, 16);
         const glassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, roughness: 0.1, metalness: 0.2, depthWrite: false });
@@ -219,7 +226,6 @@ window.HTP_Item = {
         this.dummyItem.add(sprite);
         scene.add(this.dummyItem);
 
-        // 敵キャラクター
         this.enemy = new THREE.Group();
         const pRadius = 1.2;
         const eBaseMesh = new THREE.Mesh(new THREE.CylinderGeometry(pRadius, pRadius, 0.2, 32), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 }));
@@ -242,12 +248,10 @@ window.HTP_Item = {
         this.enemy.add(eTopMesh);
         scene.add(this.enemy);
 
-        // ボム
         this.bombGroup = new THREE.Group();
         this.bombGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.8, 16, 16), new THREE.MeshStandardMaterial({color: 0x111111, roughness: 0.8})));
         scene.add(this.bombGroup);
 
-        // 爆発エフェクト
         this.expGroup = new THREE.Group();
         this.expSphere = new THREE.Mesh(new THREE.SphereGeometry(1.0, 16, 16), new THREE.MeshBasicMaterial({color: 0xff4400, transparent: true, opacity: 0.8}));
         this.expRing = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.5, 32), new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, side: THREE.DoubleSide}));
@@ -255,7 +259,6 @@ window.HTP_Item = {
         this.expGroup.add(this.expSphere); this.expGroup.add(this.expRing);
         scene.add(this.expGroup);
 
-        // ネット
         const nCanvas = document.createElement('canvas'); nCanvas.width = 256; nCanvas.height = 256;
         const nCtx = nCanvas.getContext('2d');
         nCtx.font = '200px sans-serif'; nCtx.textAlign = 'center'; nCtx.textBaseline = 'middle'; nCtx.fillText('🕸️', 128, 128);
@@ -265,44 +268,41 @@ window.HTP_Item = {
         scene.add(this.netMesh);
     },
 
-    // ------------------------------------------
-    // 毎フレームのシナリオ更新
-    // ------------------------------------------
     updateScenario: function(time, delta, demo) {
         this.scenarioTime += delta;
-
-        // ワープ対策
-        if (this.lastPlayerZ !== undefined) {
-            const diff = demo.player.position.z - this.lastPlayerZ;
-            if (diff < -10) { 
-                this.dummyItem.position.z -= 20;
-                this.enemy.position.z -= 20;
-                this.bombGroup.position.z -= 20;
-                this.netMesh.position.z -= 20;
-                this.expGroup.position.z -= 20;
-            } else if (diff > 10) { 
-                this.dummyItem.position.z += 20;
-                this.enemy.position.z += 20;
-                this.bombGroup.position.z += 20;
-                this.netMesh.position.z += 20;
-                this.expGroup.position.z += 20;
-            }
-        }
-        this.lastPlayerZ = demo.player.position.z;
-
         const mode = this.modes[this.modeIdx];
         
         let inputY = 1.0; 
-        if (mode === 'bomb' || mode === 'net') inputY = -1.0;
+        
+        // ★ボム使用時の演出：ボムを置いた後、少しの間立ち止まって爆発を見届ける
+        if (mode === 'bomb') {
+            if (this.scenarioTime >= 2.2 && this.scenarioTime < 6.5) {
+                inputY = 0.0; // 停止
+            } else {
+                inputY = -1.0; // 手前へ移動
+            }
+        } else if (mode === 'net') {
+            inputY = -1.0; // ネットは常に手前へ走りながら逃げる
+        }
         
         demo.context.moveVector.set(0, -inputY);
         
         if (this.stick) this.stick.style.transform = `translate(-50%, calc(-50% + ${-inputY * 20}px))`;
         if (this.arrow) { 
-            this.arrow.style.opacity = '1'; 
-            this.arrow.style.transform = `rotate(${inputY === 1 ? 0 : 180}deg) translateY(-22px)`; 
+            if (inputY !== 0) {
+                this.arrow.style.opacity = '1'; 
+                this.arrow.style.transform = `rotate(${inputY === 1 ? 0 : 180}deg) translateY(-22px)`; 
+            } else {
+                this.arrow.style.opacity = '0'; 
+            }
         }
-        if (this.fingerMove) this.fingerMove.style.transform = 'scale(1.0) translateY(0)';
+        if (this.fingerMove) {
+            if (inputY !== 0) {
+                this.fingerMove.style.transform = 'scale(1.0) translateY(0)';
+            } else {
+                this.fingerMove.style.transform = 'scale(1.1) translateY(5px)';
+            }
+        }
 
         // 敵の共通更新
         if (this.enemy.visible) {
@@ -314,12 +314,23 @@ window.HTP_Item = {
             } else {
                 this.enemy.position.y = 1.2; 
                 this.enemy.rotation.x = 0;
-                if (this.enemy.speed === 0) {
-                    this.enemy.position.x = Math.sin(time * 30) * 0.2;
-                    this.enemy.rotation.y = Math.sin(time * 20) * 0.2;
+                
+                let shouldMove = true;
+                // ★ボムの時は、ボムの近くまで来たら気付いて立ち止まらせる
+                if (mode === 'bomb' && this.bombPlaced) {
+                    const distToBomb = Math.hypot(this.enemy.position.x - this.bombGroup.position.x, this.enemy.position.z - this.bombGroup.position.z);
+                    if (distToBomb < 2.0) {
+                        shouldMove = false; 
+                    }
+                }
+                
+                if (this.enemy.speed === 0) shouldMove = false; // ネット拘束中
+
+                if (shouldMove) {
+                    this.enemy.position.z += this.enemy.speed * delta; // 奥から手前へ追いかけてくる
                 } else {
-                    this.enemy.position.x = 0;
-                    this.enemy.rotation.y = 0;
+                    this.enemy.position.x = Math.sin(time * 30) * 0.1; // もがく/怯える表現
+                    this.enemy.rotation.y = Math.sin(time * 20) * 0.2;
                 }
             }
         }
@@ -331,9 +342,8 @@ window.HTP_Item = {
         else if (mode === 'net') this.updateNet(delta, demo);
     },
 
-    // 1. 取得 (連続取得の表現)
+    // 1. 取得 (永遠に連続取得し続ける)
     updatePickup: function(delta, demo) {
-        // アイテムが非表示ならタイマーを進めて再出現させる
         if (!this.dummyItem.visible) {
             this.respawnTimer -= delta;
             if (this.respawnTimer <= 0) {
@@ -348,9 +358,8 @@ window.HTP_Item = {
             
             if (demo.player.position.distanceTo(this.dummyItem.position) < 3.0) {
                 this.dummyItem.visible = false;
-                this.respawnTimer = 1.2; // 1.2秒後に次のアイテムを出現させる
+                this.respawnTimer = 1.5; // 1.5秒後に次のアイテムを出現させる
                 
-                // アイテムを順番に切り替える
                 const itemIcons = ['💣', '🪽', '🕸️'];
                 this.slotIcon.innerText = itemIcons[this.itemCount % itemIcons.length];
                 this.itemCount++;
@@ -392,7 +401,6 @@ window.HTP_Item = {
             
             this.fingerJump.style.display = 'block';
             
-            // 連続ジャンプ
             const t = this.scenarioTime;
             if ((t > 1.5 && t < 1.6) || (t > 2.5 && t < 2.6) || (t > 3.5 && t < 3.6) || (t > 4.5 && t < 4.6)) {
                 if (!this.jumpedThisCycle) {
@@ -423,32 +431,20 @@ window.HTP_Item = {
         if (this.scenarioTime > 10) {
             this.scenarioTime = 0;
             this.enemy.visible = true;
-            this.enemy.position.set(0, 1.2, demo.player.position.z - 15); // 奥に再配置
+            this.enemy.position.set(0, 1.2, demo.player.position.z - 15);
             this.enemy.isFlying = false;
             this.enemy.speed = 16.0;
             this.bombPlaced = false;
-        }
-
-        // 敵は手前へ追いかけてくるが、ボムの近くまで来たら気付いて立ち止まる
-        if (this.enemy.visible && !this.enemy.isFlying) {
-            let shouldMove = true;
-            if (this.bombPlaced) {
-                const distToBomb = Math.hypot(this.enemy.position.x - this.bombGroup.position.x, this.enemy.position.z - this.bombGroup.position.z);
-                if (distToBomb < 2.0) {
-                    shouldMove = false; // ボムの近くで停止
-                }
-            }
-            if (shouldMove) {
-                this.enemy.position.z += this.enemy.speed * delta;
-            }
-        }
-        
-        if (this.scenarioTime < 2.0) {
+            
             this.slotIcon.innerText = '💣';
             this.slotUI.classList.add('active');
+            this.fingerSlot.style.display = 'none';
+        }
+        
+        if (this.scenarioTime > 1.8 && this.scenarioTime < 2.0) {
             this.fingerSlot.style.display = 'block';
             this.fingerSlot.style.transform = 'scale(1.1) translateY(5px)';
-        } else if (this.scenarioTime < 2.2) {
+        } else if (this.scenarioTime >= 2.0 && this.scenarioTime < 2.2) {
             this.fingerSlot.style.transform = 'scale(1.0) translateY(0)';
             this.slotUI.style.transform = 'scale(0.9)';
             if (!this.bombPlaced) {
@@ -457,33 +453,29 @@ window.HTP_Item = {
                 this.bombGroup.position.y += 0.8;
                 this.bombPlaced = true;
             }
-        } else if (this.scenarioTime < 5.0) {
+        } else if (this.scenarioTime >= 2.2 && this.scenarioTime < 5.0) {
             this.fingerSlot.style.display = 'none';
             this.slotIcon.innerText = '';
             this.slotUI.classList.remove('active');
             this.slotUI.style.transform = 'scale(1.0)';
             
-            // ボム膨張
             const s = 1.0 + Math.sin(this.scenarioTime * 15) * 0.2;
             this.bombGroup.scale.set(s, s, s);
-        } else if (this.scenarioTime < 5.2) {
+        } else if (this.scenarioTime >= 5.0 && this.scenarioTime < 5.2) {
             if (this.bombPlaced) {
                 this.bombPlaced = false;
                 this.bombGroup.visible = false;
                 
-                // 爆発エフェクト
                 this.expGroup.visible = true;
                 this.expGroup.position.copy(this.bombGroup.position);
                 this.expTimer = 0.5;
                 
-                // 敵を奥へ吹き飛ばす
                 this.enemy.isFlying = true;
                 this.enemy.verticalVelocity = 40;
-                this.enemy.vz = -20; 
+                this.enemy.vz = -20; // 奥へ吹き飛ぶ
             }
         }
         
-        // エフェクト更新
         if (this.expGroup.visible) {
             this.expTimer -= delta;
             if (this.expTimer > 0) {
@@ -506,22 +498,20 @@ window.HTP_Item = {
         if (this.scenarioTime > 10) {
             this.scenarioTime = 0;
             this.enemy.visible = true;
-            this.enemy.position.set(0, 1.2, demo.player.position.z - 15); // 奥に再配置
+            this.enemy.position.set(0, 1.2, demo.player.position.z - 15);
             this.enemy.isFlying = false;
-            this.enemy.speed = 18.0; // プレイヤーより少し速く追いかける
+            this.enemy.speed = 18.0; 
             this.netPlaced = false;
-        }
-
-        if (this.enemy.visible && !this.enemy.isFlying && this.enemy.speed > 0) {
-            this.enemy.position.z += this.enemy.speed * delta;
-        }
-        
-        if (this.scenarioTime < 2.0) {
+            
             this.slotIcon.innerText = '🕸️';
             this.slotUI.classList.add('active');
+            this.fingerSlot.style.display = 'none';
+        }
+        
+        if (this.scenarioTime > 1.8 && this.scenarioTime < 2.0) {
             this.fingerSlot.style.display = 'block';
             this.fingerSlot.style.transform = 'scale(1.1) translateY(5px)';
-        } else if (this.scenarioTime < 2.2) {
+        } else if (this.scenarioTime >= 2.0 && this.scenarioTime < 2.2) {
             this.fingerSlot.style.transform = 'scale(1.0) translateY(0)';
             this.slotUI.style.transform = 'scale(0.9)';
             if (!this.netPlaced) {
@@ -530,13 +520,12 @@ window.HTP_Item = {
                 this.netMesh.material.opacity = 1.0;
                 this.netPlaced = true;
             }
-        } else if (this.scenarioTime < 9.0) {
+        } else if (this.scenarioTime >= 2.2 && this.scenarioTime < 9.0) {
             this.fingerSlot.style.display = 'none';
             this.slotIcon.innerText = '';
             this.slotUI.classList.remove('active');
             this.slotUI.style.transform = 'scale(1.0)';
             
-            // 敵がネットに乗る判定
             if (this.netPlaced && this.enemy.visible && !this.enemy.isFlying) {
                 const dist = Math.hypot(this.enemy.position.x - this.netMesh.position.x, this.enemy.position.z - this.netMesh.position.z);
                 if (dist < 2.0 && this.enemy.speed > 0) {
@@ -546,7 +535,6 @@ window.HTP_Item = {
                 }
             }
             
-            // 消滅前の点滅
             if (this.scenarioTime > 7.0) {
                 this.netMesh.material.opacity = (Math.sin(this.scenarioTime * 15) * 0.5 + 0.5);
             }
@@ -554,7 +542,7 @@ window.HTP_Item = {
             if (this.netPlaced) {
                 this.netPlaced = false;
                 this.netMesh.visible = false;
-                this.enemy.speed = 18.0; // 5秒経過で再び走り出す
+                this.enemy.speed = 18.0; 
             }
         }
     },
@@ -571,3 +559,5 @@ window.HTP_Item = {
         this.jumpBtn = null; this.fingerJump = null;
     }
 };
+
+
