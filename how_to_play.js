@@ -10,7 +10,7 @@ window.HowToPlay = {
         player: null, floorTexture: null,
         clock: null, reqId: null, isRunning: false,
         container: null, stick: null, arrow: null, finger: null,
-        targetAngle: 0, currentAngle: 0
+        targetAngle: 0
     },
 
     initUI: function() {
@@ -98,17 +98,20 @@ window.HowToPlay = {
                 background: rgba(255, 255, 255, 0.9); border-radius: 50%; 
                 box-shadow: 0 4px 8px rgba(0,0,0,0.4);
                 transform: translate(-50%, -50%);
+                transition: transform 0.1s linear;
             }
             .htp-demo-arrow {
                 position: absolute; top: 50%; left: 50%; width: 0; height: 0;
                 border-left: 10px solid transparent; border-right: 10px solid transparent;
                 border-bottom: 16px solid #ffaa00; margin-left: -10px; margin-top: -16px;
                 transform-origin: 50% 100%; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
-                opacity: 0;
+                opacity: 0; transition: opacity 0.1s, transform 0.1s linear;
             }
             .htp-demo-finger {
                 position: absolute; top: 15px; left: 10px; font-size: 30px;
                 filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5));
+                transform: scale(1.1) translateY(5px);
+                transition: transform 0.1s;
             }
 
             /* 説明テキストとナビゲーション */
@@ -268,7 +271,7 @@ window.HowToPlay = {
         pages.forEach(p => p.classList.remove('active'));
         document.getElementById('htp-index').classList.add('active');
         
-        this.stopDemo(); // 目次ではデモ不要
+        this.stopDemo(); 
     },
     
     // 指定したページを表示する
@@ -329,15 +332,15 @@ window.HowToPlay = {
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#81C784'; ctx.fillRect(0, 0, 512, 512); // 明るい緑
-        ctx.fillStyle = '#4CAF50'; // 濃い緑
+        ctx.fillStyle = '#81C784'; ctx.fillRect(0, 0, 512, 512);
+        ctx.fillStyle = '#4CAF50'; 
         ctx.fillRect(0, 0, 256, 256);
         ctx.fillRect(256, 256, 256, 256);
         
         this.demo.floorTexture = new THREE.CanvasTexture(canvas);
         this.demo.floorTexture.wrapS = THREE.RepeatWrapping;
         this.demo.floorTexture.wrapT = THREE.RepeatWrapping;
-        this.demo.floorTexture.repeat.set(20, 20); // 敷き詰める
+        this.demo.floorTexture.repeat.set(20, 20); 
 
         const floorGeo = new THREE.PlaneGeometry(200, 200);
         const floorMat = new THREE.MeshStandardMaterial({ map: this.demo.floorTexture, roughness: 0.8 });
@@ -366,12 +369,33 @@ window.HowToPlay = {
         topMesh.position.y = 0.3; topMesh.castShadow = true;
         this.demo.player.add(topMesh);
 
+        let userName = "Player";
+        if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.name) {
+            userName = window.GameState.userInfo.name;
+        }
+
         if (typeof window.createNameSprite === 'function') {
-            const nameSprite = window.createNameSprite("DemoPlayer");
+            const nameSprite = window.createNameSprite(userName);
             this.demo.player.add(nameSprite);
         }
         
         this.demo.scene.add(this.demo.player);
+
+        // ★ SDKからのアイコン画像の読み込みと適用
+        if (window.GameState && window.GameState.userInfo && window.GameState.userInfo.portrait) {
+            const imageUrl = window.GameState.userInfo.portrait;
+            const loader = new THREE.TextureLoader();
+            loader.setCrossOrigin('anonymous');
+            loader.load(imageUrl, (loadedTexture) => {
+                loadedTexture.center.set(0.5, 0.5);
+                loadedTexture.rotation = -Math.PI / 2;
+                loadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                loadedTexture.magFilter = THREE.LinearFilter;
+                topMesh.material[1].map = loadedTexture;
+                topMesh.material[1].needsUpdate = true;
+            });
+        }
+
         this.demo.clock = new THREE.Clock();
 
         // リサイズ対応
@@ -393,8 +417,6 @@ window.HowToPlay = {
         this.demo.isRunning = true;
         this.demo.clock.start();
         this.animateDemo();
-        
-        // リサイズを一度叩いてサイズを合わせる
         window.dispatchEvent(new Event('resize'));
     },
 
@@ -406,6 +428,7 @@ window.HowToPlay = {
         }
     },
 
+    // Javascriptによるフレーム単位でのデモ同期アニメーション
     animateDemo: function() {
         if (!this.demo.isRunning) return;
         this.demo.reqId = requestAnimationFrame(() => this.animateDemo());
@@ -413,60 +436,70 @@ window.HowToPlay = {
         const delta = this.demo.clock.getDelta();
         const time = this.demo.clock.getElapsedTime();
 
-        // 8秒周期のアニメーションシナリオ
+        // 8秒周期の移動シナリオ
         const cycle = time % 8.0;
-        let inputX = 0, inputY = 0; // 上下がY (前=1, 後=-1)
+        let inputX = 0, inputY = 0; // X:1(右), Y:1(前)
         let isMoving = false;
+        let isTouching = false;
 
-        if (cycle < 2.0) {
-            inputX = 0; inputY = 1.0; // 前へ
-            isMoving = true;
-        } else if (cycle > 2.5 && cycle < 4.5) {
-            inputX = 0.7; inputY = 0.7; // 右斜め前へ
-            isMoving = true;
-        } else if (cycle > 5.0 && cycle < 7.0) {
-            inputX = -0.7; inputY = -0.7; // 左斜め後ろへ
-            isMoving = true;
+        if (cycle > 0.5 && cycle <= 2.0) {
+            inputX = 0; inputY = 1.0; // 前進
+            isMoving = true; isTouching = true;
+        } else if (cycle > 2.5 && cycle <= 4.5) {
+            inputX = 0.707; inputY = 0.707; // 右斜め前
+            isMoving = true; isTouching = true;
+        } else if (cycle > 5.0 && cycle <= 7.0) {
+            inputX = -0.707; inputY = 0.707; // 左斜め前
+            isMoving = true; isTouching = true;
+        } else {
+            // 止まっている間でも、移動開始の少し前に指を下ろす表現を入れる
+            if ((cycle > 0.3 && cycle <= 0.5) || (cycle > 2.3 && cycle <= 2.5) || (cycle > 4.8 && cycle <= 5.0)) {
+                isTouching = true;
+            }
         }
 
         // --- UI（ジョイスティックと指）の更新 ---
         const maxStickDist = 20; 
         const stickX = inputX * maxStickDist;
-        const stickY = -inputY * maxStickDist; // 画面上は上がマイナスY
+        const stickY = -inputY * maxStickDist; // 画面のY座標は上がマイナス
+        
         this.demo.stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
         
         if (isMoving) {
             this.demo.arrow.style.opacity = '1';
             const arrowAngle = Math.atan2(stickY, stickX) * (180 / Math.PI) + 90;
             this.demo.arrow.style.transform = `rotate(${arrowAngle}deg) translateY(-22px)`;
-            this.demo.finger.style.transform = 'scale(1.0) translateY(0)';
         } else {
             this.demo.arrow.style.opacity = '0';
+        }
+
+        if (isTouching) {
+            this.demo.finger.style.transform = 'scale(1.0) translateY(0)';
+        } else {
             this.demo.finger.style.transform = 'scale(1.1) translateY(5px)';
         }
 
         // --- 3D（プレイヤーと床）の更新 ---
         if (isMoving) {
-            // 本編に合わせて前方は -Z
-            const moveDirX = inputX;
-            const moveDirZ = -inputY; 
-            
-            // 目標角度
-            this.demo.targetAngle = Math.atan2(moveDirX, moveDirZ);
-            
-            // プレイヤーの向きを滑らかに回転 (slerp)
+            // キャラクターの向き
+            this.demo.targetAngle = Math.atan2(inputX, inputY);
             const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.demo.targetAngle);
             this.demo.player.quaternion.slerp(rotQuat, 12 * delta);
 
-            // 床をスクロールさせて移動を表現（本編のmoveSpeed=16に準拠）
+            // 正確な床のスクロール処理（本編のmoveSpeed=16に準拠）
             const speed = 16.0 * delta;
-            // CanvasTextureは全体サイズが(幅1,高さ1)として扱われる。repeatが20なので縮尺を考慮
             const textureSpeed = speed / 200.0 * 20; 
-            this.demo.floorTexture.offset.x -= moveDirX * textureSpeed;
-            this.demo.floorTexture.offset.y -= moveDirZ * textureSpeed;
+            
+            // Xプラス(右)へ進む ＝ 床のU(x)座標を増やす（画像が左へ流れる）
+            // Yプラス(前・奥)へ進む ＝ 床のV(y)座標を増やす（画像が手前へ流れる）
+            this.demo.floorTexture.offset.x += inputX * textureSpeed;
+            this.demo.floorTexture.offset.y += inputY * textureSpeed;
+        } else {
+            // 止まっている時は正面を向かせる
+            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0);
+            this.demo.player.quaternion.slerp(rotQuat, 10 * delta);
         }
 
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
 };
-
