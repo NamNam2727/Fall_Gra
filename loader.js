@@ -40,24 +40,34 @@
     // 背景を画像に変更
     loadingScreen.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background: url('https://namnam2727.github.io/Fall_Gra/title.PNG') center/cover no-repeat; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#fff; font-family:sans-serif; transition: opacity 0.5s ease;";
     
+    // 半透明の枠（パネル）を作成
+    const panel = document.createElement('div');
+    panel.style.cssText = 'background: rgba(0, 0, 0, 0.7); border: 1px solid #555; border-radius: 12px; padding: 30px 40px; display: flex; flex-direction: column; align-items: center; width: 80%; max-width: 400px; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5);';
+
     const title = document.createElement('h1');
     title.innerText = "Loading Game...";
-    title.style.cssText = 'font-size:32px; margin-bottom:20px; color:#ffaa00; text-shadow:0 0 10px rgba(255,170,0,0.8); margin-top:0;';
+    title.style.cssText = 'font-size:32px; margin-bottom:20px; color:#ffaa00; text-shadow:0 0 10px rgba(255,170,0,0.8); margin-top:0; text-align: center;';
     
     const barContainer = document.createElement('div');
-    barContainer.style.cssText = 'width:80%; max-width:350px; height:12px; background:#333; border-radius:6px; overflow:hidden; margin-bottom:15px; box-shadow:inset 0 2px 4px rgba(0,0,0,0.8); border: 2px solid #555;';
+    // パネルの幅に合わせて width:100% に変更
+    barContainer.style.cssText = 'width:100%; height:12px; background:#333; border-radius:6px; overflow:hidden; margin-bottom:15px; box-shadow:inset 0 2px 4px rgba(0,0,0,0.8); border: 2px solid #555;';
     
     const barFill = document.createElement('div');
     barFill.style.cssText = 'width:0%; height:100%; background:linear-gradient(90deg, #ffaa00, #ffea00); transition: width 0.1s ease-out;';
     
     const progressText = document.createElement('div');
-    progressText.style.cssText = 'font-size:15px; color:#ddd; font-weight:bold; font-family: monospace; text-shadow: 1px 1px 2px black;'; // 文字が見えやすいように影を追加
+    progressText.style.cssText = 'font-size:15px; color:#ddd; font-weight:bold; font-family: monospace; text-shadow: 1px 1px 2px black; text-align: center;';
     progressText.innerText = `0 / ${coreScripts.length} scripts loaded`;
 
     barContainer.appendChild(barFill);
-    loadingScreen.appendChild(title);
-    loadingScreen.appendChild(barContainer);
-    loadingScreen.appendChild(progressText);
+    
+    // パネルの中に要素を追加
+    panel.appendChild(title);
+    panel.appendChild(barContainer);
+    panel.appendChild(progressText);
+    
+    // 画面全体にパネルを追加
+    loadingScreen.appendChild(panel);
     document.body.appendChild(loadingScreen);
 
     // ==========================================
@@ -147,4 +157,3 @@
     // 読み込み開始
     loadNext();
 })();
-

@@ -26,8 +26,20 @@
         .screen { display: none; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; }
         .screen.active { display: flex; }
         
+        /* ローディング用の半透明枠 */
+        .loading-panel {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid #555;
+            border-radius: 12px;
+            padding: 30px 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
         .title-logo { font-size: 36px; font-weight: bold; margin-bottom: 10px; text-shadow: 0 4px 10px rgba(0,255,255,0.5); color: #fff; text-align: center; }
-        .sys-msg { margin-top: 20px; font-size: 14px; color: #ffaa00; height: 20px; }
+        .sys-msg { margin-top: 10px; font-size: 14px; color: #ffaa00; height: 20px; text-align: center; }
 
         /* ロビーパネルの背景をより濃く（不透明に）変更 */
         .room-panel { background: rgba(0,0,0,0.85); border: 1px solid #555; border-radius: 10px; padding: 20px; width: 90%; max-width: 400px; max-height: 90%; display: flex; flex-direction: column; position: relative; pointer-events: auto; }
@@ -66,15 +78,17 @@
 <div id="startup-ui">
     
     <div id="screen-loading" class="screen active">
-        <div class="title-logo">Loading...</div>
-        <div class="sys-msg" id="loading-msg">通信環境を確認しています...</div>
+        <!-- 半透明枠を追加 -->
+        <div class="loading-panel">
+            <div class="title-logo">Loading...</div>
+            <div class="sys-msg" id="loading-msg">通信環境を確認しています...</div>
+        </div>
     </div>
 
     <div id="screen-room" class="screen">
         <div class="room-panel">
             <div class="room-header">マルチプレイ ロビー</div>
             
-            <!-- ★追加: ルームIDによる入室UI -->
             <div class="join-id-group">
                 <input type="text" id="input-room-id" placeholder="ルームIDを入力">
                 <button id="btn-join-by-id">IDで入室</button>
