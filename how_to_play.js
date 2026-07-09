@@ -2,15 +2,17 @@
 // how_to_play.js
 // 「あそびかた」ウィンドウの生成とページ遷移、
 // 3Dデモ画面のレンダリング管理
+// ★ main.js の制御ロジックを流用する構造へリファクタリング
 // =====================================
 
 window.HowToPlay = {
     demo: {
         scene: null, camera: null, renderer: null,
-        player: null, floorTexture: null,
+        player: null, floorTexture: null, floorMesh: null,
         clock: null, reqId: null, isRunning: false,
         container: null, stick: null, arrow: null, finger: null,
-        targetAngle: Math.PI, cameraAngle: 0
+        // Context用のダミーデータ群
+        context: null
     },
 
     initUI: function() {
@@ -233,7 +235,7 @@ window.HowToPlay = {
         
         document.getElementById('htp-close-btn').addEventListener('click', () => {
             htpWindow.style.display = 'none';
-            this.stopDemo(); // ウィンドウを閉じたらデモを停止
+            this.stopDemo(); 
         });
         
         document.getElementById('htp-back-btn').addEventListener('click', () => {
@@ -304,7 +306,6 @@ window.HowToPlay = {
         const width = this.demo.container.clientWidth;
         const height = this.demo.container.clientHeight;
 
-        // シーン、カメラ、レンダラー
         this.demo.scene = new THREE.Scene();
         this.demo.scene.background = new THREE.Color(0x87CEEB);
         this.demo.scene.fog = new THREE.Fog(0x87CEEB, 5, 40);
@@ -316,7 +317,6 @@ window.HowToPlay = {
         this.demo.renderer.shadowMap.enabled = true;
         this.demo.container.appendChild(this.demo.renderer.domElement);
 
-        // ライト
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.demo.scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -324,7 +324,6 @@ window.HowToPlay = {
         dirLight.castShadow = true;
         this.demo.scene.add(dirLight);
 
-        // 床（巨大な平面）
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
@@ -336,15 +335,15 @@ window.HowToPlay = {
         this.demo.floorTexture = new THREE.CanvasTexture(canvas);
         this.demo.floorTexture.wrapS = THREE.RepeatWrapping;
         this.demo.floorTexture.wrapT = THREE.RepeatWrapping;
-        // マス目を4x4サイズに合わせる
         this.demo.floorTexture.repeat.set(250, 250); 
 
         const floorGeo = new THREE.PlaneGeometry(1000, 1000);
         const floorMat = new THREE.MeshStandardMaterial({ map: this.demo.floorTexture, roughness: 0.8 });
-        const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-        floorMesh.rotation.x = -Math.PI / 2;
-        floorMesh.receiveShadow = true;
-        this.demo.scene.add(floorMesh);
+        this.demo.floorMesh = new THREE.Mesh(floorGeo, floorMat);
+        this.demo.floorMesh.rotation.x = -Math.PI / 2;
+        this.demo.floorMesh.receiveShadow = true;
+        this.demo.floorMesh.userData.isTerrain = true; // ★ 本編の地形判定ロジックに認識させるためのタグ
+        this.demo.scene.add(this.demo.floorMesh);
 
         // プレイヤーキャラクター生成
         const pRadius = 1.2;
@@ -396,6 +395,28 @@ window.HowToPlay = {
         }
         
         this.demo.scene.add(this.demo.player);
+
+        // ★ 本編の制御ロジックに渡すための、デモ専用コンテキストオブジェクトを作成
+        this.demo.context = {
+            player: this.demo.player,
+            scene: this.demo.scene,
+            camera: this.demo.camera,
+            moveVector: new THREE.Vector2(0, 0),
+            isJumping: false,
+            verticalVelocity: 0,
+            cameraAngle: 0,
+            currentFacingAngle: Math.PI,
+            cameraSliderValue: 0.5,
+            isCameraAuto: true,
+            isSpectatorMode: false,
+            isDemo: true,        // マルチプレイ通信やエラー終了などを防ぐフラグ
+            cameraDistance: 8,   // デモ用の接近カメラ距離（本編設定を上書き）
+            cameraHeight: 5      // デモ用の接近カメラ高さ（本編設定を上書き）
+        };
+
+        // デモ開始前にプレイヤーを安全な位置(空中の中心)へ配置（本編ロジックが着地させてくれる）
+        this.demo.player.position.set(0, 20, 0);
+
         this.demo.clock = new THREE.Clock();
 
         window.addEventListener('resize', () => {
@@ -434,26 +455,24 @@ window.HowToPlay = {
         const delta = this.demo.clock.getDelta();
         const time = this.demo.clock.getElapsedTime();
 
-        // 10秒周期の移動シナリオ（★後退の前に正面・前進を配置してカメラの曲がりを解消）
         const cycle = time % 10.0;
         let inputX = 0, inputY = 0; // X:右(1), Y:前(1)
         let isMoving = false;
         let isTouching = false;
 
         if (cycle > 0.5 && cycle <= 2.0) {
-            inputX = 0; inputY = 1.0; // 1. 前進
+            inputX = 0; inputY = 1.0; 
             isMoving = true; isTouching = true;
         } else if (cycle > 2.5 && cycle <= 4.0) {
-            inputX = 0; inputY = -1.0; // 2. 後退
+            inputX = 0; inputY = -1.0; 
             isMoving = true; isTouching = true;
         } else if (cycle > 4.5 && cycle <= 6.5) {
-            inputX = 0.707; inputY = 0.707; // 3. 右斜め前
+            inputX = 0.707; inputY = 0.707; 
             isMoving = true; isTouching = true;
         } else if (cycle > 7.0 && cycle <= 9.0) {
-            inputX = -0.707; inputY = 0.707; // 4. 左斜め前
+            inputX = -0.707; inputY = 0.707; 
             isMoving = true; isTouching = true;
         } else {
-            // 指をタッチする予備動作
             if ((cycle > 0.3 && cycle <= 0.5) || 
                 (cycle > 2.3 && cycle <= 2.5) || 
                 (cycle > 4.3 && cycle <= 4.5) ||
@@ -465,7 +484,7 @@ window.HowToPlay = {
         // --- UI（ジョイスティックと指）の更新 ---
         const maxStickDist = 20; 
         const stickX = inputX * maxStickDist;
-        const stickY = -inputY * maxStickDist; // 画面上は上がマイナスY
+        const stickY = -inputY * maxStickDist; 
         
         this.demo.stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
         
@@ -483,74 +502,33 @@ window.HowToPlay = {
             this.demo.finger.style.transform = 'scale(1.1) translateY(5px)';
         }
 
-        // --- 3D（プレイヤーとカメラ）の更新 ---
+        // --- 3Dロジックの更新（★本編ロジックへの入力委譲） ---
         if (isMoving) {
-            // 物理的に前進＝Z軸マイナス、右＝X軸プラス
-            const moveDirX = inputX;
-            const moveDirZ = -inputY;
-            
-            // 目標角度
-            this.demo.targetAngle = Math.atan2(moveDirX, moveDirZ);
-            
-            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.demo.targetAngle);
-            this.demo.player.quaternion.slerp(rotQuat, 12 * delta);
-
-            // キャラクターを移動させる
-            const speed = 16.0 * delta;
-            this.demo.player.position.x += moveDirX * speed;
-            this.demo.player.position.z += moveDirZ * speed;
-            
-            // シームレスなループ（床の模様サイズ=4なので4の倍数でワープさせる）
-            while (this.demo.player.position.x > 20) this.demo.player.position.x -= 20;
-            while (this.demo.player.position.x < -20) this.demo.player.position.x += 20;
-            while (this.demo.player.position.z > 20) this.demo.player.position.z -= 20;
-            while (this.demo.player.position.z < -20) this.demo.player.position.z += 20;
-            
+            // 本編のジョイスティック入力仕様は「画面の上(前進)がマイナスY」のため、-inputY を渡す
+            this.demo.context.moveVector.set(inputX, -inputY);
         } else {
-            // 止まっている時は、次のシナリオに向けて徐々に正面（奥）を向くようにリセット
-            this.demo.targetAngle = Math.PI; 
-            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.demo.targetAngle);
+            this.demo.context.moveVector.set(0, 0);
+            
+            // 止まっている時は、正面（奥）を向くようにリセット
+            const targetAngle = Math.PI; 
+            const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetAngle);
             this.demo.player.quaternion.slerp(rotQuat, 6 * delta);
+            this.demo.context.currentFacingAngle = targetAngle; // Context側の状態も揃える
         }
 
-        // --- ★オートカメラ（背後への回り込み）の計算 ---
-        if (this.demo.cameraAngle === undefined) {
-            this.demo.cameraAngle = 0; // 初期値（背後）
+        // ★★★ ここで本編(main.js)のコアロジックを呼び出し、計算をすべて任せる ★★★
+        if (typeof window.updatePlayer === 'function') {
+            window.updatePlayer(delta, this.demo.context);
+        }
+        if (typeof window.updateCamera === 'function') {
+            window.updateCamera(false, delta, this.demo.context);
         }
 
-        if (isMoving) {
-            let mvY = -inputY; // ジョイスティックY
-            let mvX = inputX;  // ジョイスティックX
-            
-            // 本編(main.js)の条件式に準拠：前進(mvYが0以下)や横移動の時だけカメラが追従し、後退時は追従しない
-            if (mvY <= 0.2 && Math.abs(mvX) > 0.05) {
-                // targetAngleがMath.PI(前進)の時、カメラは背後(0)に配置したいのでPIを引く
-                let targetCamAngle = this.demo.targetAngle - Math.PI;
-                let diff = targetCamAngle - this.demo.cameraAngle;
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                this.demo.cameraAngle += diff * 3.0 * delta;
-            }
-        } else {
-            // 停止時は次のループに向けてカメラを背後(0)へスムーズに戻す
-            let diff = 0 - this.demo.cameraAngle;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            this.demo.cameraAngle += diff * 4.0 * delta;
-        }
-
-        const camDist = 8;
-        const camHeight = 5;
-        // cAngle=0の時、背後(Zプラス)にカメラを置く
-        const offsetX = Math.sin(this.demo.cameraAngle) * camDist;
-        const offsetZ = Math.cos(this.demo.cameraAngle) * camDist;
-        
-        const camOffset = new THREE.Vector3(offsetX, camHeight, offsetZ); 
-        this.demo.camera.position.copy(this.demo.player.position).add(camOffset);
-        
-        let lookTarget = this.demo.player.position.clone();
-        lookTarget.y += 1.0;
-        this.demo.camera.lookAt(lookTarget);
+        // 無限ループ対策（キャラクターの座標を定期的に中心付近へ巻き戻す）
+        while (this.demo.player.position.x > 20) { this.demo.player.position.x -= 20; this.demo.floorTexture.offset.x += (20/200)*20; }
+        while (this.demo.player.position.x < -20) { this.demo.player.position.x += 20; this.demo.floorTexture.offset.x -= (20/200)*20; }
+        while (this.demo.player.position.z > 20) { this.demo.player.position.z -= 20; this.demo.floorTexture.offset.y += (20/200)*20; }
+        while (this.demo.player.position.z < -20) { this.demo.player.position.z += 20; this.demo.floorTexture.offset.y -= (20/200)*20; }
 
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
