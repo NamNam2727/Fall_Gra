@@ -165,6 +165,11 @@ window.HTP_Item = {
         document.getElementById(`htp-panel-${mode}`).classList.add('active');
 
         this.scenarioTime = 0;
+        
+        // ★ 開いた時にプレイヤーの位置を確実に初期座標へリセットする
+        htpManager.demo.player.position.set(0, 20, 0); 
+        this.lastPlayerZ = htpManager.demo.player.position.z;
+
         htpManager.demo.context.moveVector.set(0, 0);
         htpManager.demo.context.cameraAngle = 0;
         htpManager.demo.context.currentFacingAngle = Math.PI;
@@ -204,7 +209,6 @@ window.HTP_Item = {
         }
     },
 
-    // ★ how_to_play.jsからのワープ指令を直接受け取る (自前のワープ判定は削除)
     onWarp: function(warpX, warpZ) {
         if (this.dummyItem) { this.dummyItem.position.x += warpX; this.dummyItem.position.z += warpZ; }
         if (this.enemy) { this.enemy.position.x += warpX; this.enemy.position.z += warpZ; }
