@@ -10,7 +10,7 @@ window.HTP_Item = {
     jumpedThisCycle: false,
     bombPlaced: false,
     netPlaced: false,
-    playerKbz: 0, // プレイヤー用のノックバック速度
+    playerKbz: 0, 
 
     // UI要素
     stick: null, arrow: null, fingerMove: null,
@@ -38,7 +38,6 @@ window.HTP_Item = {
             .htp-demo-item-slot.active { background: rgba(255, 255, 255, 0.9); }
             .htp-demo-item-slot.cooling { background: rgba(0, 0, 0, 0.8); }
             
-            /* ★カウントダウンタイマーを中央に配置するよう修正 */
             .htp-demo-item-timer { 
                 position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
                 font-size: 26px; font-weight: bold; color: white; text-shadow: 1px 1px 4px black, -1px -1px 4px black; 
@@ -191,7 +190,6 @@ window.HTP_Item = {
         this.respawnTimer = 0;
         this.playerKbz = 0;
 
-        // モード別初期配置
         if (mode === 'pickup') {
             this.dummyItem.visible = true;
             this.dummyItem.position.set(0, 1.5, htpManager.demo.player.position.z - 12);
@@ -206,6 +204,7 @@ window.HTP_Item = {
         }
     },
 
+    // ★ how_to_play.jsからのワープ指令を直接受け取る (自前のワープ判定は削除)
     onWarp: function(warpX, warpZ) {
         if (this.dummyItem) { this.dummyItem.position.x += warpX; this.dummyItem.position.z += warpZ; }
         if (this.enemy) { this.enemy.position.x += warpX; this.enemy.position.z += warpZ; }
@@ -282,9 +281,9 @@ window.HTP_Item = {
         
         if (mode === 'bomb') {
             if (this.scenarioTime >= 2.2 && this.scenarioTime < 6.5) {
-                inputY = 0.0; // 停止
+                inputY = 0.0; 
             } else {
-                inputY = -1.0; // 手前へ移動
+                inputY = -1.0; 
             }
         } else if (mode === 'net') {
             inputY = -1.0; 
@@ -317,11 +316,10 @@ window.HTP_Item = {
                 this.enemy.position.z += this.enemy.vz * delta;
                 this.enemy.rotation.x -= 10 * delta; 
                 
-                // ★着地処理（バウンドさせずに摩擦で横滑りさせる）
                 if (this.enemy.position.y <= 1.2) {
                     this.enemy.position.y = 1.2;
                     this.enemy.verticalVelocity = 0;
-                    this.enemy.vz *= 0.85; // 滑りながら減速
+                    this.enemy.vz *= 0.85; 
                     if (Math.abs(this.enemy.vz) < 1.0) {
                         this.enemy.isFlying = false;
                         this.enemy.vz = 0;
@@ -482,22 +480,19 @@ window.HTP_Item = {
                 this.expGroup.position.copy(this.bombGroup.position);
                 this.expTimer = 0.5;
                 
-                // ★敵を水平方向メインで強く奥へ吹き飛ばす
                 this.enemy.isFlying = true;
                 this.enemy.verticalVelocity = 15; 
                 this.enemy.vz = -35; 
                 
-                // ★プレイヤーを水平方向メインで手前（+Z）へ吹き飛ばす
                 demo.context.isJumping = true;
                 demo.context.verticalVelocity = 15;
                 this.playerKbz = 35; 
             }
         }
         
-        // プレイヤーのノックバック処理
         if (this.playerKbz > 0) {
             demo.player.position.z += this.playerKbz * delta;
-            this.playerKbz -= 70 * delta; // 摩擦で徐々に減速
+            this.playerKbz -= 70 * delta; 
             if (this.playerKbz < 0) this.playerKbz = 0;
         }
         
