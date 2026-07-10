@@ -140,7 +140,8 @@ window.HowToPlay = {
                     <button class="htp-menu-btn" data-script="htp_basic.js" data-obj="HTP_Basic" data-title="1. 基本操作">1. 基本操作</button>
                     <button class="htp-menu-btn" data-script="htp_item.js" data-obj="HTP_Item" data-title="2. アイテム">2. アイテム</button>
                     <button class="htp-menu-btn" data-script="htp_minigame.js" data-obj="HTP_Minigame" data-title="3. ミニゲーム">3. ミニゲーム</button>
-                    <button class="htp-menu-btn" onclick="alert('次回実装予定です')">4. コミュニケーション</button>
+                    <!-- ★ コミュニケーションのリンクを追加 -->
+                    <button class="htp-menu-btn" data-script="htp_communication.js" data-obj="HTP_Communication" data-title="4. コミュニケーション">4. コミュニケーション</button>
                 </div>
                 <!-- 外部JSが読み込まれてDOMを展開する専用コンテナ -->
                 <div id="htp-dynamic-area" class="htp-page"></div>
@@ -431,3 +432,5 @@ window.HowToPlay = {
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
 };
+
+
