@@ -105,58 +105,43 @@ window.HTP_About = {
                 
                 const userId = "1539168218";
                 const webUrl = "https://www.gravity.place/user/" + userId;
-                let delay = 0;
                 
-                // ① 内部コマンド（StarPage等）をtest.htmlと同じ方式で連続送信する
-                const internalPaths = [
-                    "starPage?id=" + userId,
-                    "star?id=" + userId,
-                    "starPage?0=" + encodeURIComponent(JSON.stringify({id: userId})),
-                    "starPage?0=" + encodeURIComponent(JSON.stringify({s: "web", b: "starPage", id: userId})),
-                    "user/" + userId,
-                    "user?id=" + userId
-                ];
+                // 公式ファイル (HNivcbOp.js) のロジックを完全再現
+                const T = encodeURIComponent(webUrl); // URLを一度エンコード
+                const S = "web";
+                const v = "user"; // 内部トラッキング用
+                
+                // iOS用の特殊な二重エンコードロジック
+                const iosPayload = `usercenter?0={"uid":${userId},"selectedIndex":0,"web_url":"${T}","s":"${S}","b":"${v}"}`;
+                const x = encodeURIComponent(iosPayload);
+                const iosDeepLink = `slme://internal?type=5&ani=1&url=${encodeURIComponent(x)}`;
+                
+                // Android用の直接指定ロジック
+                const androidDeepLink = `slme://gravity.creativeappnow.com/userHomePager?userId=${userId}&web_url=${T}&b=${v}&s=${S}`;
 
-                internalPaths.forEach(function(path) {
-                    const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(path);
-                    setTimeout(function() {
-                        let i = document.createElement('iframe');
-                        i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
-                        i.src = deepLink;
-                        document.body.appendChild(i);
-                        setTimeout(function() { i.remove(); }, 3000);
-                    }, delay);
-                    delay += 150;
-                });
+                // OS判定
+                const ua = navigator.userAgent.toLowerCase();
+                const isIOS = /(iphone|ipad|ipod|ios|macintosh|apple)/i.test(ua);
+                
+                const finalDeepLink = isIOS ? iosDeepLink : androidDeepLink;
 
-                // Android環境用スキームも送信
-                const androidLinks = [
-                    "slme://gravity.creativeappnow.com/starPage?id=" + userId,
-                    "slme://gravity.creativeappnow.com/user?id=" + userId
-                ];
-                androidLinks.forEach(function(link) {
-                    setTimeout(function() {
-                        let i = document.createElement('iframe');
-                        i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
-                        i.src = link;
-                        document.body.appendChild(i);
-                        setTimeout(function() { i.remove(); }, 3000);
-                    }, delay);
-                    delay += 150;
-                });
-
-                // ② 最強の保険：親フレームへの直接ナビゲーションでOSフックを誘発する
-                // iframe内（_self）ではなく、親アプリ（_top）にURLを踏ませることで
-                // Safariから開いた時と全く同じ状況を作り出し、アプリに画面を被せさせます
-                setTimeout(function() {
+                // ゲームのiframeから親（アプリ本体）へ強制的にリンクを踏ませる
+                try {
+                    // 親フレームに直接ディープリンクを流し込み、アプリのネイティブ遷移を誘発する
+                    window.top.location.href = finalDeepLink;
+                } catch (e) {
+                    // セキュリティ制約でtopにアクセスできない場合の保険
                     let a = document.createElement('a');
-                    a.href = webUrl;
+                    a.href = finalDeepLink;
                     a.target = "_top";
                     a.style.display = "none";
                     document.body.appendChild(a);
-                    a.click(); // 見えないリンクを強制クリック
+                    a.click();
                     setTimeout(function() { a.remove(); }, 100);
-                }, delay + 300);
+                }
+                
+                // ※ここにWebページへのフォールバック（強制遷移）を入れるとネイティブ処理を阻害するため、
+                // 公式コードと同様に、リンクを叩き込むだけの処理に留めています。
             });
         }
     },
