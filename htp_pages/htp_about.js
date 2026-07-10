@@ -69,6 +69,7 @@ window.HTP_About = {
                 display: inline-block;
                 transition: opacity 0.2s, transform 0.1s;
                 box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+                cursor: pointer;
             }
             .htp-about-download:active {
                 opacity: 0.8;
@@ -90,14 +91,61 @@ window.HTP_About = {
                     <span style="color:#ff4444;">❤️いいね</span>を押してね。<br><br>
                     不具合・ご意見・ご要望・感想等があれば、<br>
                     メッセージやコメントを送ってね。<br>
-                    <span style="color:#ffcc00; font-weight:bold;">特に、感想をくれるとめちゃくちゃ喜ぶよ！</span><br><br>
-                    プロフィールへは右上の[･･･]ボタンから<br>
-                    [ゲーム詳細]を選んだ画面の<br>
-                    アイコンをタップしてね！
-
+                    <span style="color:#ffcc00; font-weight:bold;">特に、感想をくれるとめちゃくちゃ喜ぶよ！</span>
                 </div>
+
+                <div class="htp-about-download" id="openGravityProfileBtn">プロフィールを開く</div>
             </div>
         `;
+
+        const profileBtn = container.querySelector('#openGravityProfileBtn');
+        if (profileBtn) {
+            profileBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                
+                const userId = "1539168218";
+                
+                // test.htmlの仕組みを応用した、アプリ内ネイティブルーティングの実行
+                
+                // 候補1: makefeedと同じJSONパラメータ形式（内部コマンド: user）
+                const paramObj1 = { s: "web", b: "user", id: userId, user_id: userId };
+                const innerUrl1 = "user?0=" + encodeURIComponent(JSON.stringify(paramObj1));
+                const deepLink1 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl1);
+                
+                // 候補2: makefeedと同じJSONパラメータ形式（内部コマンド: profile）
+                const paramObj2 = { s: "web", b: "profile", id: userId, user_id: userId };
+                const innerUrl2 = "profile?0=" + encodeURIComponent(JSON.stringify(paramObj2));
+                const deepLink2 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl2);
+
+                // 候補3: 通常のWebURLを、公式の内部ルーターに解析させる形式
+                const webUrl = "https://www.gravity.place/user/" + userId;
+                const deepLink3 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(webUrl);
+
+                // iframeを作成して、ゲームのサンドボックス外（アプリ本体）へ命令を飛ばす
+                const links = [deepLink1, deepLink2, deepLink3];
+                let delay = 0;
+
+                links.forEach(function(link) {
+                    setTimeout(function() {
+                        let i = document.createElement('iframe');
+                        i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+                        i.src = link;
+                        document.body.appendChild(i);
+                        // 5秒後に作られたiframeを削除して綺麗にする
+                        setTimeout(function() { i.remove(); }, 5000);
+                    }, delay);
+                    
+                    // 0.2秒間隔で可能性の高い形式をアプリに連続送信する
+                    delay += 200;
+                });
+
+                // すべてのネイティブ遷移コマンドがアプリ側に弾かれた場合のみ、
+                // 最終手段として通常のWebページ版プロフィールを開く（保険）
+                setTimeout(function() {
+                    window.location.href = webUrl;
+                }, 1500);
+            });
+        }
     },
 
     updateScenario: function(time, delta, demo) {
