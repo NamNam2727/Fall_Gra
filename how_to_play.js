@@ -70,6 +70,36 @@ window.HowToPlay = {
                 border: 2px solid #555; box-sizing: border-box; flex-shrink: 0;
             }
             #htp-demo-canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+            
+            .htp-demo-jump {
+                position: absolute; bottom: 10px; right: 15px; width: 60px; height: 60px;
+                background: rgba(255, 255, 255, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); 
+                border-radius: 50%; color: #333; font-weight: bold; font-family: sans-serif; font-size: 12px;
+                display: flex; justify-content: center; align-items: center;
+                /* ★ overflow: hidden を削除して指アイコンが切れないように修正 */
+                box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10; transition: transform 0.1s, background 0.1s;
+            }
+            .htp-demo-joystick-base {
+                position: absolute; bottom: 10px; left: 15px; width: 70px; height: 70px;
+                border: 2px solid rgba(255, 255, 255, 0.6); border-radius: 50%; 
+                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.3) 100%); z-index: 10;
+            }
+            .htp-demo-joystick-stick {
+                position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; 
+                background: rgba(255, 255, 255, 0.9); border-radius: 50%; 
+                box-shadow: 0 4px 8px rgba(0,0,0,0.4); transform: translate(-50%, -50%); transition: transform 0.1s linear;
+            }
+            .htp-demo-arrow {
+                position: absolute; top: 50%; left: 50%; width: 0; height: 0;
+                border-left: 10px solid transparent; border-right: 10px solid transparent;
+                border-bottom: 16px solid #ffaa00; margin-left: -10px; margin-top: -16px;
+                transform-origin: 50% 100%; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
+                opacity: 0; transition: opacity 0.1s, transform 0.1s linear;
+            }
+            .htp-demo-finger {
+                position: absolute; font-size: 30px; pointer-events: none; z-index: 15;
+                filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.5)); transform: scale(1.1) translateY(5px); transition: transform 0.1s, opacity 0.2s;
+            }
 
             .htp-desc-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.5); border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.6; }
             .htp-desc-title { color: #3296ff; font-weight: bold; font-size: 16px; margin-bottom: 8px; border-bottom: 1px solid #3296ff; padding-bottom: 5px; }
@@ -109,7 +139,6 @@ window.HowToPlay = {
                 <div id="htp-index" class="htp-page active">
                     <button class="htp-menu-btn" data-script="htp_basic.js" data-obj="HTP_Basic" data-title="1. 基本操作">1. 基本操作</button>
                     <button class="htp-menu-btn" data-script="htp_item.js" data-obj="HTP_Item" data-title="2. アイテム">2. アイテム</button>
-                    <!-- ★ ミニゲームのリンクを追加 -->
                     <button class="htp-menu-btn" data-script="htp_minigame.js" data-obj="HTP_Minigame" data-title="3. ミニゲーム">3. ミニゲーム</button>
                     <button class="htp-menu-btn" onclick="alert('次回実装予定です')">4. コミュニケーション</button>
                 </div>
@@ -148,7 +177,9 @@ window.HowToPlay = {
             });
         });
 
+        // 裏側で3D空間だけ生成しておく
         setTimeout(() => { this.initDemo3D(); }, 1000);
+        
         window.addEventListener('resize', () => { this.resizeDemo(); });
     },
     
@@ -400,3 +431,5 @@ window.HowToPlay = {
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
 };
+
+
