@@ -140,8 +140,9 @@ window.HowToPlay = {
                     <button class="htp-menu-btn" data-script="htp_basic.js" data-obj="HTP_Basic" data-title="1. 基本操作">1. 基本操作</button>
                     <button class="htp-menu-btn" data-script="htp_item.js" data-obj="HTP_Item" data-title="2. アイテム">2. アイテム</button>
                     <button class="htp-menu-btn" data-script="htp_minigame.js" data-obj="HTP_Minigame" data-title="3. ミニゲーム">3. ミニゲーム</button>
-                    <!-- ★ コミュニケーションのリンクを追加 -->
                     <button class="htp-menu-btn" data-script="htp_communication.js" data-obj="HTP_Communication" data-title="4. コミュニケーション">4. コミュニケーション</button>
+                    <!-- ★ 5のリンクを追加 -->
+                    <button class="htp-menu-btn" data-script="htp_about.js" data-obj="HTP_About" data-title="5. このゲームについて">5. このゲームについて</button>
                 </div>
                 <!-- 外部JSが読み込まれてDOMを展開する専用コンテナ -->
                 <div id="htp-dynamic-area" class="htp-page"></div>
