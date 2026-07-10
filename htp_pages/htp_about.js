@@ -105,18 +105,14 @@ window.HTP_About = {
                 var universalLink = "https://www.gravity.place/user/1539168218";
                 var customScheme = "slme://user/1539168218"; 
                 
-                var iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = customScheme;
-                document.body.appendChild(iframe);
-                
-                setTimeout(function() {
-                    document.body.removeChild(iframe);
-                }, 500);
+                // WebViewのシステムに検知させるため、直接hrefをスキームに書き換えます
+                window.location.href = customScheme;
 
+                // 万が一スキームが動作しなかった場合のWeb遷移（フォールバック）までの時間を2秒に延長し、
+                // アプリ側がスキームを処理するのを邪魔しないようにします
                 setTimeout(function() {
                     window.location.href = universalLink;
-                }, 100);
+                }, 2000);
             });
         }
     },
