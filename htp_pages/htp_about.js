@@ -90,55 +90,15 @@ window.HTP_About = {
                     <span style="color:#ff4444;">❤️いいね</span>を押してね。<br><br>
                     不具合・ご意見・ご要望・感想等があれば、<br>
                     メッセージやコメントを送ってね。<br>
-                    <span style="color:#ffcc00; font-weight:bold;">特に、感想をくれるとめちゃくちゃ喜ぶよ！</span>
+                    <span style="color:#ffcc00; font-weight:bold;">特に、感想をくれるとめちゃくちゃ喜ぶよ！</span><br><br>
+                    プロフィールへは右上の[･･･]ボタンから<br>
+                    [ゲーム詳細]を選んでアイコンをタップしてね！
+
                 </div>
 
-                <a href="#" class="htp-about-download" id="openGravityProfileBtn">プロフィールを開く</a>
+                <a href="https://www.gravity.place/user/1539168218" class="htp-about-download" target="_blank" rel="noopener noreferrer">プロフィールを開く</a>
             </div>
         `;
-
-        const profileBtn = container.querySelector('#openGravityProfileBtn');
-        if (profileBtn) {
-            profileBtn.addEventListener('click', function(event) {
-                event.preventDefault();
-                
-                var universalLink = "https://www.gravity.place/user/1539168218";
-                
-                // 考えられる複数のカスタムURLスキーム形式
-                var schemes = [
-                    "slme://user/1539168218",
-                    "slme://user?id=1539168218",
-                    "slme://gravity.creativeappnow.com/user?id=1539168218",
-                    "slme://profile/1539168218",
-                    "slme://profile?id=1539168218",
-                    "slme://detail?id=1539168218"
-                ];
-                
-                var delay = 0;
-                
-                // iframeの親フレーム（WebView本体）に対してスキーム遷移を連続で試行します
-                schemes.forEach(function(scheme) {
-                    setTimeout(function() {
-                        try {
-                            window.top.location.href = scheme;
-                        } catch(e) {
-                            // クロスドメイン制約等でtopにアクセスできない場合の保険
-                            window.location.href = scheme;
-                        }
-                    }, delay);
-                    delay += 100;
-                });
-
-                // 上記のどのスキームもWebViewに無効化された場合のWeb遷移（2.5秒後に発動）
-                setTimeout(function() {
-                    try {
-                        window.top.location.href = universalLink;
-                    } catch(e) {
-                        window.location.href = universalLink;
-                    }
-                }, 2500);
-            });
-        }
     },
 
     updateScenario: function(time, delta, demo) {
