@@ -94,19 +94,20 @@ window.HTP_About = {
                     <span style="color:#ffcc00; font-weight:bold;">特に、感想をくれるとめちゃくちゃ喜ぶよ！</span>
                 </div>
 
-                <div class="htp-about-download" id="openGravityProfileBtn">プロフィールを開く</div>
+                <div class="htp-about-download" id="openGravityProfileBtn1">検証1 (1回エンコード)を開く</div>
+                <div class="htp-about-download" id="openGravityProfileBtn2" style="border-color:#4444ff;">検証2 (2重エンコード)を開く</div>
             </div>
         `;
 
-        const profileBtn = container.querySelector('#openGravityProfileBtn');
-        if (profileBtn) {
-            profileBtn.addEventListener('click', function(event) {
+        const profileBtn1 = container.querySelector('#openGravityProfileBtn1');
+        if (profileBtn1) {
+            profileBtn1.addEventListener('click', function(event) {
                 event.preventDefault();
                 
-                const userId = 1539168218; // 公式仕様通り数値として渡す
+                const userId = 1539168218;
                 const webUrl = "https://www.gravity.place/user/1539168218";
                 
-                // パターン1: test.html(makefeed) と全く同じ「正しい」変換ルールのネイティブ命令
+                // パターン1: 正常な1回エンコード
                 const paramObj = {
                     uid: userId,
                     selectedIndex: 0,
@@ -117,26 +118,31 @@ window.HTP_About = {
                 const innerUrl1 = "usercenter?0=" + encodeURIComponent(JSON.stringify(paramObj));
                 const deepLink1 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl1);
                 
-                // パターン2: HNivcbOp.js に記述されていた「バグ（二重エンコード）」そのままの命令
+                let i = document.createElement('iframe');
+                i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+                i.src = deepLink1;
+                document.body.appendChild(i);
+                setTimeout(function() { i.remove(); }, 5000);
+            });
+        }
+
+        const profileBtn2 = container.querySelector('#openGravityProfileBtn2');
+        if (profileBtn2) {
+            profileBtn2.addEventListener('click', function(event) {
+                event.preventDefault();
+                
+                const userId = 1539168218;
+                const webUrl = "https://www.gravity.place/user/1539168218";
+                
+                // パターン2: アプリ側のバグを再現した2重エンコード
                 const iosPayload = `usercenter?0={"uid":${userId},"selectedIndex":0,"web_url":"${webUrl}","s":"web","b":"user"}`;
                 const deepLink2 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(encodeURIComponent(iosPayload));
 
-                // test.html で実証済みの「iframe」方式を使用して、iOSアプリ本体へ命令を送信
-                const links = [deepLink1, deepLink2];
-                let delay = 0;
-                
-                links.forEach(function(link) {
-                    setTimeout(function() {
-                        let i = document.createElement('iframe');
-                        i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
-                        i.src = link;
-                        document.body.appendChild(i);
-                        // 送信し終わったiframeは5秒後に掃除
-                        setTimeout(function() { i.remove(); }, 5000);
-                    }, delay);
-                    // 0.2秒間隔で2つのパターンを確実に送信
-                    delay += 200;
-                });
+                let i = document.createElement('iframe');
+                i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+                i.src = deepLink2;
+                document.body.appendChild(i);
+                setTimeout(function() { i.remove(); }, 5000);
             });
         }
     },
