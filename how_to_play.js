@@ -76,7 +76,6 @@ window.HowToPlay = {
                 background: rgba(255, 255, 255, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); 
                 border-radius: 50%; color: #333; font-weight: bold; font-family: sans-serif; font-size: 12px;
                 display: flex; justify-content: center; align-items: center;
-                /* ★ overflow: hidden を削除して指アイコンが切れないように修正 */
                 box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10; transition: transform 0.1s, background 0.1s;
             }
             .htp-demo-joystick-base {
@@ -141,7 +140,7 @@ window.HowToPlay = {
                     <button class="htp-menu-btn" data-script="htp_item.js" data-obj="HTP_Item" data-title="2. アイテム">2. アイテム</button>
                     <button class="htp-menu-btn" data-script="htp_minigame.js" data-obj="HTP_Minigame" data-title="3. ミニゲーム">3. ミニゲーム</button>
                     <button class="htp-menu-btn" data-script="htp_communication.js" data-obj="HTP_Communication" data-title="4. コミュニケーション">4. コミュニケーション</button>
-                    <!-- ★ 5のリンクを追加 -->
+                    <!-- ★ 5. このゲームについて を追加 -->
                     <button class="htp-menu-btn" data-script="htp_about.js" data-obj="HTP_About" data-title="5. このゲームについて">5. このゲームについて</button>
                 </div>
                 <!-- 外部JSが読み込まれてDOMを展開する専用コンテナ -->
@@ -247,6 +246,8 @@ window.HowToPlay = {
         this.demo.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
         this.demo.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.demo.renderer.shadowMap.enabled = true; 
+        // ★レンダラーの画質向上（高解像度ディスプレイ対応）
+        this.demo.renderer.setPixelRatio(window.devicePixelRatio);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.demo.scene.add(ambientLight);
@@ -304,6 +305,8 @@ window.HowToPlay = {
                         iconTexture.rotation = -Math.PI / 2;
                         iconTexture.minFilter = THREE.LinearMipmapLinearFilter;
                         iconTexture.magFilter = THREE.LinearFilter;
+                        // ★キャラクターテクスチャの画質向上
+                        iconTexture.anisotropy = this.demo.renderer.capabilities.getMaxAnisotropy();
                         iconTexture.needsUpdate = true;
                     }
                 }
@@ -433,5 +436,4 @@ window.HowToPlay = {
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
 };
-
 
