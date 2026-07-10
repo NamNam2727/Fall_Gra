@@ -103,7 +103,7 @@ window.HTP_About = {
                 event.preventDefault();
                 
                 var universalLink = "https://www.gravity.place/user/1539168218";
-                var customScheme = "slme://user/1539168218"; 
+                var customScheme = "slme://gravity.creativeappnow.com/user?id=1539168218"; 
                 
                 // WebViewのシステムに検知させるため、直接hrefをスキームに書き換えます
                 window.location.href = customScheme;
