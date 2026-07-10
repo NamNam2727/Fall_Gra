@@ -103,16 +103,40 @@ window.HTP_About = {
                 event.preventDefault();
                 
                 var universalLink = "https://www.gravity.place/user/1539168218";
-                var customScheme = "slme://gravity.creativeappnow.com/user?id=1539168218"; 
                 
-                // WebViewのシステムに検知させるため、直接hrefをスキームに書き換えます
-                window.location.href = customScheme;
+                // 考えられる複数のカスタムURLスキーム形式
+                var schemes = [
+                    "slme://user/1539168218",
+                    "slme://user?id=1539168218",
+                    "slme://gravity.creativeappnow.com/user?id=1539168218",
+                    "slme://profile/1539168218",
+                    "slme://profile?id=1539168218",
+                    "slme://detail?id=1539168218"
+                ];
+                
+                var delay = 0;
+                
+                // iframeの親フレーム（WebView本体）に対してスキーム遷移を連続で試行します
+                schemes.forEach(function(scheme) {
+                    setTimeout(function() {
+                        try {
+                            window.top.location.href = scheme;
+                        } catch(e) {
+                            // クロスドメイン制約等でtopにアクセスできない場合の保険
+                            window.location.href = scheme;
+                        }
+                    }, delay);
+                    delay += 100;
+                });
 
-                // 万が一スキームが動作しなかった場合のWeb遷移（フォールバック）までの時間を2秒に延長し、
-                // アプリ側がスキームを処理するのを邪魔しないようにします
+                // 上記のどのスキームもWebViewに無効化された場合のWeb遷移（2.5秒後に発動）
                 setTimeout(function() {
-                    window.location.href = universalLink;
-                }, 2000);
+                    try {
+                        window.top.location.href = universalLink;
+                    } catch(e) {
+                        window.location.href = universalLink;
+                    }
+                }, 2500);
             });
         }
     },
