@@ -30,7 +30,7 @@ window.HTP_Minigame = {
                 box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10; transition: transform 0.1s, background 0.1s;
             }
             
-            /* ★観戦モード用のボタンだけ角丸からはみ出ないよう overflow:hidden を設定 */
+            /* 観戦モード用のボタンだけ角丸からはみ出ないよう overflow:hidden を設定 */
             #htp-demo-spec-btn { overflow: hidden; }
             .htp-demo-spec-btn-part { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; font-size: 18px; transition: background 0.1s; }
         `;
@@ -219,8 +219,8 @@ window.HTP_Minigame = {
                 }
             });
             
-            // 空中に浮かせる
-            htpManager.demo.player.position.set(0, 15, 0);
+            // ★ 空中に浮かせる初期位置を少し下げ、床を見えやすくする
+            htpManager.demo.player.position.set(0, 8, 0);
             
             // カメラを追従させる
             htpManager.demo.context.cameraAngle = 0;
@@ -452,7 +452,8 @@ window.HTP_Minigame = {
             if (this.fingerMove) this.fingerMove.style.transform = 'scale(1.1) translateY(5px)';
         }
 
-        const flySpeed = 20.0;
+        // ★ 上下移動のスピードを緩やかにし、上昇中も床が見えるように調整
+        const flySpeed = 8.0; // 元は20.0
         if (upPressed) {
             demo.player.position.y += flySpeed * delta;
             this.specUpBtn.style.background = 'rgba(255, 255, 255, 0.9)';
@@ -477,8 +478,9 @@ window.HTP_Minigame = {
             this.fingerJump.style.display = 'none';
         }
 
+        // 床の裏側に潜り込まないよう制限 (最大高さを下げてカメラが床を見失わないように)
         if (demo.player.position.y < 1.0) demo.player.position.y = 1.0;
-        if (demo.player.position.y > 40.0) demo.player.position.y = 40.0;
+        if (demo.player.position.y > 25.0) demo.player.position.y = 25.0;
     },
 
     onWarp: function(warpX, warpZ) {
