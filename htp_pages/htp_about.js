@@ -103,45 +103,40 @@ window.HTP_About = {
             profileBtn.addEventListener('click', function(event) {
                 event.preventDefault();
                 
-                const userId = "1539168218";
-                const webUrl = "https://www.gravity.place/user/" + userId;
+                const userId = 1539168218; // 公式仕様通り数値として渡す
+                const webUrl = "https://www.gravity.place/user/1539168218";
                 
-                // 公式ファイル (HNivcbOp.js) のロジックを完全再現
-                const T = encodeURIComponent(webUrl); // URLを一度エンコード
-                const S = "web";
-                const v = "user"; // 内部トラッキング用
+                // パターン1: test.html(makefeed) と全く同じ「正しい」変換ルールのネイティブ命令
+                const paramObj = {
+                    uid: userId,
+                    selectedIndex: 0,
+                    web_url: webUrl,
+                    s: "web",
+                    b: "user"
+                };
+                const innerUrl1 = "usercenter?0=" + encodeURIComponent(JSON.stringify(paramObj));
+                const deepLink1 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl1);
                 
-                // iOS用の特殊な二重エンコードロジック
-                const iosPayload = `usercenter?0={"uid":${userId},"selectedIndex":0,"web_url":"${T}","s":"${S}","b":"${v}"}`;
-                const x = encodeURIComponent(iosPayload);
-                const iosDeepLink = `slme://internal?type=5&ani=1&url=${encodeURIComponent(x)}`;
-                
-                // Android用の直接指定ロジック
-                const androidDeepLink = `slme://gravity.creativeappnow.com/userHomePager?userId=${userId}&web_url=${T}&b=${v}&s=${S}`;
+                // パターン2: HNivcbOp.js に記述されていた「バグ（二重エンコード）」そのままの命令
+                const iosPayload = `usercenter?0={"uid":${userId},"selectedIndex":0,"web_url":"${webUrl}","s":"web","b":"user"}`;
+                const deepLink2 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(encodeURIComponent(iosPayload));
 
-                // OS判定
-                const ua = navigator.userAgent.toLowerCase();
-                const isIOS = /(iphone|ipad|ipod|ios|macintosh|apple)/i.test(ua);
+                // test.html で実証済みの「iframe」方式を使用して、iOSアプリ本体へ命令を送信
+                const links = [deepLink1, deepLink2];
+                let delay = 0;
                 
-                const finalDeepLink = isIOS ? iosDeepLink : androidDeepLink;
-
-                // ゲームのiframeから親（アプリ本体）へ強制的にリンクを踏ませる
-                try {
-                    // 親フレームに直接ディープリンクを流し込み、アプリのネイティブ遷移を誘発する
-                    window.top.location.href = finalDeepLink;
-                } catch (e) {
-                    // セキュリティ制約でtopにアクセスできない場合の保険
-                    let a = document.createElement('a');
-                    a.href = finalDeepLink;
-                    a.target = "_top";
-                    a.style.display = "none";
-                    document.body.appendChild(a);
-                    a.click();
-                    setTimeout(function() { a.remove(); }, 100);
-                }
-                
-                // ※ここにWebページへのフォールバック（強制遷移）を入れるとネイティブ処理を阻害するため、
-                // 公式コードと同様に、リンクを叩き込むだけの処理に留めています。
+                links.forEach(function(link) {
+                    setTimeout(function() {
+                        let i = document.createElement('iframe');
+                        i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+                        i.src = link;
+                        document.body.appendChild(i);
+                        // 送信し終わったiframeは5秒後に掃除
+                        setTimeout(function() { i.remove(); }, 5000);
+                    }, delay);
+                    // 0.2秒間隔で2つのパターンを確実に送信
+                    delay += 200;
+                });
             });
         }
     },
