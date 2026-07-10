@@ -9,6 +9,7 @@ window.HTP_Communication = {
     modes: ['chat', 'shortcut', 'member'], 
 
     // UI要素の参照
+    chatContainer: null, // 追加：チャットUI全体のコンテナ
     chatArea: null,
     tabToggle: null,
     tabChat: null,
@@ -79,8 +80,8 @@ window.HTP_Communication = {
             <div class="htp-demo-area" style="position: relative;">
                 <div id="htp-demo-canvas-container"></div>
                 
-                <!-- デモ用チャット・ショートカットUI -->
-                <div class="htp-demo-chat-container">
+                <!-- デモ用チャット・ショートカットUI (ID付与) -->
+                <div class="htp-demo-chat-container" id="htp-demo-chat-container">
                     <div class="htp-demo-floating-log" id="htp-demo-flog"></div>
                     <div class="htp-demo-bottom-tabs">
                         <div class="htp-demo-tab-btn active" id="htp-demo-tab-chat">チャット</div>
@@ -187,6 +188,7 @@ window.HTP_Communication = {
             </div>
         `;
 
+        this.chatContainer = document.getElementById('htp-demo-chat-container');
         this.chatArea = document.getElementById('htp-demo-chat-area');
         this.tabToggle = document.getElementById('htp-demo-tab-toggle');
         this.tabChat = document.getElementById('htp-demo-tab-chat');
@@ -253,7 +255,15 @@ window.HTP_Communication = {
         this.editBtn.innerText = '編集モード: OFF';
         this.editBtn.style.background = '#444';
         
-        this.memberBtn.style.display = mode === 'member' ? 'flex' : 'none';
+        // ★ メンバーモードの時はチャットUIを非表示にして邪魔にならないようにする
+        if (mode === 'member') {
+            if (this.chatContainer) this.chatContainer.style.display = 'none';
+            this.memberBtn.style.display = 'flex';
+        } else {
+            if (this.chatContainer) this.chatContainer.style.display = 'flex';
+            this.memberBtn.style.display = 'none';
+        }
+
         this.memberWindow.style.display = 'none';
         this.memberCopyBtn.innerText = 'コピー';
         this.memberCopyBtn.style.background = '#4CAF50';
@@ -267,7 +277,6 @@ window.HTP_Communication = {
     },
 
     updateScenario: function(time, delta, demo) {
-        // キャラクターとカメラは静止
         demo.context.moveVector.set(0, 0);
         const targetAngle = Math.PI; 
         const rotQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetAngle);
@@ -305,10 +314,9 @@ window.HTP_Communication = {
             this.finger.style.left = '35px';
         }
         else if (cycle >= 1.5 && cycle < 1.7) {
-            this.finger.style.transform = 'scale(0.9)'; // つかむ
+            this.finger.style.transform = 'scale(0.9)';
         }
         else if (cycle >= 1.7 && cycle < 3.5) {
-            // 上下にスワイプ
             let h = 100; let topPos = 65;
             if (cycle < 2.3) {
                 let p = (cycle - 1.7) / 0.6;
@@ -326,19 +334,18 @@ window.HTP_Communication = {
             this.finger.style.top = topPos + 'px';
         }
         else if (cycle >= 3.5 && cycle < 4.0) {
-            this.finger.style.transform = 'scale(1.1)'; // はなす
+            this.finger.style.transform = 'scale(1.1)';
             this.finger.style.transition = 'left 0.4s ease-out, top 0.4s ease-out, transform 0.1s, opacity 0.2s';
             this.finger.style.top = '65px';
             this.finger.style.left = '200px';
         }
         else if (cycle >= 4.0 && cycle < 4.2) {
-            this.finger.style.transform = 'scale(0.9)'; // タップ
+            this.finger.style.transform = 'scale(0.9)';
         }
         else if (cycle >= 4.2 && cycle < 5.0) {
             this.finger.style.transform = 'scale(1.1)';
-            this.finger.style.opacity = '0'; // 引っ込む
+            this.finger.style.opacity = '0'; 
             
-            // チャットを閉じる
             this.chatArea.style.transition = 'height 0.3s, border-width 0.3s';
             this.chatArea.style.height = '0px';
             this.chatArea.style.borderWidth = '0px';
@@ -367,7 +374,7 @@ window.HTP_Communication = {
             this.finger.style.opacity = '1';
         }
         else if (cycle >= 9.0 && cycle < 9.2) {
-            this.finger.style.transform = 'scale(0.9)'; // タップ
+            this.finger.style.transform = 'scale(0.9)';
         }
         else if (cycle >= 9.2 && cycle < 10.0) {
             this.finger.style.transform = 'scale(1.1)';
@@ -410,7 +417,7 @@ window.HTP_Communication = {
             this.finger.style.transition = 'left 0.4s ease-out, top 0.4s ease-out, transform 0.1s, opacity 0.2s';
             this.finger.style.opacity = '1';
             this.finger.style.top = '65px';
-            this.finger.style.left = '120px'; // ショートカットタブ
+            this.finger.style.left = '120px'; 
         }
         else if (cycle >= 1.0 && cycle < 1.2) {
             this.finger.style.transform = 'scale(0.9)';
@@ -423,7 +430,7 @@ window.HTP_Communication = {
             this.contentShortcut.classList.add('active');
             
             this.finger.style.top = '100px';
-            this.finger.style.left = '60px'; // 左上のボタン
+            this.finger.style.left = '60px'; 
         }
         else if (cycle >= 1.8 && cycle < 2.0) {
             this.finger.style.transform = 'scale(0.9)';
@@ -433,13 +440,12 @@ window.HTP_Communication = {
             this.finger.style.transform = 'scale(1.1)';
             this.scBtn1.style.transform = 'scale(1)';
             
-            // チャットログにメッセージ追加
             if (this.chatContentArea.children.length === 1) {
                 this.chatContentArea.innerHTML += '<div><span style="color:#00ffff;">Player:</span> こんにちは！</div>';
             }
             
             this.finger.style.top = '175px';
-            this.finger.style.left = '110px'; // 編集モードボタン
+            this.finger.style.left = '110px'; 
         }
         else if (cycle >= 2.8 && cycle < 3.0) {
             this.finger.style.transform = 'scale(0.9)';
@@ -451,7 +457,7 @@ window.HTP_Communication = {
             this.scBtns.forEach(btn => btn.classList.add('edit'));
             
             this.finger.style.top = '100px';
-            this.finger.style.left = '60px'; // 再び左上のボタン
+            this.finger.style.left = '60px'; 
         }
         else if (cycle >= 3.8 && cycle < 4.0) {
             this.finger.style.transform = 'scale(0.9)';
@@ -461,11 +467,10 @@ window.HTP_Communication = {
             this.finger.style.transform = 'scale(1.1)';
             this.scBtn1.style.transform = 'scale(1)';
             
-            // プロンプトを模した文字の書き換え演出
             this.scBtn1.innerText = 'ヤッホー！';
             
             this.finger.style.top = '175px';
-            this.finger.style.left = '110px'; // 再び編集モードボタン
+            this.finger.style.left = '110px'; 
         }
         else if (cycle >= 4.8 && cycle < 5.0) {
             this.finger.style.transform = 'scale(0.9)';
@@ -477,7 +482,7 @@ window.HTP_Communication = {
             this.scBtns.forEach(btn => btn.classList.remove('edit'));
             
             this.finger.style.top = '100px';
-            this.finger.style.left = '60px'; // 書き換えたボタン
+            this.finger.style.left = '60px'; 
         }
         else if (cycle >= 5.8 && cycle < 6.0) {
             this.finger.style.transform = 'scale(0.9)';
@@ -487,12 +492,11 @@ window.HTP_Communication = {
             this.finger.style.transform = 'scale(1.1)';
             this.scBtn1.style.transform = 'scale(1)';
             
-            // チャットログに新しいメッセージ追加
             if (this.chatContentArea.children.length === 2) {
                 this.chatContentArea.innerHTML += '<div><span style="color:#00ffff;">Player:</span> ヤッホー！</div>';
             }
             
-            this.finger.style.opacity = '0'; // 隠れる
+            this.finger.style.opacity = '0'; 
         }
     },
 
@@ -510,15 +514,17 @@ window.HTP_Communication = {
 
             this.finger.style.opacity = '0';
             this.finger.style.transition = 'none'; 
-            this.finger.style.top = '200px';
+            this.finger.style.top = '150px';
             this.finger.style.left = '50%';
             this.finger.style.transform = 'scale(1.1)';
         }
         else if (cycle >= 0.5 && cycle < 1.0) {
             this.finger.style.transition = 'left 0.4s ease-out, top 0.4s ease-out, transform 0.1s, opacity 0.2s';
             this.finger.style.opacity = '1';
-            this.finger.style.top = '110px';
-            this.finger.style.left = 'calc(100% - 60px)'; // メンバーボタン
+            
+            // ★ メンバーボタンの座標へ
+            this.finger.style.top = '95px'; 
+            this.finger.style.left = 'calc(100% - 40px)'; 
         }
         else if (cycle >= 1.0 && cycle < 1.2) {
             this.finger.style.transform = 'scale(0.9)';
@@ -527,10 +533,11 @@ window.HTP_Communication = {
         else if (cycle >= 1.2 && cycle < 2.0) {
             this.finger.style.transform = 'scale(1.1)';
             this.memberBtn.style.transform = 'scale(1)';
-            this.memberWindow.style.display = 'flex'; // ウィンドウ開く
+            this.memberWindow.style.display = 'flex'; 
             
-            this.finger.style.top = '65px';
-            this.finger.style.left = '70%'; // コピーボタン
+            // ★ コピーボタンの座標へ
+            this.finger.style.top = '40px';
+            this.finger.style.left = 'calc(50% + 65px)'; 
         }
         else if (cycle >= 2.0 && cycle < 2.2) {
             this.finger.style.transform = 'scale(0.9)';
@@ -543,8 +550,9 @@ window.HTP_Communication = {
             this.memberCopyBtn.style.background = '#ffaa00';
             this.memberCopyBtn.style.color = '#000';
             
-            this.finger.style.top = '105px';
-            this.finger.style.left = '70%'; // 閉じるボタン
+            // ★ 閉じるボタンの座標へ
+            this.finger.style.top = '75px';
+            this.finger.style.left = 'calc(50% + 95px)'; 
         }
         else if (cycle >= 4.0 && cycle < 4.2) {
             this.finger.style.transform = 'scale(0.9)';
@@ -553,13 +561,17 @@ window.HTP_Communication = {
         else if (cycle >= 4.2 && cycle < 5.0) {
             this.finger.style.transform = 'scale(1.1)';
             this.memberCloseBtn.style.transform = 'scale(1)';
-            this.memberWindow.style.display = 'none'; // ウィンドウ閉じる
+            this.memberWindow.style.display = 'none'; 
             
             this.finger.style.opacity = '0';
         }
     },
 
+    onWarp: function(warpX, warpZ) {
+    },
+
     cleanup: function(htpManager) {
+        this.chatContainer = null;
         this.chatArea = null;
         this.tabToggle = null;
         this.tabChat = null;
