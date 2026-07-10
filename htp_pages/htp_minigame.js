@@ -26,9 +26,12 @@ window.HTP_Minigame = {
                 position: absolute; bottom: 10px; right: 15px; width: 60px; height: 60px;
                 background: rgba(255, 255, 255, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); 
                 border-radius: 50%; color: #333; font-weight: bold; font-family: sans-serif; font-size: 12px;
-                display: flex; justify-content: center; align-items: center; overflow: hidden;
+                display: flex; justify-content: center; align-items: center;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10; transition: transform 0.1s, background 0.1s;
             }
+            
+            /* ★観戦モード用のボタンだけ角丸からはみ出ないよう overflow:hidden を設定 */
+            #htp-demo-spec-btn { overflow: hidden; }
             .htp-demo-spec-btn-part { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; font-size: 18px; transition: background 0.1s; }
         `;
         container.appendChild(style);
@@ -201,7 +204,7 @@ window.HTP_Minigame = {
         
         if (mode === 'spectate') {
             // 観戦モードのセットアップ
-            this.mgBtn.style.display = 'none'; // 右上のボタンは隠す
+            this.mgBtn.style.display = 'none'; 
             this.stickBase.style.display = 'block';
             this.specBtnGroup.style.display = 'flex';
             this.fingerMove.style.display = 'block';
@@ -250,7 +253,7 @@ window.HTP_Minigame = {
             htpManager.demo.context.cameraAngle = 0;
             htpManager.demo.context.cameraDistance = 10;
             htpManager.demo.context.cameraHeight = 6;
-            htpManager.demo.player.position.set(0, 20, 0); // 着地させておく
+            htpManager.demo.player.position.set(0, 20, 0); 
         }
     },
 
@@ -265,7 +268,6 @@ window.HTP_Minigame = {
     // シナリオ1：ミニゲームの申請
     // ------------------------------------------
     updatePropose: function(time, delta, demo) {
-        // キャラクターとカメラは静止
         demo.context.moveVector.set(0, 0);
         demo.context.cameraAngle = 0;
         demo.context.cameraDistance = 10;
@@ -426,7 +428,6 @@ window.HTP_Minigame = {
 
         if ((cycle > 0.3 && cycle <= 0.5) || (cycle > 5.3 && cycle <= 5.5)) moveTouching = true;
 
-        // --- ジョイスティックの視覚効果 ---
         const maxStickDist = 20; 
         const stickX = inputX * maxStickDist;
         const stickY = -inputY * maxStickDist; 
@@ -442,7 +443,7 @@ window.HTP_Minigame = {
             demo.context.moveVector.set(inputX, -inputY);
         } else {
             if (this.arrow) this.arrow.style.opacity = '0';
-            demo.context.moveVector.set(0, 0); // 停止時はフワフワ感維持のため角度はそのまま
+            demo.context.moveVector.set(0, 0); 
         }
 
         if (moveTouching) {
@@ -451,7 +452,6 @@ window.HTP_Minigame = {
             if (this.fingerMove) this.fingerMove.style.transform = 'scale(1.1) translateY(5px)';
         }
 
-        // --- 昇降ボタンと指の視覚効果 ---
         const flySpeed = 20.0;
         if (upPressed) {
             demo.player.position.y += flySpeed * delta;
@@ -477,17 +477,14 @@ window.HTP_Minigame = {
             this.fingerJump.style.display = 'none';
         }
 
-        // 床の裏側に潜り込まないよう制限
         if (demo.player.position.y < 1.0) demo.player.position.y = 1.0;
         if (demo.player.position.y > 40.0) demo.player.position.y = 40.0;
     },
 
     onWarp: function(warpX, warpZ) {
-        // ミニゲームデモ空間では、敵やアイテムは存在しないので空でOK
     },
 
     cleanup: function(htpManager) {
-        // 透過解除
         htpManager.demo.player.traverse((child) => {
             if (child.isMesh && child.material) {
                 const mats = Array.isArray(child.material) ? child.material : [child.material];
