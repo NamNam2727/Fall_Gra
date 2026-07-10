@@ -63,7 +63,7 @@ window.HowToPlay = {
             .htp-page { display: none; flex-direction: column; gap: 10px; height: 100%; }
             .htp-page.active { display: flex; }
 
-            /* ★ 誤って削除していた共通CSSを復元 */
+            /* 外部JSからも利用するデモUI共通クラス */
             .htp-demo-area {
                 width: 100%; height: 200px; background: #87CEEB; 
                 position: relative; border-radius: 8px; overflow: hidden;
@@ -76,6 +76,7 @@ window.HowToPlay = {
                 background: rgba(255, 255, 255, 0.5); border: 2px solid rgba(255, 255, 255, 0.8); 
                 border-radius: 50%; color: #333; font-weight: bold; font-family: sans-serif; font-size: 12px;
                 display: flex; justify-content: center; align-items: center;
+                /* ★ overflow: hidden を削除して指アイコンが切れないように修正 */
                 box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 10; transition: transform 0.1s, background 0.1s;
             }
             .htp-demo-joystick-base {
@@ -139,7 +140,7 @@ window.HowToPlay = {
                     <button class="htp-menu-btn" data-script="htp_basic.js" data-obj="HTP_Basic" data-title="1. 基本操作">1. 基本操作</button>
                     <button class="htp-menu-btn" data-script="htp_item.js" data-obj="HTP_Item" data-title="2. アイテム">2. アイテム</button>
                     <button class="htp-menu-btn" data-script="htp_minigame.js" data-obj="HTP_Minigame" data-title="3. ミニゲーム">3. ミニゲーム</button>
-                    <button class="htp-menu-btn" data-script="htp_communication.js" data-obj="HTP_Communication" data-title="4. コミュニケーション">4. コミュニケーション</button>
+                    <button class="htp-menu-btn" onclick="alert('次回実装予定です')">4. コミュニケーション</button>
                 </div>
                 <!-- 外部JSが読み込まれてDOMを展開する専用コンテナ -->
                 <div id="htp-dynamic-area" class="htp-page"></div>
@@ -176,7 +177,9 @@ window.HowToPlay = {
             });
         });
 
+        // 裏側で3D空間だけ生成しておく
         setTimeout(() => { this.initDemo3D(); }, 1000);
+        
         window.addEventListener('resize', () => { this.resizeDemo(); });
     },
     
@@ -428,5 +431,3 @@ window.HowToPlay = {
         this.demo.renderer.render(this.demo.scene, this.demo.camera);
     }
 };
-
-
