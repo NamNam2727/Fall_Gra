@@ -104,28 +104,48 @@ window.HTP_About = {
                 event.preventDefault();
                 
                 const userId = "1539168218";
-                
-                // test.htmlの仕組みを応用した、アプリ内ネイティブルーティングの実行
-                
-                // 候補1: makefeedと同じJSONパラメータ形式（内部コマンド: user）
-                const paramObj1 = { s: "web", b: "user", id: userId, user_id: userId };
-                const innerUrl1 = "user?0=" + encodeURIComponent(JSON.stringify(paramObj1));
-                const deepLink1 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl1);
-                
-                // 候補2: makefeedと同じJSONパラメータ形式（内部コマンド: profile）
-                const paramObj2 = { s: "web", b: "profile", id: userId, user_id: userId };
-                const innerUrl2 = "profile?0=" + encodeURIComponent(JSON.stringify(paramObj2));
-                const deepLink2 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl2);
-
-                // 候補3: 通常のWebURLを、公式の内部ルーターに解析させる形式
                 const webUrl = "https://www.gravity.place/user/" + userId;
-                const deepLink3 = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(webUrl);
+                
+                // 発見されたコードによるOS判定ロジック
+                const ua = navigator.userAgent.toLowerCase();
+                const isIOS = /(iphone|ipad|ipod|ios|macintosh|apple)/i.test(ua);
+                
+                // WebView強制展開のためのJSON構造
+                const paramObj = {
+                    url: "",
+                    webviewType: "fullScreen",
+                    scene: "profile",
+                    web_url: webUrl,
+                    f: "",
+                    s: "web",
+                    b: "profile"
+                };
+                
+                // iOS用: slme://internal を使った WebViewコマンド
+                const iosJson = encodeURIComponent(JSON.stringify(paramObj));
+                const iosWebviewLink = "slme://internal?type=5&ani=1&url=webview" + encodeURIComponent("?0=" + iosJson);
+                
+                // Android用: slme://gravity... を使った WebViewコマンド
+                const androidWebviewLink = "slme://gravity.creativeappnow.com/webview?web_url=" + encodeURIComponent(webUrl) + "&webviewType=fullScreen";
+                
+                // 念のため、直接ネイティブのユーザー画面を呼ぶコマンドも用意
+                const iosNativeUser = "slme://internal?type=5&ani=1&url=" + encodeURIComponent("user?id=" + userId);
+                const androidNativeUser = "slme://gravity.creativeappnow.com/user?id=" + userId;
 
-                // iframeを作成して、ゲームのサンドボックス外（アプリ本体）へ命令を飛ばす
-                const links = [deepLink1, deepLink2, deepLink3];
+                // OSに合わせて実行リストを作成
+                let linksToTry = [];
+                if (isIOS) {
+                    linksToTry.push(iosNativeUser);
+                    linksToTry.push(iosWebviewLink);
+                } else {
+                    linksToTry.push(androidNativeUser);
+                    linksToTry.push(androidWebviewLink);
+                    linksToTry.push(iosWebviewLink); // 保険
+                }
+
+                // iframeを作成して、ゲームのサンドボックス外（アプリ本体）へ命令を連続送信
                 let delay = 0;
-
-                links.forEach(function(link) {
+                linksToTry.forEach(function(link) {
                     setTimeout(function() {
                         let i = document.createElement('iframe');
                         i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
@@ -134,16 +154,12 @@ window.HTP_About = {
                         // 5秒後に作られたiframeを削除して綺麗にする
                         setTimeout(function() { i.remove(); }, 5000);
                     }, delay);
-                    
-                    // 0.2秒間隔で可能性の高い形式をアプリに連続送信する
+                    // 0.2秒間隔で送信
                     delay += 200;
                 });
-
-                // すべてのネイティブ遷移コマンドがアプリ側に弾かれた場合のみ、
-                // 最終手段として通常のWebページ版プロフィールを開く（保険）
-                setTimeout(function() {
-                    window.location.href = webUrl;
-                }, 1500);
+                
+                // ※勝手にWebが開く原因となっていた「window.location.href」の強制処理（フォールバック）は削除しました。
+                // これによりアプリ側のネイティブ処理のみが純粋に実行されます。
             });
         }
     },
