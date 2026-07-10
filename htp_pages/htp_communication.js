@@ -9,7 +9,7 @@ window.HTP_Communication = {
     modes: ['chat', 'shortcut', 'member'], 
 
     // UI要素の参照
-    chatContainer: null, // 追加：チャットUI全体のコンテナ
+    chatContainer: null, 
     chatArea: null,
     tabToggle: null,
     tabChat: null,
@@ -75,6 +75,14 @@ window.HTP_Communication = {
         `;
         container.appendChild(style);
 
+        // ゲーム内のユーザー情報があれば取得（なければデフォルトを使用）
+        let myName = 'なむぴょん';
+        let myIcon = 'https://cdn.gravity.place/virtual/portrait/online/20250606/07e8cf95-8762-414a-af4c-d2b5bf1be226.png';
+        if (window.GameState && window.GameState.userInfo) {
+            myName = window.GameState.userInfo.name || window.GameState.userInfo.user_name || myName;
+            myIcon = window.GameState.userInfo.portrait || window.GameState.userInfo.portait || myIcon;
+        }
+
         // UIのDOM構造を生成
         container.innerHTML += `
             <div class="htp-demo-area" style="position: relative;">
@@ -126,8 +134,8 @@ window.HTP_Communication = {
                     </div>
                     <div style="padding: 8px; display: flex; flex-direction: column; gap: 6px;">
                         <div style="display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 6px; border-radius: 6px;">
-                            <div style="width: 24px; height: 24px; border-radius: 50%; background: #ffaa00; margin-right: 10px; display: flex; justify-content: center; align-items: center; font-size: 12px;">👤</div>
-                            <div style="color: white; font-size: 12px; font-weight: bold; flex: 1;">Player1</div>
+                            <img src="${myIcon}" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-right: 10px; border: 1px solid rgba(255,255,255,0.5); background-color: #ffaa00;">
+                            <div style="color: white; font-size: 12px; font-weight: bold; flex: 1;">${myName}</div>
                         </div>
                         <div style="display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 6px; border-radius: 6px;">
                             <div style="width: 24px; height: 24px; border-radius: 50%; background: #ccc; margin-right: 10px; display: flex; justify-content: center; align-items: center; font-size: 12px;">👤</div>
@@ -255,7 +263,7 @@ window.HTP_Communication = {
         this.editBtn.innerText = '編集モード: OFF';
         this.editBtn.style.background = '#444';
         
-        // ★ メンバーモードの時はチャットUIを非表示にして邪魔にならないようにする
+        // メンバーモードの時はチャットUIを非表示にして邪魔にならないようにする
         if (mode === 'member') {
             if (this.chatContainer) this.chatContainer.style.display = 'none';
             this.memberBtn.style.display = 'flex';
@@ -522,7 +530,6 @@ window.HTP_Communication = {
             this.finger.style.transition = 'left 0.4s ease-out, top 0.4s ease-out, transform 0.1s, opacity 0.2s';
             this.finger.style.opacity = '1';
             
-            // ★ メンバーボタンの座標へ
             this.finger.style.top = '95px'; 
             this.finger.style.left = 'calc(100% - 40px)'; 
         }
@@ -535,7 +542,6 @@ window.HTP_Communication = {
             this.memberBtn.style.transform = 'scale(1)';
             this.memberWindow.style.display = 'flex'; 
             
-            // ★ コピーボタンの座標へ
             this.finger.style.top = '40px';
             this.finger.style.left = 'calc(50% + 65px)'; 
         }
@@ -550,7 +556,6 @@ window.HTP_Communication = {
             this.memberCopyBtn.style.background = '#ffaa00';
             this.memberCopyBtn.style.color = '#000';
             
-            // ★ 閉じるボタンの座標へ
             this.finger.style.top = '75px';
             this.finger.style.left = 'calc(50% + 95px)'; 
         }
