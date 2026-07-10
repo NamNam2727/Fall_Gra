@@ -105,61 +105,58 @@ window.HTP_About = {
                 
                 const userId = "1539168218";
                 const webUrl = "https://www.gravity.place/user/" + userId;
-                
-                // 発見されたコードによるOS判定ロジック
-                const ua = navigator.userAgent.toLowerCase();
-                const isIOS = /(iphone|ipad|ipod|ios|macintosh|apple)/i.test(ua);
-                
-                // WebView強制展開のためのJSON構造
-                const paramObj = {
-                    url: "",
-                    webviewType: "fullScreen",
-                    scene: "profile",
-                    web_url: webUrl,
-                    f: "",
-                    s: "web",
-                    b: "profile"
-                };
-                
-                // iOS用: slme://internal を使った WebViewコマンド
-                const iosJson = encodeURIComponent(JSON.stringify(paramObj));
-                const iosWebviewLink = "slme://internal?type=5&ani=1&url=webview" + encodeURIComponent("?0=" + iosJson);
-                
-                // Android用: slme://gravity... を使った WebViewコマンド
-                const androidWebviewLink = "slme://gravity.creativeappnow.com/webview?web_url=" + encodeURIComponent(webUrl) + "&webviewType=fullScreen";
-                
-                // 念のため、直接ネイティブのユーザー画面を呼ぶコマンドも用意
-                const iosNativeUser = "slme://internal?type=5&ani=1&url=" + encodeURIComponent("user?id=" + userId);
-                const androidNativeUser = "slme://gravity.creativeappnow.com/user?id=" + userId;
-
-                // OSに合わせて実行リストを作成
-                let linksToTry = [];
-                if (isIOS) {
-                    linksToTry.push(iosNativeUser);
-                    linksToTry.push(iosWebviewLink);
-                } else {
-                    linksToTry.push(androidNativeUser);
-                    linksToTry.push(androidWebviewLink);
-                    linksToTry.push(iosWebviewLink); // 保険
-                }
-
-                // iframeを作成して、ゲームのサンドボックス外（アプリ本体）へ命令を連続送信
                 let delay = 0;
-                linksToTry.forEach(function(link) {
+                
+                // ① 内部コマンド（StarPage等）をtest.htmlと同じ方式で連続送信する
+                const internalPaths = [
+                    "starPage?id=" + userId,
+                    "star?id=" + userId,
+                    "starPage?0=" + encodeURIComponent(JSON.stringify({id: userId})),
+                    "starPage?0=" + encodeURIComponent(JSON.stringify({s: "web", b: "starPage", id: userId})),
+                    "user/" + userId,
+                    "user?id=" + userId
+                ];
+
+                internalPaths.forEach(function(path) {
+                    const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(path);
+                    setTimeout(function() {
+                        let i = document.createElement('iframe');
+                        i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+                        i.src = deepLink;
+                        document.body.appendChild(i);
+                        setTimeout(function() { i.remove(); }, 3000);
+                    }, delay);
+                    delay += 150;
+                });
+
+                // Android環境用スキームも送信
+                const androidLinks = [
+                    "slme://gravity.creativeappnow.com/starPage?id=" + userId,
+                    "slme://gravity.creativeappnow.com/user?id=" + userId
+                ];
+                androidLinks.forEach(function(link) {
                     setTimeout(function() {
                         let i = document.createElement('iframe');
                         i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
                         i.src = link;
                         document.body.appendChild(i);
-                        // 5秒後に作られたiframeを削除して綺麗にする
-                        setTimeout(function() { i.remove(); }, 5000);
+                        setTimeout(function() { i.remove(); }, 3000);
                     }, delay);
-                    // 0.2秒間隔で送信
-                    delay += 200;
+                    delay += 150;
                 });
-                
-                // ※勝手にWebが開く原因となっていた「window.location.href」の強制処理（フォールバック）は削除しました。
-                // これによりアプリ側のネイティブ処理のみが純粋に実行されます。
+
+                // ② 最強の保険：親フレームへの直接ナビゲーションでOSフックを誘発する
+                // iframe内（_self）ではなく、親アプリ（_top）にURLを踏ませることで
+                // Safariから開いた時と全く同じ状況を作り出し、アプリに画面を被せさせます
+                setTimeout(function() {
+                    let a = document.createElement('a');
+                    a.href = webUrl;
+                    a.target = "_top";
+                    a.style.display = "none";
+                    document.body.appendChild(a);
+                    a.click(); // 見えないリンクを強制クリック
+                    setTimeout(function() { a.remove(); }, 100);
+                }, delay + 300);
             });
         }
     },
