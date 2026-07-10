@@ -92,11 +92,10 @@ window.HTP_About = {
                     メッセージやコメントを送ってね。<br>
                     <span style="color:#ffcc00; font-weight:bold;">特に、感想をくれるとめちゃくちゃ喜ぶよ！</span><br><br>
                     プロフィールへは右上の[･･･]ボタンから<br>
-                    [ゲーム詳細]を選んでアイコンをタップしてね！
+                    [ゲーム詳細]を選んだ画面の<br>
+                    アイコンをタップしてね！
 
                 </div>
-
-                <a href="https://www.gravity.place/user/1539168218" class="htp-about-download" target="_blank" rel="noopener noreferrer">プロフィールを開く</a>
             </div>
         `;
     },
