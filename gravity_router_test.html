@@ -3,107 +3,163 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Gravity Router Test</title>
+<title>開発用デバッグメニュー</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
+    :root {
+        --bg-color: #1a1a2e;
+        --panel-bg: #16213e;
+        --primary-color: #e94560;
+        --text-light: #ededed;
+        --accent-color: #0f3460;
+    }
+
     body {
-        font-family: 'Helvetica Neue', Arial, sans-serif;
-        background-color: #f2f3f5;
         margin: 0;
+        padding: 0;
+        background-color: var(--bg-color);
+        font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
+        color: var(--text-light);
+        overflow: hidden; /* ゲームとしてスクロールを防止 */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    #game-app {
+        width: 100%;
+        max-width: 400px;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        overflow-y: auto; /* メニューが長い場合は内部のみスクロール許可 */
         padding: 20px;
-        color: #333;
     }
-    .test-section {
-        background: #fff;
-        border-radius: 12px;
-        padding: 16px;
+
+    h1 {
+        font-size: 20px;
+        text-align: center;
         margin-bottom: 20px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        color: #fff;
+        border-bottom: 2px solid var(--primary-color);
+        padding-bottom: 10px;
     }
+
+    .test-section {
+        background: var(--panel-bg);
+        border: 2px solid var(--accent-color);
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+
     .test-title {
-        font-size: 14px;
-        font-weight: bold;
-        color: #666;
-        margin-bottom: 12px;
+        font-size: 13px;
+        color: #a0a0a0;
+        margin-bottom: 10px;
     }
+
     .btn {
-        background: #000;
-        color: #fedaa3;
+        background-color: var(--primary-color);
+        color: #fff;
         border: none;
-        border-radius: 60px;
-        padding: 14px 20px;
-        font-size: 15px;
+        border-radius: 4px;
+        padding: 12px;
+        font-size: 14px;
         font-weight: bold;
         width: 100%;
         cursor: pointer;
-        transition: opacity 0.2s, transform 0.1s;
+        transition: transform 0.1s, opacity 0.2s;
     }
+
     .btn:active {
+        transform: scale(0.95);
         opacity: 0.8;
-        transform: scale(0.98);
     }
+
+    .btn:disabled {
+        background-color: #555;
+        color: #888;
+        cursor: not-allowed;
+    }
+
     textarea {
         width: 100%;
-        height: 100px;
-        padding: 12px;
+        height: 80px;
+        padding: 10px;
         box-sizing: border-box;
-        border: 2px solid #e0e0e0;
-        border-radius: 8px;
-        font-size: 16px;
+        background-color: #0f172a;
+        color: #fff;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        font-size: 14px;
         resize: none;
         outline: none;
+        margin-bottom: 10px;
     }
+
     textarea:focus {
-        border-color: #ffaa00;
+        border-color: var(--primary-color);
     }
-    /* 画像化されるエリアの装飾 */
+
+    /* キャプチャ対象エリアの装飾 */
     #capture-area {
-        padding: 15px;
-        background: #ffffff;
-        border: 2px dashed #ccc;
-        border-radius: 12px;
-        margin-bottom: 12px;
+        padding: 10px;
+        background-color: #1e293b;
+        border: 1px dashed #475569;
+        border-radius: 6px;
+        margin-bottom: 10px;
     }
 </style>
 </head>
 <body>
-<br> <br> <br> <br> <br> <br> <br> <br> <br>
-    <div class="test-section">
-        <div class="test-title">プロフィール画面を開く機能</div>
-        <button class="btn" onclick="GravityRouter.openProfile('13277755')">GRAVITY【公式】を開く</button>
-    </div>
 
-    <div class="test-section">
-        <div class="test-title">惑星画面を開く機能</div>
-        <button class="btn" onclick="GravityRouter.openStar('17638')">AIゲーム工房を開く</button>
-    </div>
+    <div id="game-app">
+        <h1>ルーター動作テスト</h1>
 
-    <div class="test-section">
-        <div class="test-title">投稿画面を開く機能</div>
-        <button class="btn" onclick="GravityRouter.openFeed('9_41721838')">7/11 Fall Grasリリースの投稿を開く</button>
-    </div>
-
-    <div class="test-section">
-        <div class="test-title">質問ひろばを開く機能</div>
-        <button class="btn" onclick="GravityRouter.openQuestion('147853')">テスト用に投稿した質問を開く</button>
-    </div>
-
-    <div class="test-section">
-        <div class="test-title">投稿に文字を引用する機能</div>
-        <button class="btn" onclick="createPostTextOnly()">投稿に引用する</button>
-    </div>
-
-    <div class="test-section">
-        <div class="test-title">投稿に文字と画像を引用する機能</div>
-        <div id="capture-area">
-            <textarea id="post-text-input" placeholder="ここにテキストを入力してください">テスト投稿です！
-こんな感じで引用できるよ！</textarea>
+        <div class="test-section">
+            <div class="test-title">プロフィール画面を開く機能</div>
+            <button class="btn" onclick="GravityRouter.openProfile('13277755')">GRAVITY【公式】を開く</button>
         </div>
-        <button class="btn" id="capture-btn" onclick="createPostWithImageCapture()">投稿画面を開く</button>
+
+        <div class="test-section">
+            <div class="test-title">惑星画面を開く機能</div>
+            <button class="btn" onclick="GravityRouter.openStar('17638')">AIゲーム工房を開く</button>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">投稿画面を開く機能</div>
+            <button class="btn" onclick="GravityRouter.openFeed('9_41721838')">7/11 Fall Grasリリースの投稿を開く</button>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">質問ひろばを開く機能</div>
+            <button class="btn" onclick="GravityRouter.openQuestion('147853')">テスト用に投稿した質問を開く</button>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">投稿に文字を引用する機能</div>
+            <button class="btn" onclick="createPostTextOnly()">投稿に引用する</button>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">投稿に文字と画像を引用する機能</div>
+            <div id="capture-area">
+                <textarea id="post-text-input" placeholder="テキストを入力">テスト投稿です！
+このように引用できます！</textarea>
+            </div>
+            <button class="btn" id="capture-btn" onclick="createPostWithImageCapture()">投稿画面を開く</button>
+        </div>
     </div>
 
 <script>
-// iOS専用 ネイティブルーティング処理
+// GRAVITYのヘッダー領域を避けるためのゲーム用画面補正処理
+const screenHeight = window.innerHeight;
+const topExclusionHeight = screenHeight >= 812 ? 98 : 74;
+document.getElementById('game-app').style.paddingTop = topExclusionHeight + 'px';
+
+// iOS専用 ネイティブルーティング処理モジュール
 window.GravityRouter = {
     _sendToApp: function(payloadStr) {
         const encodedPayload = encodeURIComponent(payloadStr);
@@ -140,6 +196,7 @@ window.GravityRouter = {
         this._sendToApp("makefeed?0=" + JSON.stringify(paramObj));
     },
     createPostWithImage: function(text, base64Image) {
+        // 公式のJSBridgeを利用してゲーム空間からアプリ本体へ画像を送信
         window.parent.postMessage({ type: 'shareImage', image: base64Image }, '*');
         const paramObj = { s: "web", b: "makefeed", text: text };
         const self = this;
@@ -150,13 +207,13 @@ window.GravityRouter = {
     }
 };
 
-// 5の機能呼び出し用
+// 5. テキストのみの投稿作成機能呼び出し用
 function createPostTextOnly() {
     const text = "このAIゲーム楽しいよ、是非遊んでみて\nhttps://www.gravity.place/share/ugcGame?id=43660";
     GravityRouter.createPost(text);
 }
 
-// 6の機能呼び出し用
+// 6. 画像付き投稿作成機能呼び出し用
 function createPostWithImageCapture() {
     const captureArea = document.getElementById('capture-area');
     const textArea = document.getElementById('post-text-input');
@@ -168,10 +225,10 @@ function createPostWithImageCapture() {
     btn.innerText = "画像を生成して通信中...";
     btn.disabled = true;
 
-    // テキスト入力欄のエリアをキャプチャする
+    // ゲーム内の特定のHTML要素（今回は入力エリア）をキャプチャする
     html2canvas(captureArea, {
-        scale: 2, // 高画質化
-        backgroundColor: "#ffffff",
+        scale: 2,
+        backgroundColor: "#1e293b",
         useCORS: true
     }).then(function(canvas) {
         const base64Image = canvas.toDataURL('image/png');
