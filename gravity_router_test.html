@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>開発用デバッグメニュー</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.gravity.place/fe/sdk/index-1.0.9.min.js"></script>
 <style>
     :root {
         --bg-color: #1a1a2e;
@@ -70,7 +71,7 @@
         font-weight: bold;
         width: 100%;
         cursor: pointer;
-        transition: transform 0.1s, opacity 0.2s;
+        transition: transform 0.1s, opacity 0.2s, background-color 0.2s;
     }
 
     .btn:active {
@@ -159,7 +160,7 @@ const screenHeight = window.innerHeight;
 const topExclusionHeight = screenHeight >= 812 ? 98 : 74;
 document.getElementById('game-app').style.paddingTop = topExclusionHeight + 'px';
 
-// iOS専用 ネイティブルーティング処理モジュール
+// iOS専用 ネイティブルーティング処理モジュール (1〜5の画面遷移用)
 window.GravityRouter = {
     _sendToApp: function(command, paramObj) {
         const encodedJson = encodeURIComponent(JSON.stringify(paramObj));
@@ -195,16 +196,6 @@ window.GravityRouter = {
     createPost: function(text) {
         const paramObj = { s: "web", b: "makefeed", text: String(text) };
         this._sendToApp("makefeed", paramObj);
-    },
-    createPostWithImage: function(text, base64Image) {
-        // 公式のJSBridgeを利用してゲーム空間からアプリ本体へ画像を送信
-        window.parent.postMessage({ type: 'shareImage', image: base64Image }, '*');
-        const paramObj = { s: "web", b: "makefeed", text: String(text) };
-        const self = this;
-        // 画像の受け渡しが完了するまで0.5秒待機してから投稿画面を開く
-        setTimeout(function() {
-            self._sendToApp("makefeed", paramObj);
-        }, 500);
     }
 };
 
@@ -214,8 +205,8 @@ function createPostTextOnly() {
     GravityRouter.createPost(text);
 }
 
-// 6. 画像付き投稿の処理（モーダルを廃止し、直接送信テストを実施）
-function createPostWithImageCapture() {
+// 6. 画像付き投稿の処理（公式のAgentSDKを使用した完全版）
+async function createPostWithImageCapture() {
     const captureArea = document.getElementById('capture-area');
     const textArea = document.getElementById('post-text-input');
     const textValue = textArea.value;
@@ -226,27 +217,41 @@ function createPostWithImageCapture() {
     btn.innerText = "画像を生成して通信中...";
     btn.disabled = true;
 
-    html2canvas(captureArea, {
-        scale: 2,
-        backgroundColor: "#1e293b",
-        useCORS: true
-    }).then(function(canvas) {
+    try {
+        // ① html2canvasで指定エリアを画像（Base64形式）化
+        const canvas = await html2canvas(captureArea, {
+            scale: 2,
+            backgroundColor: "#1e293b",
+            useCORS: true
+        });
         const base64Image = canvas.toDataURL('image/png');
         
-        // 生成した画像とテキストをルーターに渡す
-        GravityRouter.createPostWithImage(textValue, base64Image);
+        // ② 公式のAgentSDKを使用して、画像とテキストをアプリに直接送信し、投稿画面を開く
+        const result = await window.AgentSDK.feed.uploadFeed({
+            image: base64Image,
+            content: textValue
+        });
         
-        // 処理完了後にボタンを元に戻す
+        // 成功判定
+        if (result && result.errno === 0) {
+            btn.innerText = "シェア準備完了 ✓";
+            btn.style.backgroundColor = "#4CAF50"; // 成功時はボタンを緑色に
+        } else {
+            alert("連携に失敗しました。エラーコード: " + (result ? result.errno : "不明"));
+            btn.innerText = originalText;
+        }
+    } catch (err) {
+        alert("画像の生成または通信でエラーが発生しました");
+        console.error(err);
+        btn.innerText = originalText;
+    } finally {
+        // 3秒後にボタンの状態を元に戻す
         setTimeout(function() {
             btn.innerText = originalText;
             btn.disabled = false;
-        }, 1000);
-
-    }).catch(function(err) {
-        alert("画像の生成に失敗しました");
-        btn.innerText = originalText;
-        btn.disabled = false;
-    });
+            btn.style.backgroundColor = "var(--primary-color)";
+        }, 3000);
+    }
 }
 </script>
 </body>
