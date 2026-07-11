@@ -1,7 +1,7 @@
 // ==========================================
 // gravity_router.js
 // UIの生成から通信ロジックまでをすべて管理する外部モジュール
-// 公式SDKの内部データをくり抜き、直接アプリへ通信を行う完全版
+// ゲームURL添付用の多重アタック対応版
 // ==========================================
 
 (function initGravityRouter() {
@@ -72,11 +72,6 @@
             transform: scale(0.95);
             opacity: 0.8;
         }
-        .btn:disabled {
-            background-color: #555;
-            color: #888;
-            cursor: not-allowed;
-        }
         textarea {
             width: 100%;
             height: 80px;
@@ -124,22 +119,9 @@
             </div>
 
             <div class="test-section">
-                <div class="test-title">投稿に文字を引用する機能</div>
-                <button class="btn" onclick="createPostTextOnly()">投稿に引用する</button>
-            </div>
-
-            <div class="test-section">
-                <div class="test-title">投稿に文字と画像を引用する機能</div>
-                
-                <textarea id="post-text-input" placeholder="テキストを入力">テスト投稿です！
-デバッグメニューからの画像付きシェアテストです。</textarea>
-
-                <div id="capture-target" style="padding: 15px; background-color: #1e293b; border: 2px dashed #475569; border-radius: 6px; margin-bottom: 10px; text-align: center;">
-                    <h3 style="color: #e94560; margin: 0 0 10px 0;">テストゲーム</h3>
-                    <p style="color: #ededed; margin: 0; font-size: 14px;">🌟 ダンジョンをクリアしました！ 🌟</p>
-                </div>
-
-                <button class="btn" id="capture-btn" onclick="createPostWithImageCapture()">画像付きで投稿画面を開く</button>
+                <div class="test-title">ゲームURLを添付してシェアする機能</div>
+                <textarea id="post-text-input" placeholder="テキストを入力">このAIゲーム楽しいよ、是非遊んでみて！</textarea>
+                <button class="btn" onclick="createPostWithGame()">投稿画面へシェア</button>
             </div>
         `;
         
@@ -182,128 +164,28 @@
             const paramObj = { qid: String(questionId), s: "web", b: "ask_feed", selectedIndex: 0, web_url: "https://www.gravity.place/ask-feed/" + questionId };
             this._sendToApp("hotquestiondetail", paramObj);
         },
-        createPost: function(text) {
-            const paramObj = { s: "web", b: "makefeed", text: String(text) };
+        // テキストとゲームURLの両方を受け取って多重アタックを仕掛ける
+        createPost: function(text, gameUrl) {
+            const paramObj = { 
+                s: "web", 
+                b: "makefeed", 
+                text: String(text),
+                // アプリ側が「添付リンク」として拾ってくれる可能性のあるキーを総当たりでねじ込む
+                url: String(gameUrl),
+                link: String(gameUrl),
+                shareUrl: String(gameUrl),
+                ugcGameId: "43660" 
+            };
             this._sendToApp("makefeed", paramObj);
         }
     };
 
-    // 4. テキストのみの投稿作成機能
-    window.createPostTextOnly = function() {
-        const text = "このAIゲーム楽しいよ、是非遊んでみて\nhttps://www.gravity.place/share/ugcGame?id=43660";
-        window.GravityRouter.createPost(text);
-    };
-
-    // 5. 画像付き投稿の処理（公式SDKの内部処理をくり抜き、直接アタックする版）
-    window.createPostWithImageCapture = async function() {
-        const captureArea = document.getElementById('capture-target');
+    // 4. ゲーム付き投稿呼び出し関数
+    window.createPostWithGame = function() {
         const textArea = document.getElementById('post-text-input');
         const textValue = textArea ? textArea.value : "";
-        const btn = document.getElementById('capture-btn');
+        const gameLink = "https://www.gravity.place/share/ugcGame?id=43660";
         
-        if (!captureArea || !btn) return;
-
-        const originalText = btn.innerText;
-        btn.disabled = true;
-
-        try {
-            // 画像化ライブラリが読み込まれていない場合の自動装填
-            if (!window.html2canvas) {
-                btn.innerText = "準備中...";
-                await new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                    script.onload = resolve;
-                    script.onerror = () => reject(new Error("CDN読込失敗"));
-                    document.head.appendChild(script);
-                });
-            }
-
-            btn.innerText = "画像生成中...";
-            // URLスキームの文字数制限にも耐えられるよう、画像をJPEG形式で適度に圧縮して生成
-            const canvas = await window.html2canvas(captureArea, {
-                scale: 1.5,
-                backgroundColor: "#1e293b",
-                useCORS: true,
-                logging: false
-            });
-            const base64Image = canvas.toDataURL('image/jpeg', 0.8);
-
-            btn.innerText = "通信中...";
-
-            // --- [アタック1] 公式SDKの内部データ構造を完全にエミュレートして直接送信 ---
-            const messageId = "message-event-" + Date.now() + "-1";
-            const sdkPayload = {
-                type: "EVENT",
-                id: messageId,
-                action: "AgentSDK.feed.uploadFeed",
-                data: {
-                    image: base64Image,
-                    content: textValue
-                },
-                // パラメータ名が異なるケースに備えた保険
-                payload: {
-                    image: base64Image,
-                    content: textValue
-                }
-            };
-            window.parent.postMessage(sdkPayload, "*");
-
-            // --- [アタック2] 過去の遺物で使用されていた別フォーマット ---
-            window.parent.postMessage({ type: 'shareImage', image: base64Image }, '*');
-
-            // --- [アタック3] iOSネイティブオブジェクトが露出している場合への直接送信 ---
-            try {
-                if (window.webkit && window.webkit.messageHandlers) {
-                    if (window.webkit.messageHandlers.AgentSDK) {
-                        window.webkit.messageHandlers.AgentSDK.postMessage(sdkPayload);
-                    }
-                    if (window.webkit.messageHandlers.gravity) {
-                        window.webkit.messageHandlers.gravity.postMessage(sdkPayload);
-                    }
-                }
-            } catch(e) {}
-
-            // --- [アタック4] 最強の裏ルート（ネイティブコマンド）への画像データ直接ねじ込み ---
-            // postMessageの裏側での処理完了を0.5秒だけ待ってから、確実に遷移するコマンドを発射
-            setTimeout(function() {
-                const paramObj = {
-                    s: "web",
-                    b: "makefeed",
-                    text: String(textValue),
-                    // アプリ側がURLパラメータでの画像受け取りに対応していた場合を突く
-                    image: base64Image,
-                    img: base64Image,
-                    pic: base64Image
-                };
-                const innerUrl = "makefeed?0=" + encodeURIComponent(JSON.stringify(paramObj));
-                const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
-
-                try {
-                    window.top.location.href = deepLink;
-                } catch (e) {
-                    let i = document.createElement('iframe');
-                    i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
-                    i.src = deepLink;
-                    document.body.appendChild(i);
-                    setTimeout(function() { i.remove(); }, 5000);
-                }
-
-                btn.innerText = "コマンド送信完了 ✓";
-                setTimeout(function() {
-                    btn.innerText = originalText;
-                    btn.disabled = false;
-                }, 3000);
-            }, 500);
-
-        } catch (err) {
-            // エラー原因を先頭15文字だけボタンに表示して可視化
-            btn.innerText = "E: " + (err.message || "詳細不明").substring(0, 15);
-            console.error(err);
-            setTimeout(function() {
-                btn.innerText = originalText;
-                btn.disabled = false;
-            }, 5000);
-        }
+        window.GravityRouter.createPost(textValue, gameLink);
     };
 })();
