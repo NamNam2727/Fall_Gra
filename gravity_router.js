@@ -5,7 +5,7 @@
 // ==========================================
 
 (function initGravityRouter() {
-    // 1. スタイルの動的生成（モーダル関連は全削除）
+    // 1. スタイルの動的生成
     const style = document.createElement('style');
     style.innerHTML = `
         :root {
@@ -205,10 +205,22 @@
 
         const originalText = btn.innerText;
         btn.disabled = true;
-        btn.innerText = "通信中...";
 
         try {
-            // 1. URLスキームの文字数制限にも耐えられるよう、画像をJPEG形式で適度に圧縮して生成
+            // 画像化ライブラリが読み込まれていない場合の自動装填
+            if (!window.html2canvas) {
+                btn.innerText = "準備中...";
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error("CDN読込失敗"));
+                    document.head.appendChild(script);
+                });
+            }
+
+            btn.innerText = "画像生成中...";
+            // URLスキームの文字数制限にも耐えられるよう、画像をJPEG形式で適度に圧縮して生成
             const canvas = await window.html2canvas(captureArea, {
                 scale: 1.5,
                 backgroundColor: "#1e293b",
@@ -216,6 +228,8 @@
                 logging: false
             });
             const base64Image = canvas.toDataURL('image/jpeg', 0.8);
+
+            btn.innerText = "通信中...";
 
             // --- [アタック1] 公式SDKの内部データ構造を完全にエミュレートして直接送信 ---
             const messageId = "message-event-" + Date.now() + "-1";
@@ -235,7 +249,7 @@
             };
             window.parent.postMessage(sdkPayload, "*");
 
-            // --- [アタック2] 過去の遺物（test.html）で使用されていた別フォーマット ---
+            // --- [アタック2] 過去の遺物で使用されていた別フォーマット ---
             window.parent.postMessage({ type: 'shareImage', image: base64Image }, '*');
 
             // --- [アタック3] iOSネイティブオブジェクトが露出している場合への直接送信 ---
@@ -275,7 +289,7 @@
                     setTimeout(function() { i.remove(); }, 5000);
                 }
 
-                btn.innerText = "シェア画面を展開 ✓";
+                btn.innerText = "コマンド送信完了 ✓";
                 setTimeout(function() {
                     btn.innerText = originalText;
                     btn.disabled = false;
@@ -283,12 +297,13 @@
             }, 500);
 
         } catch (err) {
-            btn.innerText = "エラーが発生しました";
+            // エラー原因を先頭15文字だけボタンに表示して可視化
+            btn.innerText = "E: " + (err.message || "詳細不明").substring(0, 15);
             console.error(err);
             setTimeout(function() {
                 btn.innerText = originalText;
                 btn.disabled = false;
-            }, 3000);
+            }, 5000);
         }
     };
 })();
