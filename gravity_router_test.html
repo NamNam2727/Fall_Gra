@@ -20,7 +20,7 @@
         background-color: var(--bg-color);
         font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
         color: var(--text-light);
-        overflow: hidden; /* ゲームとしてスクロールを防止 */
+        overflow: hidden;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -33,7 +33,7 @@
         display: flex;
         flex-direction: column;
         box-sizing: border-box;
-        overflow-y: auto; /* メニューが長い場合は内部のみスクロール許可 */
+        overflow-y: auto;
         padding: 20px;
     }
 
@@ -120,7 +120,7 @@
 
         <div class="test-section">
             <div class="test-title">プロフィール画面を開く機能</div>
-            <button class="btn" onclick="GravityRouter.openProfile('13277755')">GRAVITY【公式】を開く</button>
+            <button class="btn" onclick="GravityRouter.openProfile('1539168218')">なむぴょんのプロフィールを開く</button>
         </div>
 
         <div class="test-section">
@@ -161,13 +161,9 @@ document.getElementById('game-app').style.paddingTop = topExclusionHeight + 'px'
 
 // iOS専用 ネイティブルーティング処理モジュール
 window.GravityRouter = {
-    // 成功したhtp_about.jsのエンコードロジックを正確に再現するコア処理
     _sendToApp: function(command, paramObj) {
-        // パラメータのみをJSON化して1度エンコード
         const encodedJson = encodeURIComponent(JSON.stringify(paramObj));
-        // コマンドと結合（例： "usercenter?0=%7B...%7D"）
         const innerUrl = command + "?0=" + encodedJson;
-        // 結合したものをエンコードしてディープリンク化
         const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
 
         try {
@@ -181,17 +177,14 @@ window.GravityRouter = {
         }
     },
     openProfile: function(userId) {
-        // アプリ側の仕様に合わせ、uidはNumber(数値)に変換して送信
         const paramObj = { uid: Number(userId), selectedIndex: 0, web_url: "https://www.gravity.place/user/" + userId, s: "web", b: "user" };
         this._sendToApp("usercenter", paramObj);
     },
     openStar: function(starId) {
-        // アプリ側の仕様に合わせ、starIdはNumber(数値)に変換して送信
         const paramObj = { starId: Number(starId), s: "web", b: "star", web_url: "https://www.gravity.place/star/" + starId };
         this._sendToApp("stardetail", paramObj);
     },
     openFeed: function(feedId) {
-        // 投稿IDはハイフンやアンダーバーを含むため文字列のまま送信
         const paramObj = { id: String(feedId), s: "web", b: "feed", web_url: "https://www.gravity.place/detail/" + feedId };
         this._sendToApp("feeddetail", paramObj);
     },
@@ -221,7 +214,7 @@ function createPostTextOnly() {
     GravityRouter.createPost(text);
 }
 
-// 6. 画像付き投稿作成機能呼び出し用
+// 6. 画像付き投稿の処理（モーダルを廃止し、直接送信テストを実施）
 function createPostWithImageCapture() {
     const captureArea = document.getElementById('capture-area');
     const textArea = document.getElementById('post-text-input');
@@ -233,7 +226,6 @@ function createPostWithImageCapture() {
     btn.innerText = "画像を生成して通信中...";
     btn.disabled = true;
 
-    // ゲーム内の特定のHTML要素（今回は入力エリア）をキャプチャする
     html2canvas(captureArea, {
         scale: 2,
         backgroundColor: "#1e293b",
