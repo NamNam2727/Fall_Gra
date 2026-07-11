@@ -147,7 +147,7 @@
             <div class="test-title">投稿に文字と画像を引用する機能</div>
             <div id="capture-area">
                 <textarea id="post-text-input" placeholder="テキストを入力">テスト投稿です！
-このように引用できます！</textarea>
+こんな感じで引用できるよ！</textarea>
             </div>
             <button class="btn" id="capture-btn" onclick="createPostWithImageCapture()">投稿画面を開く</button>
         </div>
@@ -161,9 +161,14 @@ document.getElementById('game-app').style.paddingTop = topExclusionHeight + 'px'
 
 // iOS専用 ネイティブルーティング処理モジュール
 window.GravityRouter = {
-    _sendToApp: function(payloadStr) {
-        const encodedPayload = encodeURIComponent(payloadStr);
-        const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(encodedPayload);
+    // 成功したhtp_about.jsのエンコードロジックを正確に再現するコア処理
+    _sendToApp: function(command, paramObj) {
+        // パラメータのみをJSON化して1度エンコード
+        const encodedJson = encodeURIComponent(JSON.stringify(paramObj));
+        // コマンドと結合（例： "usercenter?0=%7B...%7D"）
+        const innerUrl = command + "?0=" + encodedJson;
+        // 結合したものをエンコードしてディープリンク化
+        const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
 
         try {
             window.top.location.href = deepLink;
@@ -176,33 +181,36 @@ window.GravityRouter = {
         }
     },
     openProfile: function(userId) {
-        const paramObj = { uid: userId, selectedIndex: 0, web_url: "https://www.gravity.place/user/" + userId, s: "web", b: "user" };
-        this._sendToApp("usercenter?0=" + JSON.stringify(paramObj));
+        // アプリ側の仕様に合わせ、uidはNumber(数値)に変換して送信
+        const paramObj = { uid: Number(userId), selectedIndex: 0, web_url: "https://www.gravity.place/user/" + userId, s: "web", b: "user" };
+        this._sendToApp("usercenter", paramObj);
     },
     openStar: function(starId) {
-        const paramObj = { starId: starId, s: "web", b: "star", web_url: "https://www.gravity.place/star/" + starId };
-        this._sendToApp("stardetail?0=" + JSON.stringify(paramObj));
+        // アプリ側の仕様に合わせ、starIdはNumber(数値)に変換して送信
+        const paramObj = { starId: Number(starId), s: "web", b: "star", web_url: "https://www.gravity.place/star/" + starId };
+        this._sendToApp("stardetail", paramObj);
     },
     openFeed: function(feedId) {
-        const paramObj = { id: feedId, s: "web", b: "feed", web_url: "https://www.gravity.place/detail/" + feedId };
-        this._sendToApp("feeddetail?0=" + JSON.stringify(paramObj));
+        // 投稿IDはハイフンやアンダーバーを含むため文字列のまま送信
+        const paramObj = { id: String(feedId), s: "web", b: "feed", web_url: "https://www.gravity.place/detail/" + feedId };
+        this._sendToApp("feeddetail", paramObj);
     },
     openQuestion: function(questionId) {
-        const paramObj = { qid: questionId, s: "web", b: "ask_feed", selectedIndex: 0, web_url: "https://www.gravity.place/ask-feed/" + questionId };
-        this._sendToApp("hotquestiondetail?0=" + JSON.stringify(paramObj));
+        const paramObj = { qid: String(questionId), s: "web", b: "ask_feed", selectedIndex: 0, web_url: "https://www.gravity.place/ask-feed/" + questionId };
+        this._sendToApp("hotquestiondetail", paramObj);
     },
     createPost: function(text) {
-        const paramObj = { s: "web", b: "makefeed", text: text };
-        this._sendToApp("makefeed?0=" + JSON.stringify(paramObj));
+        const paramObj = { s: "web", b: "makefeed", text: String(text) };
+        this._sendToApp("makefeed", paramObj);
     },
     createPostWithImage: function(text, base64Image) {
         // 公式のJSBridgeを利用してゲーム空間からアプリ本体へ画像を送信
         window.parent.postMessage({ type: 'shareImage', image: base64Image }, '*');
-        const paramObj = { s: "web", b: "makefeed", text: text };
+        const paramObj = { s: "web", b: "makefeed", text: String(text) };
         const self = this;
         // 画像の受け渡しが完了するまで0.5秒待機してから投稿画面を開く
         setTimeout(function() {
-            self._sendToApp("makefeed?0=" + JSON.stringify(paramObj));
+            self._sendToApp("makefeed", paramObj);
         }, 500);
     }
 };
