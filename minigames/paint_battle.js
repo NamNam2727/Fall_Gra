@@ -1,7 +1,7 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★コア連携用インターフェース(getScoreValue等)を追加し、メンバーリストにスコアを表示
+// ★コアの `replyMyScore` をフックして、コア側を変更せずにメンバーリストへのスコア同期を実現
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -43,6 +43,7 @@ window.MinigamePlugins['paint_battle'] = {
     originalPlaceBomb: null,
     originalExplodeBomb: null,
     originalExecuteRetire: null,
+    originalReplyMyScore: null, // ★ コアのスコア同期関数を退避する変数
 
     init: function(settings) {
         console.log("[Paint Battle] Initializing...");
@@ -76,6 +77,54 @@ window.MinigamePlugins['paint_battle'] = {
                 this.handleFallPenalty();
             } else {
                 this.originalExecuteRetire.call(window.MinigameManager);
+            }
+        };
+
+        // ★ メンバーリスト同期のフック（コアを変更せずにスコアを伝える）
+        this.originalReplyMyScore = window.MinigameManager.replyMyScore;
+        const self = this;
+        window.MinigameManager.replyMyScore = function() {
+            if (this.currentProposal && this.currentProposal.gameId === 'paint_battle') {
+                if (this.state !== 'PLAYING') return;
+                
+                const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+                const myData = this.resultData.find(d => String(d.id) === myId);
+
+                let cVal = 0, cText = "", cStatus = "";
+
+                if (myData && myData.isRetired) {
+                    cVal = myData.scoreValue;
+                    cText = myData.scoreText;
+                    cStatus = "リタイア";
+                } else {
+                    cVal = self.myScore;
+                    cText = `${self.myScore} pt`;
+                    cStatus = "プレイ中";
+                }
+
+                if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
+                    window.MultiplayerManager.sendData({
+                        type: 'mg_reply_score',
+                        userId: myId,
+                        currentScoreText: cText,
+                        currentScoreValue: cVal,
+                        currentStatusText: cStatus
+                    });
+                }
+                
+                if (myData) {
+                    myData.currentScoreText = cText;
+                    myData.currentScoreValue = cVal;
+                    myData.currentStatusText = cStatus;
+                }
+                
+                const statusEl = document.getElementById('member-score-' + myId);
+                if (statusEl) {
+                    statusEl.innerText = cText;
+                    statusEl.style.color = '#ffaa00';
+                }
+            } else {
+                if (self.originalReplyMyScore) self.originalReplyMyScore.call(this);
             }
         };
     },
@@ -584,6 +633,10 @@ window.MinigamePlugins['paint_battle'] = {
         let hitY = null;
         let closestDist = Infinity;
 
+        let yDistTolerance = bs * 0.25; 
+        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        let paintedCount = 0;
+
         for (let dx = -1; dx <= 1; dx++) {
             for (let dz = -1; dz <= 1; dz++) {
                 let key = `${gx + dx}_${gz + dz}`;
@@ -591,31 +644,15 @@ window.MinigamePlugins['paint_battle'] = {
                 if (cellList) {
                     for (let cell of cellList) {
                         let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
+                        
                         if (cell.yInfo <= py + myStepHeight + 0.5 && cell.yInfo >= py - 0.5) {
                             if (distSq < closestDist) {
                                 closestDist = distSq;
                                 hitY = cell.yInfo;
                             }
                         }
-                    }
-                }
-            }
-        }
-
-        if (hitY !== null) {
-            let yDistTolerance = bs * 0.25; 
-            const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
-            let paintedCount = 0;
-            
-            for (let dx = -1; dx <= 1; dx++) {
-                for (let dz = -1; dz <= 1; dz++) {
-                    let key = `${gx + dx}_${gz + dz}`;
-                    let cellList = this.gridMap[key];
-                    if (cellList) {
-                        for (let cell of cellList) {
-                            if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
-                            
-                            let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
+                        
+                        if (hitY !== null && Math.abs(cell.yInfo - hitY) <= yDistTolerance) {
                             if (distSq <= rSq) {
                                 if (cell.owner !== myId) {
                                     cell.owner = myId;
@@ -628,13 +665,13 @@ window.MinigamePlugins['paint_battle'] = {
                     }
                 }
             }
-            
-            if (paintedCount > 0) {
-                this.paintMesh.geometry.attributes.color.needsUpdate = true;
-                this.myScore += paintedCount;
-                this.updateScoreUI();
-                this.syncMyScoreToManager(); 
-            }
+        }
+
+        if (paintedCount > 0) {
+            this.paintMesh.geometry.attributes.color.needsUpdate = true;
+            this.myScore += paintedCount;
+            this.updateScoreUI();
+            this.syncMyScoreToManager(); 
         }
     },
 
@@ -664,6 +701,20 @@ window.MinigamePlugins['paint_battle'] = {
                 statusText: statusText,
                 isRetired: false
             });
+            // ★ リストUI用にmg_reply_scoreも同時に送信し、自分のUIも更新する
+            window.MultiplayerManager.sendData({
+                type: 'mg_reply_score',
+                userId: myId,
+                currentScoreText: cText,
+                currentScoreValue: this.myScore,
+                currentStatusText: statusText || "プレイ中"
+            });
+        }
+        
+        const statusEl = document.getElementById('member-score-' + myId);
+        if (statusEl) {
+            statusEl.innerText = cText;
+            statusEl.style.color = '#ffaa00';
         }
     },
 
@@ -776,6 +827,12 @@ window.MinigamePlugins['paint_battle'] = {
         if (this.originalPlaceBomb && window.ItemEffects) window.ItemEffects.placeBomb = this.originalPlaceBomb;
         if (this.originalExplodeBomb && window.ItemEffects) window.ItemEffects.explodeBomb = this.originalExplodeBomb;
 
+        // ★ コアのreplyMyScoreを元に戻す
+        if (this.originalReplyMyScore) {
+            window.MinigameManager.replyMyScore = this.originalReplyMyScore;
+            this.originalReplyMyScore = null;
+        }
+
         if (this.paintMesh && typeof scene !== 'undefined') {
             scene.remove(this.paintMesh);
             this.paintMesh.geometry.dispose();
@@ -828,19 +885,6 @@ window.MinigamePlugins['paint_battle'] = {
             this.scoreUI.style.borderColor = colorHex;
             this.scoreUI.children[0].style.backgroundColor = colorHex;
         }
-    },
-
-    // ==========================================
-    // ★ コア(minigame_core.js)連携用スコアインターフェース
-    // ==========================================
-    getScoreValue: function() {
-        return this.myScore;
-    },
-    getScoreString: function() {
-        return `${this.myScore} pt`;
-    },
-    getStatusString: function() {
-        return "";
     }
 };
 
