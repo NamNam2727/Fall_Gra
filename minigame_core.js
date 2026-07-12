@@ -1,7 +1,8 @@
 // =====================================
 // minigame_core.js
 // ミニゲーム本編のメインロジックとリザルト管理（3分割の3/3）
-// ★プラグインに依存せず、マネージャー側で強制的にランキングを計算・ソートする機能を実装
+// ★プラグイン側に依存したハードコードを廃止し、汎用インターフェース
+//   (getScoreValue, getScoreString等) からスコアを自動取得する賢い形へリファクタリング
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -67,7 +68,14 @@ Object.assign(window.MinigameManager, {
             let cVal = 0, cText = "", cStatus = "";
             
             if (this.currentPlugin && this.currentProposal) {
-                if (this.currentProposal.gameId === 'coin_rush') {
+                // ★ 最適化：プラグイン側の標準インターフェース関数を優先して取得
+                if (typeof this.currentPlugin.getScoreValue === 'function' && typeof this.currentPlugin.getScoreString === 'function') {
+                    cVal = this.currentPlugin.getScoreValue();
+                    cText = this.currentPlugin.getScoreString();
+                    if (typeof this.currentPlugin.getStatusString === 'function') cStatus = this.currentPlugin.getStatusString();
+                } 
+                // ★ 既存のプラグイン用フォールバック（後方互換性のため維持）
+                else if (this.currentProposal.gameId === 'coin_rush') {
                     cVal = typeof this.currentPlugin.myScore !== 'undefined' ? this.currentPlugin.myScore : 0;
                     cText = `${cVal}枚`;
                 } else if (this.currentProposal.gameId === 'bom_battle') {
@@ -81,6 +89,7 @@ Object.assign(window.MinigameManager, {
                     cVal = survived;
                 }
             }
+            
             myData.scoreValue = cVal;
             myData.scoreText = cText;
             myData.statusText = cStatus;
@@ -124,7 +133,14 @@ Object.assign(window.MinigameManager, {
             cText = myData.scoreText;
             cStatus = "リタイア";
         } else if (this.currentPlugin && this.currentProposal) {
-            if (this.currentProposal.gameId === 'coin_rush') {
+            // ★ 最適化：プラグイン側の標準インターフェース関数を優先して取得
+            if (typeof this.currentPlugin.getScoreValue === 'function' && typeof this.currentPlugin.getScoreString === 'function') {
+                cVal = this.currentPlugin.getScoreValue();
+                cText = this.currentPlugin.getScoreString();
+                cStatus = typeof this.currentPlugin.getStatusString === 'function' ? this.currentPlugin.getStatusString() : "プレイ中";
+            } 
+            // ★ 既存のプラグイン用フォールバック
+            else if (this.currentProposal.gameId === 'coin_rush') {
                 cVal = typeof this.currentPlugin.myScore !== 'undefined' ? this.currentPlugin.myScore : 0;
                 cText = `${cVal}枚`;
             } else if (this.currentProposal.gameId === 'bom_battle') {
@@ -269,7 +285,14 @@ Object.assign(window.MinigameManager, {
             if (myData.scoreValue === null) {
                 let cVal = 0, cText = "", cStatus = "生存クリア";
                 if (this.currentProposal) {
-                    if (this.currentProposal.gameId === 'coin_rush') {
+                    // ★ 最適化：プラグイン側の標準インターフェース関数を優先して取得
+                    if (this.currentPlugin && typeof this.currentPlugin.getScoreValue === 'function' && typeof this.currentPlugin.getScoreString === 'function') {
+                        cVal = this.currentPlugin.getScoreValue();
+                        cText = this.currentPlugin.getScoreString();
+                        cStatus = typeof this.currentPlugin.getStatusString === 'function' ? this.currentPlugin.getStatusString() : "タイムアップ";
+                    } 
+                    // ★ 既存のプラグイン用フォールバック
+                    else if (this.currentProposal.gameId === 'coin_rush') {
                         cVal = typeof this.currentPlugin.myScore !== 'undefined' ? this.currentPlugin.myScore : 0;
                         cText = `${cVal}枚`;
                         cStatus = "タイムアップ";
@@ -301,22 +324,18 @@ Object.assign(window.MinigameManager, {
             }
         }
 
-        // 未受信スコアのエラー扱い
         this.resultData.forEach(d => {
             if (d.scoreValue === null && !d.isRetired) {
                 d.isError = true;
-                d.scoreValue = -99999; // ソート時にエラーが下に行くようにする保険
+                d.scoreValue = -99999; 
             }
         });
 
-        // 各自のスコアが入った状態でプラグイン側を終了させる
         if (this.currentPlugin && typeof this.currentPlugin.end === 'function') {
             this.currentPlugin.end();
         }
         this.currentPlugin = null;
 
-        // ★マネージャー側での共通ソートとランク強制上書き
-        // エラーは下、リタイアはその次、残りは scoreValue の降順。リタイア同士でも scoreValue の降順。
         this.resultData.sort((a, b) => {
             if (a.isError && !b.isError) return 1;
             if (!a.isError && b.isError) return -1;
@@ -365,3 +384,5 @@ Object.assign(window.MinigameManager, {
         }, 5000);
     }
 });
+
+
