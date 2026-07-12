@@ -1,8 +1,8 @@
 // =====================================
 // minigames/hot_zone.js
 // ホットゾーン プラグイン
-// ★シード付き疑似乱数(PRNG)を用いた完全ローカル同期
-// ★通信を使わずに全員の画面で全く同じ場所にホットゾーンが出現・移動する
+// ★START時に「出現した！」のログを追加
+// ★時間経過でホットゾーンの大きさ（見た目と判定）が縮小していくギミックを追加
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -23,7 +23,7 @@ window.MinigamePlugins['hot_zone'] = {
     currentZoneIndex: -1, // 現在のフェーズ
     zoneGroup: null,      // 光る円のメッシュ
     cylMesh: null,        // 円柱エフェクト
-    zoneRadius: 10.0,     // ゾーンの半径
+    zoneRadius: 10.0,     // ゾーンの最大半径
     zoneChangeInterval: 15.0, // 何秒ごとにゾーンが移動するか
     scoreTimer: 0,        // スコア加算用タイマー
     
@@ -62,7 +62,6 @@ window.MinigamePlugins['hot_zone'] = {
     // ==========================================
     // 1. シード付き疑似乱数と床リストの生成
     // ==========================================
-    // Mulberry32アルゴリズム（軽量で質の良いPRNG）
     createPRNG: function(seed) {
         return function() {
             var t = seed += 0x6D2B79F5;
@@ -82,9 +81,8 @@ window.MinigamePlugins['hot_zone'] = {
                 let layers = parsedMap[x][z];
                 if (!layers || layers.length === 0) continue;
                 
-                // 一番上のレイヤーを取得
                 let topLayer = layers[layers.length - 1];
-                if (topLayer.val === 6) continue; // 外壁(6)には出現させない
+                if (topLayer.val === 6) continue; // 外壁には出現させない
 
                 let yT = topLayer.top;
                 if (topLayer.isOdd) {
@@ -105,7 +103,6 @@ window.MinigamePlugins['hot_zone'] = {
         const prng = this.createPRNG(seed);
         this.zonePositions = [];
         
-        // 制限時間(分) * 60 / 15秒 = 最大フェーズ数。余裕をもって100個生成しておく
         for (let i = 0; i < 100; i++) {
             let idx = Math.floor(prng() * this.validFloors.length);
             this.zonePositions.push(this.validFloors[idx]);
@@ -122,7 +119,7 @@ window.MinigamePlugins['hot_zone'] = {
         const cylGeo = new THREE.CylinderGeometry(this.zoneRadius, this.zoneRadius, 20.0, 32, 1, true);
         const cylMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
         this.cylMesh = new THREE.Mesh(cylGeo, cylMat);
-        this.cylMesh.position.y = 10.0; // 床から上へ伸ばす
+        this.cylMesh.position.y = 10.0; 
         this.zoneGroup.add(this.cylMesh);
 
         // 床に表示する光るリング
@@ -130,7 +127,7 @@ window.MinigamePlugins['hot_zone'] = {
         const ringMat = new THREE.MeshBasicMaterial({ color: 0xffdd00, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
         const ringMesh = new THREE.Mesh(ringGeo, ringMat);
         ringMesh.rotation.x = -Math.PI / 2;
-        ringMesh.position.y = 0.5; // Zファイティング防止で少し浮かせる
+        ringMesh.position.y = 0.5; 
         this.zoneGroup.add(ringMesh);
 
         // 最初は画面外(地下)に隠しておく
@@ -154,7 +151,6 @@ window.MinigamePlugins['hot_zone'] = {
     },
 
     update: function(delta) {
-        // ★準備処理：targetStartTime(全クライアント共通)が決まってから乱数シードを展開する
         if (!this.isPrepared) {
             if (window.MinigameManager && window.MinigameManager.targetStartTime > 0) {
                 this.isPrepared = true;
@@ -175,7 +171,6 @@ window.MinigamePlugins['hot_zone'] = {
             return;
         }
 
-        // 落下チェック
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             if (player.position.y < -25) {
                 this.handleFallPenalty();
@@ -187,7 +182,7 @@ window.MinigamePlugins['hot_zone'] = {
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
 
-        // デスペナルティ（リスポーン待機中）
+        // デスペナルティ
         if (this.isRespawning) {
             this.respawnTimer -= delta;
             
@@ -215,23 +210,32 @@ window.MinigamePlugins['hot_zone'] = {
         }
 
         // ====================================================
-        // ★ ホットゾーンの移動管理（通信不要のローカル同期）
+        // ★ ホットゾーンの移動と縮小管理
         // ====================================================
-        let elapsed = (this.timeLimit * 60) - this.remainTime;
+        let elapsed = Math.max(0, (this.timeLimit * 60) - this.remainTime);
         let phase = Math.floor(elapsed / this.zoneChangeInterval);
+        let phaseElapsed = elapsed % this.zoneChangeInterval; // 現在のフェーズでの経過時間
         
         if (phase !== this.currentZoneIndex && phase < this.zonePositions.length) {
             this.updateZonePosition(phase);
         }
 
-        // 円柱アニメーション
+        // ★ 経過時間に合わせて半径を縮小（15秒で 10.0 -> 0.0）
+        let currentRadius = this.zoneRadius * (1.0 - (phaseElapsed / this.zoneChangeInterval));
+        if (currentRadius < 0) currentRadius = 0;
+
+        // エフェクトのアニメーションとスケール変更
         if (this.cylMesh) {
             this.cylMesh.rotation.y += delta * 0.5;
             this.cylMesh.material.opacity = 0.2 + 0.1 * Math.sin(performance.now() * 0.005);
         }
+        if (this.zoneGroup) {
+            let scaleRatio = currentRadius / this.zoneRadius;
+            this.zoneGroup.scale.set(scaleRatio, 1, scaleRatio);
+        }
 
         // ====================================================
-        // ★ スコア加算判定（ホットゾーンの中にいるか）
+        // ★ スコア加算判定（縮小された半径を使用）
         // ====================================================
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             let pos = this.zonePositions[this.currentZoneIndex];
@@ -240,10 +244,9 @@ window.MinigamePlugins['hot_zone'] = {
                 let dz = player.position.z - pos.z;
                 let dy = player.position.y - pos.y;
                 
-                // 円柱内判定：距離が半径以内、かつ高さが床から+15.0以内
-                if (dx * dx + dz * dz <= this.zoneRadius * this.zoneRadius && dy >= -2.0 && dy <= 15.0) {
+                // ★ 判定半径を currentRadius に変更
+                if (dx * dx + dz * dz <= currentRadius * currentRadius && dy >= -2.0 && dy <= 15.0) {
                     this.scoreTimer += delta;
-                    // 0.5秒ごとに1ポイント加算
                     if (this.scoreTimer >= 0.5) {
                         this.myScore += 1;
                         this.scoreTimer -= 0.5;
@@ -251,7 +254,7 @@ window.MinigamePlugins['hot_zone'] = {
                         this.syncMyScoreToManager();
                     }
                 } else {
-                    this.scoreTimer = 0; // 外に出たらタイマーリセット
+                    this.scoreTimer = 0; 
                 }
             }
         }
@@ -264,9 +267,13 @@ window.MinigamePlugins['hot_zone'] = {
         if (pos && this.zoneGroup) {
             this.zoneGroup.position.set(pos.x, pos.y, pos.z);
             
-            // ゾーンが移動したことをログで通知
-            if (phaseIndex > 0 && typeof window.addLog === 'function') {
-                window.addLog('<span style="color:#ffaa00; font-weight:bold;">✨ ホットゾーンが移動した！ ✨</span>', 'sys');
+            // ★ START時と移動時でログの文言を分ける
+            if (typeof window.addLog === 'function') {
+                if (phaseIndex === 0) {
+                    window.addLog('<span style="color:#ffaa00; font-weight:bold;">✨ ホットゾーンが出現した！ ✨</span>', 'sys');
+                } else {
+                    window.addLog('<span style="color:#ffaa00; font-weight:bold;">✨ ホットゾーンが移動した！ ✨</span>', 'sys');
+                }
             }
         }
     },
@@ -398,7 +405,6 @@ window.MinigamePlugins['hot_zone'] = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
         
-        // ホットゾーンらしいオレンジ色のテーマ
         let colorHex = '#ffaa00';
         
         this.scoreUI.style.cssText = `position: absolute; left: 10px; top: ${topExclusionHeight + 15}px; background: rgba(0,0,0,0.6); border: 2px solid ${colorHex}; border-radius: 12px; padding: 5px 15px; color: white; font-size: 18px; font-weight: bold; font-family: monospace; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; display: flex; align-items: center; gap: 10px;`;
@@ -419,4 +425,5 @@ window.MinigamePlugins['hot_zone'] = {
     getScoreString: function() { return `${this.myScore} pt`; },
     getStatusString: function() { return ""; }
 };
+
 
