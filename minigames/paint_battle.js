@@ -1,8 +1,7 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★checkPlayerStep内の不要なマイナス判定を削除
-// ★爆弾処理(explodeBomb)での全セル走査を廃止し、gridMapを用いた周辺探索に最適化
+// ★コア連携用インターフェース(getScoreValue等)を追加し、メンバーリストにスコアを表示
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -437,7 +436,6 @@ window.MinigamePlugins['paint_battle'] = {
             const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
             let paintedCount = 0;
             
-            // ★最適化：爆発中心座標から周囲のマス(gridMap)だけを算出して探索
             let bx = bomb.mesh.position.x;
             let by = bomb.mesh.position.y;
             let bz = bomb.mesh.position.z;
@@ -586,11 +584,6 @@ window.MinigamePlugins['paint_battle'] = {
         let hitY = null;
         let closestDist = Infinity;
 
-        // ★最適化：1回のループ内で床の高さ判定と塗り処理を同時に行う
-        let yDistTolerance = bs * 0.25; 
-        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
-        let paintedCount = 0;
-
         for (let dx = -1; dx <= 1; dx++) {
             for (let dz = -1; dz <= 1; dz++) {
                 let key = `${gx + dx}_${gz + dz}`;
@@ -598,21 +591,33 @@ window.MinigamePlugins['paint_battle'] = {
                 if (cellList) {
                     for (let cell of cellList) {
                         let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
-                        
-                        // 1. 床(cell.yInfo)がプレイヤーの足元付近にあるか判定し、一番近い床を hitY として記憶
                         if (cell.yInfo <= py + myStepHeight + 0.5 && cell.yInfo >= py - 0.5) {
                             if (distSq < closestDist) {
                                 closestDist = distSq;
                                 hitY = cell.yInfo;
                             }
                         }
-                        
-                        // 2. そのまま塗り判定を行う（まだhitYが確定していない場合もあるが、hitYが確定した床と同じ高さなら塗る）
-                        // ※hitYが後で確定しても、プレイヤーの足元にある床はほぼ同じ高さのため1ループで問題なく機能する
-                        if (hitY !== null && Math.abs(cell.yInfo - hitY) <= yDistTolerance) {
+                    }
+                }
+            }
+        }
+
+        if (hitY !== null) {
+            let yDistTolerance = bs * 0.25; 
+            const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+            let paintedCount = 0;
+            
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dz = -1; dz <= 1; dz++) {
+                    let key = `${gx + dx}_${gz + dz}`;
+                    let cellList = this.gridMap[key];
+                    if (cellList) {
+                        for (let cell of cellList) {
+                            if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
+                            
+                            let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
                             if (distSq <= rSq) {
                                 if (cell.owner !== myId) {
-                                    // ★最適化：無駄な「if (cell.owner === myId) this.myScore--;」を削除
                                     cell.owner = myId;
                                     this.updateCellColor(cell, myId);
                                     this.paintBuffer.push(cell.id);
@@ -623,13 +628,13 @@ window.MinigamePlugins['paint_battle'] = {
                     }
                 }
             }
-        }
-
-        if (paintedCount > 0) {
-            this.paintMesh.geometry.attributes.color.needsUpdate = true;
-            this.myScore += paintedCount;
-            this.updateScoreUI();
-            this.syncMyScoreToManager(); 
+            
+            if (paintedCount > 0) {
+                this.paintMesh.geometry.attributes.color.needsUpdate = true;
+                this.myScore += paintedCount;
+                this.updateScoreUI();
+                this.syncMyScoreToManager(); 
+            }
         }
     },
 
@@ -823,6 +828,19 @@ window.MinigamePlugins['paint_battle'] = {
             this.scoreUI.style.borderColor = colorHex;
             this.scoreUI.children[0].style.backgroundColor = colorHex;
         }
+    },
+
+    // ==========================================
+    // ★ コア(minigame_core.js)連携用スコアインターフェース
+    // ==========================================
+    getScoreValue: function() {
+        return this.myScore;
+    },
+    getScoreString: function() {
+        return `${this.myScore} pt`;
+    },
+    getStatusString: function() {
+        return "";
     }
 };
 
