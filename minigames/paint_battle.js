@@ -1,9 +1,9 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★元の地形(MapGenerator)のロジックを完全再現し、壁や側面も生成！
-// ★上面のみを64分割して綺麗に色を塗れるように修正
-// ★ネット(🕸️)の仕様を引用し、空中(Y座標が離れている時)は塗れないように厳密化
+// ★元の地形(MapGenerator)のロジックを完全再現し、壁や側面も生成
+// ★ゲーム開始時(START)に爆弾の性質を切り替える
+// ★コインラッシュの落下フックを完全に引用し、確実なデスペナルティを実現
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -63,9 +63,9 @@ window.MinigamePlugins['paint_battle'] = {
         this.myScore = 0;
 
         this.claimColor();
-        this.createPaintMesh(); // 完全版のメッシュ生成を呼び出し
-        this.overrideItemSystem();
+        this.createPaintMesh(); 
 
+        // ★ 落下時のデスペナルティフック（コインラッシュの引用: y < -20）
         this.originalExecuteRetire = window.MinigameManager.executeRetire;
         window.MinigameManager.executeRetire = () => {
             if (typeof player !== 'undefined' && player.position.y < -20) {
@@ -133,12 +133,11 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 2. メッシュ生成と塗布システム (MapGenerator完全再現版)
+    // 2. メッシュ生成と塗布システム
     // ==========================================
     createPaintMesh: function() {
         if (!window.MapGenerator || typeof scene === 'undefined') return;
         
-        // 元のマップメッシュを非表示にする（当たり判定としては残る）
         scene.children.forEach(child => {
             if (child.userData && child.userData.isTerrain && child !== this.paintMesh) {
                 child.visible = false;
@@ -153,12 +152,10 @@ window.MinigamePlugins['paint_battle'] = {
         const colors = [];
         let cellId = 0;
         
-        // 元の地形色
         const colorOdd = new THREE.Color(0x81C784); 
         const colorEven1 = new THREE.Color(0x4CAF50);
         const colorEven2 = new THREE.Color(0x388E3C);
 
-        // MapGeneratorと同様の面追加ロジック
         const addFace = (v0, v1, v2, col) => {
             vertices.push(...v0, ...v1, ...v2);
             const vec1 = [v1[0]-v0[0], v1[1]-v0[1], v1[2]-v0[2]];
@@ -207,13 +204,12 @@ window.MinigamePlugins['paint_battle'] = {
                         c_center = corners.center;
                     }
                     
-                    // 【上面の細分化 (色を塗る用)】
+                    // 【上面の細分化】
                     for (let ix = 0; ix < divs; ix++) {
                         for (let iz = 0; iz < divs; iz++) {
                             let tx0 = ix / divs; let tz0 = iz / divs;
                             let tx1 = (ix+1)/divs; let tz1 = (iz+1)/divs;
                             
-                            // 高さのバイリニア補間
                             const calcH = (tx, tz) => c_mXmZ * (1-tx)*(1-tz) + c_pXmZ * tx*(1-tz) + c_mXpZ * (1-tx)*tz + c_pXpZ * tx*tz;
                             
                             let h00 = calcH(tx0, tz0); let h10 = calcH(tx1, tz0);
@@ -235,7 +231,7 @@ window.MinigamePlugins['paint_battle'] = {
                             
                             let cell = {
                                 id: cellId++,
-                                cx: cx * bs, cz: cz * bs, yInfo: h00 * bs, // 実際のスケール倍された座標を保持
+                                cx: cx * bs, cz: cz * bs, yInfo: h00 * bs, 
                                 vIdx: vIdxStart,
                                 defaultColorHex: defaultColor.getHex(),
                                 owner: null
@@ -245,7 +241,7 @@ window.MinigamePlugins['paint_battle'] = {
                         }
                     }
 
-                    // 【側面と底面の生成 (細分化なし：壁の消失を防ぐ)】
+                    // 【側面と底面の生成】
                     const b_mXmZ = [px_norm - 0.5, yB, pz_norm - 0.5];
                     const b_pXmZ = [px_norm + 0.5, yB, pz_norm - 0.5];
                     const b_pXpZ = [px_norm + 0.5, yB, pz_norm + 0.5];
@@ -256,10 +252,8 @@ window.MinigamePlugins['paint_battle'] = {
                     const v_pXpZ = [px_norm + 0.5, c_pXpZ, pz_norm + 0.5];
                     const v_mXpZ = [px_norm - 0.5, c_mXpZ, pz_norm + 0.5];
 
-                    // 底面
                     addQuad(b_mXmZ, b_pXmZ, b_pXpZ, b_mXpZ, defaultColor);
 
-                    // 側面の隠れ判定
                     const checkHidden = (nx, nz, myTopCorner1, myTopCorner2) => {
                         if (nx < 0 || nx >= mapW || nz < 0 || nz >= mapD) return false;
                         for(let nl of parsedMap[nx][nz]) {
@@ -270,7 +264,6 @@ window.MinigamePlugins['paint_battle'] = {
                         return false;
                     };
 
-                    // 側面
                     if (!checkHidden(x, z+1, c_mXpZ, c_pXpZ)) addQuad(b_pXpZ, v_pXpZ, v_mXpZ, b_mXpZ, defaultColor); 
                     if (!checkHidden(x, z-1, c_mXmZ, c_pXmZ)) addQuad(b_mXmZ, v_mXmZ, v_pXmZ, b_pXmZ, defaultColor); 
                     if (!checkHidden(x+1, z, c_pXmZ, c_pXpZ)) addQuad(b_pXmZ, v_pXmZ, v_pXpZ, b_pXpZ, defaultColor); 
@@ -290,7 +283,7 @@ window.MinigamePlugins['paint_battle'] = {
         });
         
         this.paintMesh = new THREE.Mesh(geo, mat);
-        this.paintMesh.scale.set(bs, bs, bs); // MapGeneratorに合わせてスケールアップ
+        this.paintMesh.scale.set(bs, bs, bs);
         this.paintMesh.receiveShadow = true;
         this.paintMesh.castShadow = true;
         this.paintMesh.userData.isTerrain = true; 
@@ -312,7 +305,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 3. アイテムシステムのオーバーライド (爆弾専用化)
+    // 3. アイテムシステムのオーバーライド
     // ==========================================
     overrideItemSystem: function() {
         if (!window.ItemSystem || !window.ItemEffects) return;
@@ -395,6 +388,8 @@ window.MinigamePlugins['paint_battle'] = {
         window.ItemEffects.explodeBomb = function(bomb) {
             self.originalExplodeBomb.call(window.ItemEffects, bomb);
             
+            if (!self.isPlaying) return; // 念のためのフェイルセーフ
+            
             const bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
             const maxRadius = 4.5 * bs;
             const rSq = maxRadius * maxRadius;
@@ -402,7 +397,7 @@ window.MinigamePlugins['paint_battle'] = {
             let paintedCount = 0;
             
             for (let cell of self.cells) {
-                if (Math.abs(cell.yInfo - bomb.mesh.position.y) > bs * 1.5) continue; // 爆弾はある程度の高さを許容
+                if (Math.abs(cell.yInfo - bomb.mesh.position.y) > bs * 1.5) continue; 
                 let distSq = (cell.cx - bomb.mesh.position.x)**2 + (cell.cz - bomb.mesh.position.z)**2;
                 if (distSq <= rSq) {
                     if (cell.owner !== ownerId) {
@@ -426,6 +421,9 @@ window.MinigamePlugins['paint_battle'] = {
         console.log("[Paint Battle] Game Started!");
         this.isPlaying = true;
         this.remainTime = this.timeLimit * 60;
+
+        // ★ ゲーム開始時(STARTの瞬間)に爆弾の性質をペイント仕様に切り替える
+        this.overrideItemSystem();
     },
 
     update: function(delta) {
@@ -443,6 +441,14 @@ window.MinigamePlugins['paint_battle'] = {
             return;
         }
 
+        // ★ コインラッシュの引用: update内での落下チェック (y < -25)
+        // main.js の -30 ルールによる強制リタイアより前にキャッチする
+        if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
+            if (player.position.y < -25) {
+                this.handleFallPenalty();
+            }
+        }
+
         let m = Math.floor(this.remainTime / 60);
         let s = Math.floor(this.remainTime % 60);
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
@@ -455,9 +461,10 @@ window.MinigamePlugins['paint_battle'] = {
             this.respawnTimer -= delta;
             
             if (typeof player !== 'undefined' && player) {
-                player.position.set(0, 50, 0); 
+                // リスポーン地点（上空）に固定
+                player.position.set(0, 20, 0); 
                 window.verticalVelocity = 0;
-                window.isJumping = false;
+                window.isJumping = true; // 落下しないように空中判定を維持
                 window.moveVector.set(0, 0);   
                 
                 const isVisible = Math.floor(this.respawnTimer * 10) % 2 === 0;
@@ -469,13 +476,12 @@ window.MinigamePlugins['paint_battle'] = {
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">復帰しました！</span>', 'sys');
                 if (typeof player !== 'undefined' && player) {
                     player.traverse(child => { if (child.isMesh) child.visible = true; });
-                    window.isJumping = true; 
                 }
             }
             return; 
         }
 
-        // 塗り判定 (★ネット🕸️の仕様を引用し、空中では塗れないように厳格化)
+        // 塗り判定 (空中では塗れない)
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             let px = player.position.x;
             let pz = player.position.z;
@@ -490,7 +496,6 @@ window.MinigamePlugins['paint_battle'] = {
             let gx = Math.floor(px / bs + mapW / 2);
             let gz = Math.floor(pz / bs + mapD / 2);
             
-            // ★ 高低差の許容値（足元から少しでも離れていたら塗れない）
             let yDistTolerance = bs * 0.25; 
             let paintedCount = 0;
             
@@ -500,13 +505,12 @@ window.MinigamePlugins['paint_battle'] = {
                     let cellList = this.gridMap[key];
                     if (cellList) {
                         for (let cell of cellList) {
-                            // ★ 空中判定：プレイヤーのY座標(足元)とセルのY座標が離れている場合はスキップ
                             if (Math.abs(cell.yInfo - py) > yDistTolerance) continue; 
                             
                             let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
                             if (distSq <= rSq) {
                                 if (cell.owner !== myId) {
-                                    if (cell.owner === myId) this.myScore--; // 万が一自分の物だった場合の保険
+                                    if (cell.owner === myId) this.myScore--; 
                                     cell.owner = myId;
                                     this.updateCellColor(cell, myId);
                                     this.paintBuffer.push(cell.id);
@@ -557,8 +561,10 @@ window.MinigamePlugins['paint_battle'] = {
         }
         
         if (typeof player !== 'undefined' && player) {
-            player.position.set(0, 50, 0); 
+            player.position.set(0, 20, 0); 
             window.verticalVelocity = 0;
+            window.isJumping = true; // 落下しないように維持
+            window.moveVector.set(0, 0);
         }
         
         if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
