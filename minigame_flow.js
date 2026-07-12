@@ -2,6 +2,7 @@
 // minigame_flow.js
 // ミニゲームの進行フローとUI遷移管理（3分割の2/3）
 // ★通信を使わず、ローカルのMinigameListから説明文を取得して表示
+// ★PLAYING状態での途中入室時、プラグインを再現・開始する処理を追加
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -208,7 +209,6 @@ Object.assign(window.MinigameManager, {
 
         document.getElementById('mg-popup-title').innerText = p.title;
 
-        // ★ 通信データには含めず、ローカルのリストから説明文を検索して表示
         const descEl = document.getElementById('mg-popup-desc');
         if (descEl) {
             const listData = window.MinigameList ? window.MinigameList.find(g => g.id === p.gameId) : null;
@@ -370,6 +370,20 @@ Object.assign(window.MinigameManager, {
                     if (this.state === 'COUNTDOWN' && typeof this.currentPlugin.init === 'function') {
                         this.currentPlugin.init(this.currentProposal.settings);
                     }
+                    
+                    // ★追加: PLAYING状態での途中参加時のプラグイン再現と残り時間同期
+                    if (this.state === 'PLAYING' && typeof this.currentPlugin.init === 'function') {
+                        this.currentPlugin.init(this.currentProposal.settings);
+                        if (typeof this.currentPlugin.start === 'function') {
+                            this.currentPlugin.start();
+                        }
+                        if (this.targetEndTime > 0) {
+                            const actualRemainSec = (this.targetEndTime - Date.now()) / 1000;
+                            if (actualRemainSec > 0) {
+                                this.currentPlugin.remainTime = actualRemainSec;
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -528,3 +542,4 @@ Object.assign(window.MinigameManager, {
         }, 1000);
     }
 });
+

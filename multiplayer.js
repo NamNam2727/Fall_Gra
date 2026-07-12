@@ -1,6 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
+// ★途中入室者にtargetEndTimeを含めたゲーム情報を送信し、各プレイヤーからスコア共有も送るように修正
 // =========================================================
 
 window.MultiplayerManager = {
@@ -39,7 +40,6 @@ window.MultiplayerManager = {
         const memberWindow = document.createElement('div');
         memberWindow.id = 'member-window';
         
-        // ★変更: ルームIDとコピーボタンの表示エリアを追加
         memberWindow.innerHTML = `
             <div id="member-room-info" style="padding: 10px 15px 0 15px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: bold; color: #00ffff; font-family: sans-serif;">
                 <span>ルームID: <span id="member-room-id-text">----</span></span>
@@ -50,13 +50,11 @@ window.MultiplayerManager = {
         `;
         uiLayer.appendChild(memberWindow);
 
-        // ★追加: コピーボタンの処理
         const copyBtn = memberWindow.querySelector('#member-room-id-copy');
         copyBtn.addEventListener('click', () => {
             const roomId = window.GameState ? window.GameState.currentRoomId : '';
             if (!roomId || window.GameState.isLocalMode) return;
 
-            // iFrame環境でも安全にコピーできるようtextareaを生成して実行
             const textArea = document.createElement("textarea");
             textArea.value = roomId;
             textArea.style.position = "fixed";
@@ -197,14 +195,13 @@ window.MultiplayerManager = {
         let lastScoreRequestTime = 0;
 
         memberBtn.addEventListener('click', () => { 
-            // ★追加: メンバーリストを開くたびにルームID表示を更新
             const roomInfoArea = document.getElementById('member-room-info');
             const roomIdText = document.getElementById('member-room-id-text');
             if (window.GameState && window.GameState.currentRoomId && !window.GameState.isLocalMode) {
                 roomIdText.innerText = window.GameState.currentRoomId;
                 roomInfoArea.style.display = 'flex';
             } else {
-                roomInfoArea.style.display = 'none'; // ローカルモード時は非表示
+                roomInfoArea.style.display = 'none'; 
             }
             
             window.updateMemberList(); 
@@ -356,9 +353,17 @@ window.MultiplayerManager = {
                                 type: 'mg_sync_state',
                                 state: window.MinigameManager.state,
                                 targetStartTime: window.MinigameManager.targetStartTime,
+                                targetEndTime: window.MinigameManager.targetEndTime, // ★追加
                                 proposal: window.MinigameManager.currentProposal,
                                 votes: window.MinigameManager.currentProposal.votes
                             });
+                        }
+                        
+                        // ★追加: プレイ中なら各自が自分のスコアを送信
+                        if (window.MinigameManager.state === 'PLAYING') {
+                            if (typeof window.MinigameManager.replyMyScore === 'function') {
+                                window.MinigameManager.replyMyScore();
+                            }
                         }
                     }
                 } else if (msgData.type === 'mg_spectator') {
@@ -498,3 +503,4 @@ window.onMultiplayerMessage = function(payload) {
         window.MultiplayerManager.handleMessage(payload);
     }
 };
+
