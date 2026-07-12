@@ -1,8 +1,8 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★爆弾が出なくなるエラー（THREE.の記述漏れ）を修正
-// ★アイテムの爆弾化は初期化時から行い、色塗り判定のみゲーム開始後に制限するよう修正
+// ★爆風の範囲を「球状の3D距離判定」に変更し、高低差があっても届くように修正
+// ★爆発エフェクト（爆風）の色をユーザー固有の色に上書きする処理を追加
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -67,7 +67,7 @@ window.MinigamePlugins['paint_battle'] = {
         // 64分割の床メッシュを生成
         this.createPaintMesh(); 
         
-        // ★ 修正：準備期間(カウントダウン中)からアイテムを爆弾化しておく
+        // 準備期間(カウントダウン中)からアイテムを爆弾化しておく
         this.overrideItemSystem();
 
         // 落下フック
@@ -211,7 +211,6 @@ window.MinigamePlugins['paint_battle'] = {
                         c_mXmZ = corners.mXmZ * bs; 
                     }
                     
-                    // 【上面64分割】
                     for (let ix = 0; ix < divs; ix++) {
                         for (let iz = 0; iz < divs; iz++) {
                             let tx0 = ix / divs; let tz0 = iz / divs;
@@ -247,7 +246,6 @@ window.MinigamePlugins['paint_battle'] = {
                         }
                     }
 
-                    // 【側面と底面の生成】
                     let px_m = baseX - bs/2; let px_p = baseX + bs/2;
                     let pz_m = baseZ - bs/2; let pz_p = baseZ + bs/2;
 
@@ -376,7 +374,6 @@ window.MinigamePlugins['paint_battle'] = {
 
             const bombGroup = new THREE.Group();
             const geo = new THREE.SphereGeometry(0.8, 16, 16);
-            // ★ 修正: THREE. の記述漏れを修正して爆弾が出現するように
             const mat = new THREE.MeshStandardMaterial({color: colorVal, roughness: 0.5, emissive: colorVal, emissiveIntensity: 0.2});
             const mesh = new THREE.Mesh(geo, mat);
             bombGroup.add(mesh);
@@ -395,9 +392,38 @@ window.MinigamePlugins['paint_battle'] = {
 
         this.originalExplodeBomb = window.ItemEffects.explodeBomb;
         window.ItemEffects.explodeBomb = function(bomb) {
+            
+            // ★追加: 爆風の色を変えるための準備
+            let colorVal = 0xffaa00; // default
+            if (self.playerColors[bomb.ownerId]) {
+                colorVal = self.COLORS[self.playerColors[bomb.ownerId].idx].hex;
+            }
+            const colorObj = new THREE.Color(colorVal);
+            const prevExpLength = window.ItemEffects.explosions.length;
+
+            // 元の爆発処理（メッシュ生成、ノックバック等）を実行
             self.originalExplodeBomb.call(window.ItemEffects, bomb);
             
-            // ★ 修正: ゲーム開始前(カウントダウン中)に爆発した場合は色は塗らない
+            // ★追加: 実行直後に追加された爆発エフェクトを検知し、ユーザーカラーで上書きする
+            if (window.ItemEffects.explosions.length > prevExpLength) {
+                for (let i = prevExpLength; i < window.ItemEffects.explosions.length; i++) {
+                    const exp = window.ItemEffects.explosions[i];
+                    const targetObjs = [exp.mesh, exp.group].filter(o => o != null);
+                    targetObjs.forEach(obj => {
+                        if (typeof obj.traverse === 'function') {
+                            obj.traverse((child) => {
+                                if (child.isMesh && child.material && child.material.color) {
+                                    // フラッシュ用の真っ白(1,1,1)は残し、それ以外の爆風メッシュの色を変更
+                                    if (child.material.color.r < 0.99 || child.material.color.g < 0.99 || child.material.color.b < 0.99) {
+                                        child.material.color.copy(colorObj);
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+
             if (!self.isPlaying) return;
             
             const bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
@@ -408,9 +434,10 @@ window.MinigamePlugins['paint_battle'] = {
             let paintedCount = 0;
             
             for (let cell of self.cells) {
-                if (Math.abs(cell.yInfo - bomb.mesh.position.y) > bs * 1.5) continue; 
-                let distSq = (cell.cx - bomb.mesh.position.x)**2 + (cell.cz - bomb.mesh.position.z)**2;
-                if (distSq <= rSq) {
+                // ★修正: 高さを制限するコードを削除し、爆弾を中心とした「球状の完全な3D距離」で判定
+                let distSq3D = (cell.cx - bomb.mesh.position.x)**2 + (cell.yInfo - bomb.mesh.position.y)**2 + (cell.cz - bomb.mesh.position.z)**2;
+                
+                if (distSq3D <= rSq) {
                     if (cell.owner !== ownerId) {
                         if (cell.owner === myId) self.myScore--; 
                         
@@ -440,7 +467,6 @@ window.MinigamePlugins['paint_battle'] = {
         console.log("[Paint Battle] Game Started!");
         this.isPlaying = true;
         this.remainTime = this.timeLimit * 60;
-        // overrideItemSystem() は init 側で呼ぶように修正しました。
     },
 
     update: function(delta) {
@@ -489,7 +515,6 @@ window.MinigamePlugins['paint_battle'] = {
             return; 
         }
 
-        // 接地判定ロジック
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             this.checkPlayerStep();
         }
@@ -527,7 +552,7 @@ window.MinigamePlugins['paint_battle'] = {
                 
                 let px = player.position.x;
                 let pz = player.position.z;
-                let py = player.position.y;
+                let hitY = hit.point.y; 
                 let rSq = pRadius * pRadius;
                 
                 let bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
@@ -548,7 +573,7 @@ window.MinigamePlugins['paint_battle'] = {
                         let cellList = this.gridMap[key];
                         if (cellList) {
                             for (let cell of cellList) {
-                                if (Math.abs(cell.yInfo - hit.point.y) > yDistTolerance) continue; 
+                                if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
                                 
                                 let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
                                 if (distSq <= rSq) {
