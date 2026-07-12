@@ -38,6 +38,13 @@ window.MinigameList = [
         icon: "minigames/hot_zone.png", 
         script: "minigames/hot_zone.js",
         description: "マップ上に出現する「光る円（ホットゾーン）」の中に入れ！円の中に立っている間だけスコアが加算されるぞ。円は15秒ごとに別の場所へ移動する。アイテムを使ってライバルを円から追い出せ！落下すると3秒間動けなくなるペナルティがあるぞ。"
+    },
+    {
+        id: "dead_zone",
+        title: "デッドゾーン",
+        icon: "minigames/dead_zone.png", 
+        script: "minigames/dead_zone.js",
+        description: "次々と出現する「デッドゾーン」から逃げ延びろ！ゾーンは青→黄→赤と変化し、赤になった瞬間に爆発する。爆発に巻き込まれるか、落下してしまうと即リタイアだ。時間経過とともに出現間隔がどんどん短くなるぞ！"
     }
 ];
 
