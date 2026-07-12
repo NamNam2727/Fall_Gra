@@ -1,8 +1,8 @@
 // =====================================
 // minigame_sync.js
 // ミニゲームの通信・同期管理（3分割の1/3）
-// ★スコアを受信した際に通信エラーフラグ(isError)を解除する処理を追加
 // ★途中入室時の状態同期にtargetEndTimeを追加し、PLAYING時の再現とログ表示を実装
+// ★targetStartTime を 3,2,1 演出完了後の「本当の開始時刻(+14秒)」に修正
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -106,7 +106,7 @@ Object.assign(window.MinigameManager, {
             this.state = remoteState;
             this.myVote = false; 
             
-            // ★追加: 途中入室時の時刻同期と再計算
+            // ★途中入室時の時刻同期
             if (targetStartTime) this.targetStartTime = targetStartTime;
             if (proposal && proposal.settings && proposal.settings.time) {
                 const timeLimitSec = parseInt(proposal.settings.time, 10) * 60;
@@ -128,12 +128,11 @@ Object.assign(window.MinigameManager, {
                     mgBtn.classList.add('spectator-mode');
                 }
                 
-                // ★追加: 途中入室時のログ表示
+                // ★途中入室時のログと参加者リスト復元
                 if (typeof window.addLog === 'function') {
                     window.addLog('<span style="color:#ffaa00; font-weight:bold;">現在ミニゲームが進行しているため、終了まで観戦モードでお待ちください。</span>', 'sys');
                 }
                 
-                // ★追加: スコア受信のために参加者リスト(resultData)を復元する
                 this.resultData = [];
                 let allUsers = [];
                 
@@ -213,7 +212,8 @@ Object.assign(window.MinigameManager, {
     },
 
     calcTargetTimes: function() {
-        this.targetStartTime = this.earliestReadyTime + 10000;
+        // ★修正: 10秒待機 + 4秒(3,2,1演出) を足した「本当のゲーム開始時刻」を targetStartTime(シード値) にする
+        this.targetStartTime = this.earliestReadyTime + 14000;
         
         if (this.currentProposal && this.currentProposal.settings && this.currentProposal.settings.time) {
             const timeLimitSec = parseInt(this.currentProposal.settings.time, 10) * 60;
