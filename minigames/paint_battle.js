@@ -1,8 +1,8 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★爆風の範囲を「球状の3D距離判定」に変更し、高低差があっても届くように修正
-// ★爆発エフェクト（爆風）の色をユーザー固有の色に上書きする処理を追加
+// ★落下デスペナルティの時間を3秒に変更
+// ★ペナルティ中はネット(🕸️)と同じ仕様(isOnNet=true)でジャンプを無効化し、移動も強制固定
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -393,18 +393,15 @@ window.MinigamePlugins['paint_battle'] = {
         this.originalExplodeBomb = window.ItemEffects.explodeBomb;
         window.ItemEffects.explodeBomb = function(bomb) {
             
-            // ★追加: 爆風の色を変えるための準備
-            let colorVal = 0xffaa00; // default
+            let colorVal = 0xffaa00; 
             if (self.playerColors[bomb.ownerId]) {
                 colorVal = self.COLORS[self.playerColors[bomb.ownerId].idx].hex;
             }
             const colorObj = new THREE.Color(colorVal);
             const prevExpLength = window.ItemEffects.explosions.length;
 
-            // 元の爆発処理（メッシュ生成、ノックバック等）を実行
             self.originalExplodeBomb.call(window.ItemEffects, bomb);
             
-            // ★追加: 実行直後に追加された爆発エフェクトを検知し、ユーザーカラーで上書きする
             if (window.ItemEffects.explosions.length > prevExpLength) {
                 for (let i = prevExpLength; i < window.ItemEffects.explosions.length; i++) {
                     const exp = window.ItemEffects.explosions[i];
@@ -413,7 +410,6 @@ window.MinigamePlugins['paint_battle'] = {
                         if (typeof obj.traverse === 'function') {
                             obj.traverse((child) => {
                                 if (child.isMesh && child.material && child.material.color) {
-                                    // フラッシュ用の真っ白(1,1,1)は残し、それ以外の爆風メッシュの色を変更
                                     if (child.material.color.r < 0.99 || child.material.color.g < 0.99 || child.material.color.b < 0.99) {
                                         child.material.color.copy(colorObj);
                                     }
@@ -434,7 +430,6 @@ window.MinigamePlugins['paint_battle'] = {
             let paintedCount = 0;
             
             for (let cell of self.cells) {
-                // ★修正: 高さを制限するコードを削除し、爆弾を中心とした「球状の完全な3D距離」で判定
                 let distSq3D = (cell.cx - bomb.mesh.position.x)**2 + (cell.yInfo - bomb.mesh.position.y)**2 + (cell.cz - bomb.mesh.position.z)**2;
                 
                 if (distSq3D <= rSq) {
@@ -495,24 +490,36 @@ window.MinigamePlugins['paint_battle'] = {
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
 
+        // ★ ペナルティ（リスポーン待機中）
         if (this.isRespawning) {
             this.respawnTimer -= delta;
             
             if (typeof player !== 'undefined' && player) {
                 if (window.moveVector) window.moveVector.set(0, 0);   
                 
+                // ★ ペナルティ中は横移動を完全に封じ、リスポーン地点(X=0, Z=0)に固定
+                player.position.x = 0;
+                player.position.z = 0;
+                
+                // ★ ネットに掛かっている状態と同じ仕様にし、ジャンプを禁止する
+                if (window.ItemSystem) window.ItemSystem.isOnNet = true;
+
                 const isVisible = Math.floor(this.respawnTimer * 10) % 2 === 0;
                 player.traverse(child => { if (child.isMesh) child.visible = isVisible; });
             }
 
             if (this.respawnTimer <= 0) {
                 this.isRespawning = false;
+                
+                // ★ ペナルティ解除時にネット状態を解除
+                if (window.ItemSystem) window.ItemSystem.isOnNet = false;
+                
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">復帰しました！</span>', 'sys');
                 if (typeof player !== 'undefined' && player) {
                     player.traverse(child => { if (child.isMesh) child.visible = true; });
                 }
             }
-            return; 
+            return; // 拘束中は床の色塗りを停止
         }
 
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
@@ -632,16 +639,20 @@ window.MinigamePlugins['paint_battle'] = {
     handleFallPenalty: function() {
         if (this.isRespawning) return;
         this.isRespawning = true;
-        this.respawnTimer = 5.0; 
+        // ★ ペナルティ時間を3秒に短縮
+        this.respawnTimer = 3.0; 
         
         if (typeof window.addLog === 'function') {
-            window.addLog('<span style="color:#ffaa00;">落下ペナルティ！ 5秒間動けません。</span>', 'sys');
+            window.addLog('<span style="color:#ffaa00;">落下ペナルティ！ 3秒間動けません。</span>', 'sys');
         }
         
         if (typeof player !== 'undefined' && player) {
             player.position.set(0, 20, 0); 
             window.verticalVelocity = 0;
             window.isJumping = true; 
+            
+            // ★ 落下した瞬間にジャンプを無効化する
+            if (window.ItemSystem) window.ItemSystem.isOnNet = true;
         }
         
         if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
@@ -723,6 +734,8 @@ window.MinigamePlugins['paint_battle'] = {
         console.log("[Paint Battle] Game Ended.");
         this.isPlaying = false;
         this.isPrepared = false;
+        
+        if (window.ItemSystem) window.ItemSystem.isOnNet = false; // ★ 終了時に念のため解除
         
         if (typeof player !== 'undefined' && player) {
             player.traverse(child => { if (child.isMesh) child.visible = true; });
