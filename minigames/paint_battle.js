@@ -1,9 +1,9 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★ジョイスティック固定バグの修正（アイテムUIのタッチ透過）
-// ★リザルトをステータス欄でのスコア表示（サバイバル方式）に変更
-// ★崩壊サバイバルの「床接地判定」を引用し、ジャンプ中の空中塗りを防止
+// ★トンネルなどの多重階層で下の床が塗れてしまうバグを修正
+// ★爆弾によるスコア加算・減算処理を追加
+// ★minigame_core.jsに依存せず、独自にリザルトへスコアを反映させる機能を実装
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -62,9 +62,13 @@ window.MinigamePlugins['paint_battle'] = {
         this.isRespawning = false;
         this.myScore = 0;
 
+        // 色のネゴシエーション開始
         this.claimColor();
+
+        // 64分割の床メッシュを生成
         this.createPaintMesh(); 
 
+        // 落下フック
         this.originalExecuteRetire = window.MinigameManager.executeRetire;
         window.MinigameManager.executeRetire = () => {
             if (typeof player !== 'undefined' && player.position.y < -20) {
@@ -132,7 +136,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 2. メッシュ生成と塗布システム
+    // 2. メッシュ生成と塗布システム (すり抜け解消・上面64分割)
     // ==========================================
     createPaintMesh: function() {
         if (!window.MapGenerator || typeof scene === 'undefined') return;
@@ -205,6 +209,7 @@ window.MinigamePlugins['paint_battle'] = {
                         c_mXmZ = corners.mXmZ * bs; 
                     }
                     
+                    // 【上面64分割】
                     for (let ix = 0; ix < divs; ix++) {
                         for (let iz = 0; iz < divs; iz++) {
                             let tx0 = ix / divs; let tz0 = iz / divs;
@@ -230,7 +235,7 @@ window.MinigamePlugins['paint_battle'] = {
                             
                             let cell = {
                                 id: cellId++,
-                                cx: cx, cz: cz, yInfo: h00, 
+                                cx: cx, cz: cz, yInfo: h00, // 実寸の高さ
                                 vIdx: vIdxStart,
                                 defaultColorHex: defaultColor.getHex(),
                                 owner: null
@@ -240,6 +245,7 @@ window.MinigamePlugins['paint_battle'] = {
                         }
                     }
 
+                    // 【側面と底面の生成】
                     let px_m = baseX - bs/2; let px_p = baseX + bs/2;
                     let pz_m = baseZ - bs/2; let pz_p = baseZ + bs/2;
 
@@ -305,7 +311,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 3. アイテムシステムのオーバーライド
+    // 3. アイテムシステムのオーバーライド (ゲーム開始時に実行)
     // ==========================================
     overrideItemSystem: function() {
         if (!window.ItemSystem || !window.ItemEffects) return;
@@ -350,7 +356,6 @@ window.MinigamePlugins['paint_battle'] = {
                 let colorHex = '#ffffff';
                 if (self.myColorIndex >= 0) colorHex = '#' + self.COLORS[self.myColorIndex].hex.toString(16).padStart(6, '0');
                 
-                // ★ バグ修正：pointer-events: none を追加し、アイテム使用時のタッチ判定吸い取りを防止
                 this.slotUI.innerHTML = `<div style="font-size:30px; filter: drop-shadow(0 0 5px ${colorHex}); text-shadow: 0 0 10px ${colorHex}; pointer-events: none;">💣</div>`;
             } else if (!this.isCoolingDown) {
                 this.slotUI.classList.remove('active');
@@ -369,7 +374,7 @@ window.MinigamePlugins['paint_battle'] = {
 
             const bombGroup = new THREE.Group();
             const geo = new THREE.SphereGeometry(0.8, 16, 16);
-            const mat = new THREE.MeshStandardMaterial({color: colorVal, roughness: 0.5, emissive: colorVal, emissiveIntensity: 0.2});
+            const mat = new MeshStandardMaterial({color: colorVal, roughness: 0.5, emissive: colorVal, emissiveIntensity: 0.2});
             const mesh = new THREE.Mesh(geo, mat);
             bombGroup.add(mesh);
             bombGroup.position.set(pos.x, pos.y + 0.8, pos.z);
@@ -395,6 +400,7 @@ window.MinigamePlugins['paint_battle'] = {
             const maxRadius = 4.5 * bs;
             const rSq = maxRadius * maxRadius;
             const ownerId = bomb.ownerId;
+            const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
             let paintedCount = 0;
             
             for (let cell of self.cells) {
@@ -402,16 +408,25 @@ window.MinigamePlugins['paint_battle'] = {
                 let distSq = (cell.cx - bomb.mesh.position.x)**2 + (cell.cz - bomb.mesh.position.z)**2;
                 if (distSq <= rSq) {
                     if (cell.owner !== ownerId) {
+                        // ★ 自分の陣地が奪われた場合はスコアマイナス
+                        if (cell.owner === myId) self.myScore--; 
+                        
                         cell.owner = ownerId;
                         self.updateCellColor(cell, ownerId);
-                        if (ownerId === String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local')) {
-                            self.paintBuffer.push(cell.id);
+                        
+                        // ★ 自分が爆弾で塗った場合はスコアプラス
+                        if (ownerId === myId) {
+                            self.myScore++; 
                         }
                         paintedCount++;
                     }
                 }
             }
-            if (paintedCount > 0) self.paintMesh.geometry.attributes.color.needsUpdate = true;
+            if (paintedCount > 0) {
+                self.paintMesh.geometry.attributes.color.needsUpdate = true;
+                self.updateScoreUI();
+                self.syncMyScoreToManager(); // ★ 爆発後もマネージャーにスコア反映
+            }
         }.bind(window.ItemEffects);
     },
 
@@ -471,6 +486,7 @@ window.MinigamePlugins['paint_battle'] = {
             return; 
         }
 
+        // 接地判定ロジック
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             this.checkPlayerStep();
         }
@@ -482,15 +498,6 @@ window.MinigamePlugins['paint_battle'] = {
                 window.MultiplayerManager.sendData({
                     type: 'mg_plugin_sync',
                     data: { action: 'paint', cells: this.paintBuffer, ownerId: myId }
-                });
-                
-                // ★ スコア送信時も statusText に表示するよう変更
-                window.MultiplayerManager.sendData({
-                    type: 'mg_reply_score',
-                    userId: myId,
-                    currentScoreText: ``, // スコアテキストは空欄
-                    currentScoreValue: this.myScore,
-                    currentStatusText: `${this.myScore} pt` // ステータスとしてスコアを送信
                 });
             }
             this.paintBuffer = [];
@@ -517,6 +524,8 @@ window.MinigamePlugins['paint_battle'] = {
                 
                 let px = player.position.x;
                 let pz = player.position.z;
+                // ★ バグ修正: トンネルなどで下が塗られないよう、Rayが当たった「実際の高さ」を取得
+                let hitY = hit.point.y; 
                 let rSq = pRadius * pRadius;
                 
                 let bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
@@ -525,6 +534,8 @@ window.MinigamePlugins['paint_battle'] = {
                 
                 let gx = Math.floor(px / bs + mapW / 2);
                 let gz = Math.floor(pz / bs + mapD / 2);
+                
+                let yDistTolerance = bs * 0.25; 
                 
                 const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
                 let paintedCount = 0;
@@ -535,6 +546,9 @@ window.MinigamePlugins['paint_battle'] = {
                         let cellList = this.gridMap[key];
                         if (cellList) {
                             for (let cell of cellList) {
+                                // ★ 実際の足元の高さ(hitY)とセルの高さが違えば除外する
+                                if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
+                                
                                 let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
                                 if (distSq <= rSq) {
                                     if (cell.owner !== myId) {
@@ -554,8 +568,41 @@ window.MinigamePlugins['paint_battle'] = {
                     this.paintMesh.geometry.attributes.color.needsUpdate = true;
                     this.myScore += paintedCount;
                     this.updateScoreUI();
+                    this.syncMyScoreToManager(); // ★ スコア変更時にマネージャーと同期
                 }
             }
+        }
+    },
+
+    // ★ MinigameManager.resultData を直接書き換えてリザルトにスコアを反映させる関数
+    syncMyScoreToManager: function(statusText = "") {
+        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        let cText = `${this.myScore} pt`;
+        
+        if (window.MinigameManager && window.MinigameManager.resultData) {
+            const myData = window.MinigameManager.resultData.find(d => d.id === myId);
+            if (myData && !myData.isRetired) {
+                myData.scoreValue = this.myScore;
+                myData.scoreText = cText;
+                if (statusText) myData.statusText = statusText;
+                
+                // コア管理用の一時変数も念のため更新
+                myData.currentScoreValue = this.myScore;
+                myData.currentScoreText = cText;
+                if (statusText) myData.currentStatusText = statusText;
+            }
+        }
+        
+        // ランキングUI等に即時反映させるための通信
+        if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
+            window.MultiplayerManager.sendData({
+                type: 'mg_update_score',
+                userId: myId,
+                scoreValue: this.myScore,
+                scoreText: cText,
+                statusText: statusText,
+                isRetired: false
+            });
         }
     },
 
@@ -587,12 +634,15 @@ window.MinigamePlugins['paint_battle'] = {
             this.handleColorConflict(data);
         } else if (data.action === 'paint') {
             let updated = false;
+            const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+            
             for (let id of data.cells) {
                 let cell = this.cells[id];
                 if (cell && cell.owner !== data.ownerId) {
-                    if (cell.owner === String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local')) {
+                    if (cell.owner === myId) {
                         this.myScore--; 
                         this.updateScoreUI();
+                        this.syncMyScoreToManager(); // 奪われた時も同期
                     }
                     cell.owner = data.ownerId;
                     this.updateCellColor(cell, data.ownerId);
@@ -621,22 +671,17 @@ window.MinigamePlugins['paint_battle'] = {
         this.isPlaying = false;
 
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        
+        // 念のため終了時にスコアを厳密に再計算
         let finalScore = 0;
         for (let cell of this.cells) {
             if (cell.owner === myId) finalScore++;
         }
         this.myScore = finalScore;
-
-        if (window.MinigameManager && window.MinigameManager.resultData) {
-            const myData = window.MinigameManager.resultData.find(d => d.id === myId);
-            if (myData && !myData.isRetired) {
-                // ★ サバイバル方式で、statusText（緑色の目立つ場所）にスコアを表示
-                myData.scoreValue = this.myScore;
-                myData.scoreText = ``; 
-                myData.statusText = `${this.myScore} pt`; 
-            }
-        }
         
+        this.updateScoreUI();
+        this.syncMyScoreToManager("タイムアップ"); // リザルト直前に確定送信
+
         if (window.MinigameManager) window.MinigameManager.endGame();
     },
 
@@ -647,6 +692,7 @@ window.MinigamePlugins['paint_battle'] = {
                 data.isRetired = true;
                 data.scoreValue = -1; 
                 data.scoreText = "リタイア";
+                data.statusText = "リタイア";
             }
         }
     },
