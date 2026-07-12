@@ -1,8 +1,7 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★落下デスペナルティの時間を3秒に変更
-// ★ペナルティ中はネット(🕸️)と同じ仕様(isOnNet=true)でジャンプを無効化し、移動も強制固定
+// ★checkPlayerStepからRaycasterを完全削除し、自前のgridMapとcellsの座標データだけで塗り判定を行うように最適化(負荷軽減)
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -490,18 +489,15 @@ window.MinigamePlugins['paint_battle'] = {
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
 
-        // ★ ペナルティ（リスポーン待機中）
         if (this.isRespawning) {
             this.respawnTimer -= delta;
             
             if (typeof player !== 'undefined' && player) {
                 if (window.moveVector) window.moveVector.set(0, 0);   
                 
-                // ★ ペナルティ中は横移動を完全に封じ、リスポーン地点(X=0, Z=0)に固定
                 player.position.x = 0;
                 player.position.z = 0;
                 
-                // ★ ネットに掛かっている状態と同じ仕様にし、ジャンプを禁止する
                 if (window.ItemSystem) window.ItemSystem.isOnNet = true;
 
                 const isVisible = Math.floor(this.respawnTimer * 10) % 2 === 0;
@@ -511,7 +507,6 @@ window.MinigamePlugins['paint_battle'] = {
             if (this.respawnTimer <= 0) {
                 this.isRespawning = false;
                 
-                // ★ ペナルティ解除時にネット状態を解除
                 if (window.ItemSystem) window.ItemSystem.isOnNet = false;
                 
                 if (typeof window.addLog === 'function') window.addLog('<span style="color:#00ff00;">復帰しました！</span>', 'sys');
@@ -519,7 +514,7 @@ window.MinigamePlugins['paint_battle'] = {
                     player.traverse(child => { if (child.isMesh) child.visible = true; });
                 }
             }
-            return; // 拘束中は床の色塗りを停止
+            return; 
         }
 
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
@@ -540,69 +535,83 @@ window.MinigamePlugins['paint_battle'] = {
         }
     },
 
+    // ★ 修正：Raycasterを完全に削除し、自前のgridMapとcellsのデータのみで処理負荷を軽減
     checkPlayerStep: function() {
         if (!this.paintMesh) return;
         
         let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
-        const raycaster = new THREE.Raycaster();
+        let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 0.5;
         
-        const origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 2.0, player.position.z);
-        raycaster.set(origin, new THREE.Vector3(0, -1, 0));
+        let px = player.position.x;
+        let py = player.position.y;
+        let pz = player.position.z;
+        let rSq = pRadius * pRadius;
+        
+        let bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
+        let mapW = window.MapGenerator.rawMapData.length;
+        let mapD = window.MapGenerator.rawMapData[0].length;
+        
+        let gx = Math.floor(px / bs + mapW / 2);
+        let gz = Math.floor(pz / bs + mapD / 2);
+        
+        // レイキャストの代わりに、周囲3x3から着地している床（hitY）を特定する
+        let hitY = null;
+        let closestDist = Infinity;
 
-        const intersects = raycaster.intersectObject(this.paintMesh, false);
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                let key = `${gx + dx}_${gz + dz}`;
+                let cellList = this.gridMap[key];
+                if (cellList) {
+                    for (let cell of cellList) {
+                        let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
+                        // 床(cell.yInfo)がプレイヤーの足元付近にあるか判定
+                        if (cell.yInfo <= py + myStepHeight + 0.5 && cell.yInfo >= py - 0.5) {
+                            if (distSq < closestDist) {
+                                closestDist = distSq;
+                                hitY = cell.yInfo;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        if (intersects.length > 0) {
-            let hit = intersects[0];
-            let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 0.5;
+        // 着地している床が見つかった場合のみ、周囲を塗る
+        if (hitY !== null) {
+            let yDistTolerance = bs * 0.25; 
+            const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+            let paintedCount = 0;
             
-            if (hit.point.y <= player.position.y + myStepHeight + 0.5 && hit.point.y >= player.position.y - 0.5) {
-                
-                let px = player.position.x;
-                let pz = player.position.z;
-                let hitY = hit.point.y; 
-                let rSq = pRadius * pRadius;
-                
-                let bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
-                let mapW = window.MapGenerator.rawMapData.length;
-                let mapD = window.MapGenerator.rawMapData[0].length;
-                
-                let gx = Math.floor(px / bs + mapW / 2);
-                let gz = Math.floor(pz / bs + mapD / 2);
-                
-                let yDistTolerance = bs * 0.25; 
-                
-                const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
-                let paintedCount = 0;
-                
-                for (let dx = -1; dx <= 1; dx++) {
-                    for (let dz = -1; dz <= 1; dz++) {
-                        let key = `${gx + dx}_${gz + dz}`;
-                        let cellList = this.gridMap[key];
-                        if (cellList) {
-                            for (let cell of cellList) {
-                                if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
-                                
-                                let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
-                                if (distSq <= rSq) {
-                                    if (cell.owner !== myId) {
-                                        if (cell.owner === myId) this.myScore--; 
-                                        cell.owner = myId;
-                                        this.updateCellColor(cell, myId);
-                                        this.paintBuffer.push(cell.id);
-                                        paintedCount++;
-                                    }
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dz = -1; dz <= 1; dz++) {
+                    let key = `${gx + dx}_${gz + dz}`;
+                    let cellList = this.gridMap[key];
+                    if (cellList) {
+                        for (let cell of cellList) {
+                            // 同階層の床のみを塗る（上下階層への干渉を防止）
+                            if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
+                            
+                            let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
+                            if (distSq <= rSq) {
+                                if (cell.owner !== myId) {
+                                    if (cell.owner === myId) this.myScore--; 
+                                    cell.owner = myId;
+                                    this.updateCellColor(cell, myId);
+                                    this.paintBuffer.push(cell.id);
+                                    paintedCount++;
                                 }
                             }
                         }
                     }
                 }
-                
-                if (paintedCount > 0) {
-                    this.paintMesh.geometry.attributes.color.needsUpdate = true;
-                    this.myScore += paintedCount;
-                    this.updateScoreUI();
-                    this.syncMyScoreToManager(); 
-                }
+            }
+            
+            if (paintedCount > 0) {
+                this.paintMesh.geometry.attributes.color.needsUpdate = true;
+                this.myScore += paintedCount;
+                this.updateScoreUI();
+                this.syncMyScoreToManager(); 
             }
         }
     },
@@ -639,7 +648,6 @@ window.MinigamePlugins['paint_battle'] = {
     handleFallPenalty: function() {
         if (this.isRespawning) return;
         this.isRespawning = true;
-        // ★ ペナルティ時間を3秒に短縮
         this.respawnTimer = 3.0; 
         
         if (typeof window.addLog === 'function') {
@@ -651,7 +659,6 @@ window.MinigamePlugins['paint_battle'] = {
             window.verticalVelocity = 0;
             window.isJumping = true; 
             
-            // ★ 落下した瞬間にジャンプを無効化する
             if (window.ItemSystem) window.ItemSystem.isOnNet = true;
         }
         
@@ -735,7 +742,7 @@ window.MinigamePlugins['paint_battle'] = {
         this.isPlaying = false;
         this.isPrepared = false;
         
-        if (window.ItemSystem) window.ItemSystem.isOnNet = false; // ★ 終了時に念のため解除
+        if (window.ItemSystem) window.ItemSystem.isOnNet = false; 
         
         if (typeof player !== 'undefined' && player) {
             player.traverse(child => { if (child.isMesh) child.visible = true; });
