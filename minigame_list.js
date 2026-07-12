@@ -28,9 +28,17 @@ window.MinigameList = [
     {
         id: "paint_battle",
         title: "ペイント・バトル",
-        icon: "minigames/paint_battle.png", // 任意のアイコン画像をご用意ください
+        icon: "minigames/paint_battle.png", 
         script: "minigames/paint_battle.js",
-        description: "歩いた軌跡を自分の色で塗りつぶせ！制限時間終了時に最も多く陣地（色）を塗っていたプレイヤーの勝利だ。落下すると5秒間動けなくなるぞ！出現アイテムは爆弾に固定され、爆発させると広範囲を自分の色に塗れる！"
+        description: "歩いた軌跡を自分の色で塗りつぶせ！制限時間終了時に最も多く陣地（色）を塗っていたプレイヤーの勝利だ。落下すると3秒間動けなくなるぞ！出現アイテムは爆弾に固定され、爆発させると広範囲を自分の色に塗れる！"
+    },
+    {
+        id: "hot_zone",
+        title: "ホットゾーン",
+        icon: "minigames/hot_zone.png", 
+        script: "minigames/hot_zone.js",
+        description: "マップ上に出現する「光る円（ホットゾーン）」の中に入れ！円の中に立っている間だけスコアが加算されるぞ。円は15秒ごとに別の場所へ移動する。アイテムを使ってライバルを円から追い出せ！落下すると3秒間動けなくなるペナルティがあるぞ。"
     }
 ];
+
 
