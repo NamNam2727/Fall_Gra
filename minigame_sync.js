@@ -2,7 +2,7 @@
 // minigame_sync.js
 // ミニゲームの通信・同期管理（3分割の1/3）
 // ★スコアを受信した際に通信エラーフラグ(isError)を解除する処理を追加
-// ★入室者がPLAYING情報を受け取った際にログを出し、resultDataを復元して再現させる処理を追加
+// ★途中入室時の状態同期にtargetEndTimeを追加し、PLAYING時の再現とログ表示を実装
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -33,7 +33,7 @@ Object.assign(window.MinigameManager, {
         } else if (msg.type === 'mg_ready') {
             if (typeof this.receiveReady === 'function') this.receiveReady(msg.timestamp);
         } else if (msg.type === 'mg_sync_state') {
-            // ★引数に targetEndTime を追加
+            // ★引数に msg.targetEndTime を追加
             if (typeof this.syncState === 'function') this.syncState(msg.state, msg.targetStartTime, msg.proposal, msg.votes, msg.targetEndTime);
         } else if (msg.type === 'mg_plugin_sync') {
             if (this.currentPlugin && typeof this.currentPlugin.handleNetwork === 'function') {
@@ -106,8 +106,14 @@ Object.assign(window.MinigameManager, {
             this.state = remoteState;
             this.myVote = false; 
             
-            // ★ targetEndTime を保存
-            if (targetEndTime) this.targetEndTime = targetEndTime;
+            // ★追加: 途中入室時の時刻同期と再計算
+            if (targetStartTime) this.targetStartTime = targetStartTime;
+            if (proposal && proposal.settings && proposal.settings.time) {
+                const timeLimitSec = parseInt(proposal.settings.time, 10) * 60;
+                this.targetEndTime = this.targetStartTime + (timeLimitSec * 1000);
+            } else if (targetEndTime) {
+                this.targetEndTime = targetEndTime;
+            }
 
             if (typeof this.closeAllViews === 'function') this.closeAllViews();
             if (typeof this.enterSpectatorMode === 'function') this.enterSpectatorMode();
@@ -116,8 +122,18 @@ Object.assign(window.MinigameManager, {
             if (remoteState === 'COUNTDOWN' && targetStartTime) {
                 if (typeof this.startCountdown === 'function') this.startCountdown(targetStartTime); 
             } else if (remoteState === 'PLAYING') {
+                const mgBtn = document.getElementById('minigame-btn');
+                if (mgBtn) {
+                    mgBtn.innerText = '観戦モード';
+                    mgBtn.classList.add('spectator-mode');
+                }
                 
-                // ★追加：入室者向けに resultData (参加者リスト) を復元し、スコア受信を可能にする
+                // ★追加: 途中入室時のログ表示
+                if (typeof window.addLog === 'function') {
+                    window.addLog('<span style="color:#ffaa00; font-weight:bold;">現在ミニゲームが進行しているため、終了まで観戦モードでお待ちください。</span>', 'sys');
+                }
+                
+                // ★追加: スコア受信のために参加者リスト(resultData)を復元する
                 this.resultData = [];
                 let allUsers = [];
                 
@@ -166,20 +182,6 @@ Object.assign(window.MinigameManager, {
                     }
                 });
 
-                // ★追加：途中入室時の通知ログ
-                if (typeof window.addLog === 'function') {
-                    window.addLog('<span style="color:#ffaa00; font-weight:bold;">現在ミニゲームが進行しているため、終了まで観戦モードでお待ちください。</span>', 'sys');
-                }
-
-                const mgBtn = document.getElementById('minigame-btn');
-                if (mgBtn) {
-                    mgBtn.classList.remove('detail-mode');
-                    mgBtn.classList.add('abort-mode');
-                    mgBtn.innerText = '観戦モード';
-                    mgBtn.classList.add('spectator-mode');
-                }
-                
-                // ★追加：タイマーUIの強制表示
                 const timerUI = document.getElementById('mg-timer-ui');
                 if (timerUI) timerUI.style.display = 'block';
             }
@@ -219,4 +221,5 @@ Object.assign(window.MinigameManager, {
         }
     }
 });
+
 
