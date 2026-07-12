@@ -113,6 +113,37 @@ window.MultiplayerManager = {
                 const item = document.createElement('div');
                 item.className = 'member-item';
                 
+                // ★追加: タップできるようにカーソルを変更し、プロフィール遷移処理を組み込む
+                item.style.cursor = 'pointer';
+                item.addEventListener('click', () => {
+                    const uidStr = String(user.user_id);
+                    if (uidStr === 'local') return; // テストユーザーの場合は遷移しない
+                    
+                    const uid = Number(user.user_id);
+                    if (!uid || isNaN(uid)) return;
+
+                    const webUrl = "https://www.gravity.place/user/" + uid;
+                    const paramObj = {
+                        uid: uid,
+                        selectedIndex: 0,
+                        web_url: webUrl,
+                        s: "web",
+                        b: "user"
+                    };
+                    const innerUrl = "usercenter?0=" + encodeURIComponent(JSON.stringify(paramObj));
+                    const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
+
+                    try {
+                        window.top.location.href = deepLink;
+                    } catch (e) {
+                        let i = document.createElement('iframe');
+                        i.style.cssText = 'position:absolute;width:0;height:0;opacity:0';
+                        i.src = deepLink;
+                        document.body.appendChild(i);
+                        setTimeout(function() { i.remove(); }, 5000);
+                    }
+                });
+                
                 const icon = document.createElement('div');
                 icon.className = 'member-icon';
                 const avatarUrl = user.portrait || user.portait;
