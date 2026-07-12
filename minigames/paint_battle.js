@@ -5,6 +5,7 @@
 // ★初期状態の床は元の地形色を維持
 // ★ジャンプ中（空中）は塗れないように制限
 // ★落下時はコインラッシュの仕組みを引用したデスペナルティ
+// ★衝突判定と法線（光の反射）のバグを修正
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -66,7 +67,7 @@ window.MinigamePlugins['paint_battle'] = {
         // 色のネゴシエーション開始
         this.claimColor();
 
-        // 塗布用メッシュの生成（初期色は元のマップカラー）
+        // 塗布用メッシュの生成（初期色は元のマップカラー、法線と衝突判定を追加）
         this.createPaintMesh();
 
         // アイテムシステムのオーバーライド準備
@@ -146,7 +147,7 @@ window.MinigamePlugins['paint_battle'] = {
     createPaintMesh: function() {
         if (!window.MapGenerator || typeof scene === 'undefined') return;
         
-        // オリジナルのマップメッシュを非表示にして、こちらを被せる
+        // オリジナルのマップメッシュを非表示にする
         scene.children.forEach(child => {
             if (child.userData && child.userData.isTerrain && child !== this.paintMesh) {
                 child.visible = false;
@@ -158,6 +159,7 @@ window.MinigamePlugins['paint_battle'] = {
         
         const vertices = [];
         const colors = [];
+        const normals = []; // ★追加：法線データ
         let cellId = 0;
         
         // 元の地形色
@@ -184,7 +186,6 @@ window.MinigamePlugins['paint_battle'] = {
                     if (l.val === 0) return;
                     let yT = l.top;
                     
-                    // ★ 初期色をマップジェネレータと同じロジックで決定
                     let defaultColor = l.isOdd ? colorOdd : (isChecker ? colorEven1 : colorEven2);
                     
                     let c_pXpZ = yT, c_mXpZ = yT, c_pXmZ = yT, c_mXmZ = yT;
@@ -212,10 +213,25 @@ window.MinigamePlugins['paint_battle'] = {
                             
                             let vIdxStart = vertices.length / 3;
                             
+                            // 頂点の追加 (三角形2つ)
                             vertices.push(...v00, ...v01, ...v10);
                             vertices.push(...v10, ...v01, ...v11);
                             
                             for(let i=0; i<6; i++) colors.push(defaultColor.r, defaultColor.g, defaultColor.b);
+                            
+                            // ★追加：法線の計算（光が正しく当たるようにするため）
+                            const pA = new THREE.Vector3(...v00);
+                            const pB = new THREE.Vector3(...v01);
+                            const pC = new THREE.Vector3(...v10);
+                            const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+                            cb.subVectors(pC, pB);
+                            ab.subVectors(pA, pB);
+                            cb.cross(ab).normalize(); // 面の法線ベクトル
+                            
+                            // 6頂点すべてに同じ法線を適用（フラットシェーディング）
+                            for (let i = 0; i < 6; i++) {
+                                normals.push(cb.x, cb.y, cb.z);
+                            }
                             
                             let cx = px0 + step/2; let cz = pz0 + step/2;
                             
@@ -237,6 +253,7 @@ window.MinigamePlugins['paint_battle'] = {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
         geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3)); // ★追加：法線をジオメトリにセット
         
         const mat = new THREE.MeshStandardMaterial({ 
             vertexColors: true,
@@ -246,6 +263,10 @@ window.MinigamePlugins['paint_battle'] = {
         this.paintMesh = new THREE.Mesh(geo, mat);
         this.paintMesh.receiveShadow = true;
         this.paintMesh.castShadow = true;
+        
+        // ★修正：main.js の raycaster がこれを地形として認識して衝突判定を行えるようにする
+        this.paintMesh.userData.isTerrain = true; 
+        
         scene.add(this.paintMesh);
     },
 
@@ -653,4 +674,5 @@ window.MinigamePlugins['paint_battle'] = {
         }
     }
 };
+
 
