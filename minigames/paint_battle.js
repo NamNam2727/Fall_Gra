@@ -1,7 +1,8 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★checkPlayerStepからRaycasterを完全削除し、自前のgridMapとcellsの座標データだけで塗り判定を行うように最適化(負荷軽減)
+// ★checkPlayerStep()の二重ループを廃止し、1回のループで距離と高さの判定を行うよう最適化
+// ★updateCellColor()のsetXYZ呼び出しを廃止し、Float32Arrayへの直接書き込みによる高速化
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -137,7 +138,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 2. メッシュ生成と塗布システム (すり抜け解消・上面64分割)
+    // 2. メッシュ生成と塗布システム
     // ==========================================
     createPaintMesh: function() {
         if (!window.MapGenerator || typeof scene === 'undefined') return;
@@ -296,16 +297,25 @@ window.MinigamePlugins['paint_battle'] = {
         scene.add(this.paintMesh);
     },
 
+    // ★最適化：setXYZ呼び出しを廃止し、Float32Arrayに直接書き込む方式に変更
     updateCellColor: function(cell, ownerId) {
         let colorHex = new THREE.Color(cell.defaultColorHex);
         if (this.playerColors[ownerId]) {
             colorHex.setHex(this.COLORS[this.playerColors[ownerId].idx].hex);
         }
         
-        let colorsAttr = this.paintMesh.geometry.attributes.color;
-        let start = cell.vIdx;
+        let colorsArray = this.paintMesh.geometry.attributes.color.array;
+        let startIdx = cell.vIdx * 3; // 頂点インデックスを配列インデックスに変換
+        
+        let r = colorHex.r;
+        let g = colorHex.g;
+        let b = colorHex.b;
+        
         for (let i = 0; i < 6; i++) {
-            colorsAttr.setXYZ(start + i, colorHex.r, colorHex.g, colorHex.b);
+            let idx = startIdx + i * 3;
+            colorsArray[idx]     = r;
+            colorsArray[idx + 1] = g;
+            colorsArray[idx + 2] = b;
         }
     },
 
@@ -535,7 +545,7 @@ window.MinigamePlugins['paint_battle'] = {
         }
     },
 
-    // ★ 修正：Raycasterを完全に削除し、自前のgridMapとcellsのデータのみで処理負荷を軽減
+    // ★最適化：1回のループ内で高さと距離の判定を同時に行い、二重探索を無くしました
     checkPlayerStep: function() {
         if (!this.paintMesh) return;
         
@@ -554,48 +564,21 @@ window.MinigamePlugins['paint_battle'] = {
         let gx = Math.floor(px / bs + mapW / 2);
         let gz = Math.floor(pz / bs + mapD / 2);
         
-        // レイキャストの代わりに、周囲3x3から着地している床（hitY）を特定する
-        let hitY = null;
-        let closestDist = Infinity;
-
+        const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        let paintedCount = 0;
+        
         for (let dx = -1; dx <= 1; dx++) {
             for (let dz = -1; dz <= 1; dz++) {
                 let key = `${gx + dx}_${gz + dz}`;
                 let cellList = this.gridMap[key];
                 if (cellList) {
                     for (let cell of cellList) {
-                        let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
-                        // 床(cell.yInfo)がプレイヤーの足元付近にあるか判定
+                        // プレイヤーの高さ付近にあるセルのみを判定（トンネルの上下階層を干渉させない）
                         if (cell.yInfo <= py + myStepHeight + 0.5 && cell.yInfo >= py - 0.5) {
-                            if (distSq < closestDist) {
-                                closestDist = distSq;
-                                hitY = cell.yInfo;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 着地している床が見つかった場合のみ、周囲を塗る
-        if (hitY !== null) {
-            let yDistTolerance = bs * 0.25; 
-            const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
-            let paintedCount = 0;
-            
-            for (let dx = -1; dx <= 1; dx++) {
-                for (let dz = -1; dz <= 1; dz++) {
-                    let key = `${gx + dx}_${gz + dz}`;
-                    let cellList = this.gridMap[key];
-                    if (cellList) {
-                        for (let cell of cellList) {
-                            // 同階層の床のみを塗る（上下階層への干渉を防止）
-                            if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
-                            
                             let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
                             if (distSq <= rSq) {
                                 if (cell.owner !== myId) {
-                                    if (cell.owner === myId) this.myScore--; 
+                                    if (cell.owner === myId) this.myScore--; // 万一の場合の保険
                                     cell.owner = myId;
                                     this.updateCellColor(cell, myId);
                                     this.paintBuffer.push(cell.id);
@@ -606,13 +589,13 @@ window.MinigamePlugins['paint_battle'] = {
                     }
                 }
             }
-            
-            if (paintedCount > 0) {
-                this.paintMesh.geometry.attributes.color.needsUpdate = true;
-                this.myScore += paintedCount;
-                this.updateScoreUI();
-                this.syncMyScoreToManager(); 
-            }
+        }
+
+        if (paintedCount > 0) {
+            this.paintMesh.geometry.attributes.color.needsUpdate = true;
+            this.myScore += paintedCount;
+            this.updateScoreUI();
+            this.syncMyScoreToManager(); 
         }
     },
 
