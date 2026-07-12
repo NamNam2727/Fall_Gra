@@ -1,9 +1,8 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★トンネルなどの多重階層で下の床が塗れてしまうバグを修正
-// ★爆弾によるスコア加算・減算処理を追加
-// ★minigame_core.jsに依存せず、独自にリザルトへスコアを反映させる機能を実装
+// ★爆弾が出なくなるエラー（THREE.の記述漏れ）を修正
+// ★アイテムの爆弾化は初期化時から行い、色塗り判定のみゲーム開始後に制限するよう修正
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -67,6 +66,9 @@ window.MinigamePlugins['paint_battle'] = {
 
         // 64分割の床メッシュを生成
         this.createPaintMesh(); 
+        
+        // ★ 修正：準備期間(カウントダウン中)からアイテムを爆弾化しておく
+        this.overrideItemSystem();
 
         // 落下フック
         this.originalExecuteRetire = window.MinigameManager.executeRetire;
@@ -235,7 +237,7 @@ window.MinigamePlugins['paint_battle'] = {
                             
                             let cell = {
                                 id: cellId++,
-                                cx: cx, cz: cz, yInfo: h00, // 実寸の高さ
+                                cx: cx, cz: cz, yInfo: h00, 
                                 vIdx: vIdxStart,
                                 defaultColorHex: defaultColor.getHex(),
                                 owner: null
@@ -311,7 +313,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 3. アイテムシステムのオーバーライド (ゲーム開始時に実行)
+    // 3. アイテムシステムのオーバーライド
     // ==========================================
     overrideItemSystem: function() {
         if (!window.ItemSystem || !window.ItemEffects) return;
@@ -374,7 +376,8 @@ window.MinigamePlugins['paint_battle'] = {
 
             const bombGroup = new THREE.Group();
             const geo = new THREE.SphereGeometry(0.8, 16, 16);
-            const mat = new MeshStandardMaterial({color: colorVal, roughness: 0.5, emissive: colorVal, emissiveIntensity: 0.2});
+            // ★ 修正: THREE. の記述漏れを修正して爆弾が出現するように
+            const mat = new THREE.MeshStandardMaterial({color: colorVal, roughness: 0.5, emissive: colorVal, emissiveIntensity: 0.2});
             const mesh = new THREE.Mesh(geo, mat);
             bombGroup.add(mesh);
             bombGroup.position.set(pos.x, pos.y + 0.8, pos.z);
@@ -394,6 +397,7 @@ window.MinigamePlugins['paint_battle'] = {
         window.ItemEffects.explodeBomb = function(bomb) {
             self.originalExplodeBomb.call(window.ItemEffects, bomb);
             
+            // ★ 修正: ゲーム開始前(カウントダウン中)に爆発した場合は色は塗らない
             if (!self.isPlaying) return;
             
             const bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
@@ -408,14 +412,13 @@ window.MinigamePlugins['paint_battle'] = {
                 let distSq = (cell.cx - bomb.mesh.position.x)**2 + (cell.cz - bomb.mesh.position.z)**2;
                 if (distSq <= rSq) {
                     if (cell.owner !== ownerId) {
-                        // ★ 自分の陣地が奪われた場合はスコアマイナス
                         if (cell.owner === myId) self.myScore--; 
                         
                         cell.owner = ownerId;
                         self.updateCellColor(cell, ownerId);
                         
-                        // ★ 自分が爆弾で塗った場合はスコアプラス
                         if (ownerId === myId) {
+                            self.paintBuffer.push(cell.id);
                             self.myScore++; 
                         }
                         paintedCount++;
@@ -425,7 +428,7 @@ window.MinigamePlugins['paint_battle'] = {
             if (paintedCount > 0) {
                 self.paintMesh.geometry.attributes.color.needsUpdate = true;
                 self.updateScoreUI();
-                self.syncMyScoreToManager(); // ★ 爆発後もマネージャーにスコア反映
+                self.syncMyScoreToManager(); 
             }
         }.bind(window.ItemEffects);
     },
@@ -437,7 +440,7 @@ window.MinigamePlugins['paint_battle'] = {
         console.log("[Paint Battle] Game Started!");
         this.isPlaying = true;
         this.remainTime = this.timeLimit * 60;
-        this.overrideItemSystem();
+        // overrideItemSystem() は init 側で呼ぶように修正しました。
     },
 
     update: function(delta) {
@@ -524,8 +527,7 @@ window.MinigamePlugins['paint_battle'] = {
                 
                 let px = player.position.x;
                 let pz = player.position.z;
-                // ★ バグ修正: トンネルなどで下が塗られないよう、Rayが当たった「実際の高さ」を取得
-                let hitY = hit.point.y; 
+                let py = player.position.y;
                 let rSq = pRadius * pRadius;
                 
                 let bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
@@ -546,8 +548,7 @@ window.MinigamePlugins['paint_battle'] = {
                         let cellList = this.gridMap[key];
                         if (cellList) {
                             for (let cell of cellList) {
-                                // ★ 実際の足元の高さ(hitY)とセルの高さが違えば除外する
-                                if (Math.abs(cell.yInfo - hitY) > yDistTolerance) continue; 
+                                if (Math.abs(cell.yInfo - hit.point.y) > yDistTolerance) continue; 
                                 
                                 let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
                                 if (distSq <= rSq) {
@@ -568,13 +569,12 @@ window.MinigamePlugins['paint_battle'] = {
                     this.paintMesh.geometry.attributes.color.needsUpdate = true;
                     this.myScore += paintedCount;
                     this.updateScoreUI();
-                    this.syncMyScoreToManager(); // ★ スコア変更時にマネージャーと同期
+                    this.syncMyScoreToManager(); 
                 }
             }
         }
     },
 
-    // ★ MinigameManager.resultData を直接書き換えてリザルトにスコアを反映させる関数
     syncMyScoreToManager: function(statusText = "") {
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         let cText = `${this.myScore} pt`;
@@ -586,14 +586,12 @@ window.MinigamePlugins['paint_battle'] = {
                 myData.scoreText = cText;
                 if (statusText) myData.statusText = statusText;
                 
-                // コア管理用の一時変数も念のため更新
                 myData.currentScoreValue = this.myScore;
                 myData.currentScoreText = cText;
                 if (statusText) myData.currentStatusText = statusText;
             }
         }
         
-        // ランキングUI等に即時反映させるための通信
         if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
                 type: 'mg_update_score',
@@ -642,7 +640,7 @@ window.MinigamePlugins['paint_battle'] = {
                     if (cell.owner === myId) {
                         this.myScore--; 
                         this.updateScoreUI();
-                        this.syncMyScoreToManager(); // 奪われた時も同期
+                        this.syncMyScoreToManager(); 
                     }
                     cell.owner = data.ownerId;
                     this.updateCellColor(cell, data.ownerId);
@@ -672,7 +670,6 @@ window.MinigamePlugins['paint_battle'] = {
 
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         
-        // 念のため終了時にスコアを厳密に再計算
         let finalScore = 0;
         for (let cell of this.cells) {
             if (cell.owner === myId) finalScore++;
@@ -680,7 +677,7 @@ window.MinigamePlugins['paint_battle'] = {
         this.myScore = finalScore;
         
         this.updateScoreUI();
-        this.syncMyScoreToManager("タイムアップ"); // リザルト直前に確定送信
+        this.syncMyScoreToManager("タイムアップ"); 
 
         if (window.MinigameManager) window.MinigameManager.endGame();
     },
