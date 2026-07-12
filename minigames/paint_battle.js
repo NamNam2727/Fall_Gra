@@ -1,10 +1,9 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★壁のすり抜けを解消し、上面64分割の床を完全復元
+// ★ジョイスティック固定バグの修正（アイテムUIのタッチ透過）
+// ★リザルトをステータス欄でのスコア表示（サバイバル方式）に変更
 // ★崩壊サバイバルの「床接地判定」を引用し、ジャンプ中の空中塗りを防止
-// ★ゲーム開始時（START表示時）に初めて爆弾の性質を切り替える
-// ★落下デスペナルティ：リスポーン地点から着地し、5秒間その場で停止(操作不可)
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -63,13 +62,9 @@ window.MinigamePlugins['paint_battle'] = {
         this.isRespawning = false;
         this.myScore = 0;
 
-        // 色のネゴシエーション開始
         this.claimColor();
-
-        // ★ 壁すり抜けを解消し、64分割の床を正確に生成する関数を呼び出し
         this.createPaintMesh(); 
 
-        // ★ コインラッシュの落下フックを引用 (y < -20)
         this.originalExecuteRetire = window.MinigameManager.executeRetire;
         window.MinigameManager.executeRetire = () => {
             if (typeof player !== 'undefined' && player.position.y < -20) {
@@ -137,7 +132,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 2. メッシュ生成と塗布システム (すり抜け解消・上面64分割版)
+    // 2. メッシュ生成と塗布システム
     // ==========================================
     createPaintMesh: function() {
         if (!window.MapGenerator || typeof scene === 'undefined') return;
@@ -186,10 +181,9 @@ window.MinigamePlugins['paint_battle'] = {
                 this.gridMap[gridKey] = [];
                 
                 let isChecker = (x + z) % 2 === 0;
-                let divs = 8; // 上面のみ8x8 = 64分割
+                let divs = 8; 
                 let step = 1.0 / divs;
                 
-                // ★ 頂点座標を最初から実寸サイズ(bs倍)で計算して壁すり抜けを防止
                 let baseX = (x - mapW / 2 + 0.5) * bs;
                 let baseZ = (z - mapD / 2 + 0.5) * bs;
                 let stepSize = bs / divs;
@@ -211,7 +205,6 @@ window.MinigamePlugins['paint_battle'] = {
                         c_mXmZ = corners.mXmZ * bs; 
                     }
                     
-                    // 【上面の細分化 (64分割)】
                     for (let ix = 0; ix < divs; ix++) {
                         for (let iz = 0; iz < divs; iz++) {
                             let tx0 = ix / divs; let tz0 = iz / divs;
@@ -247,7 +240,6 @@ window.MinigamePlugins['paint_battle'] = {
                         }
                     }
 
-                    // 【側面と底面の生成】
                     let px_m = baseX - bs/2; let px_p = baseX + bs/2;
                     let pz_m = baseZ - bs/2; let pz_p = baseZ + bs/2;
 
@@ -292,7 +284,6 @@ window.MinigamePlugins['paint_battle'] = {
         });
         
         this.paintMesh = new THREE.Mesh(geo, mat);
-        // ★ 実寸で生成しているため scale はいらない
         this.paintMesh.receiveShadow = true;
         this.paintMesh.castShadow = true;
         this.paintMesh.userData.isTerrain = true; 
@@ -314,7 +305,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 3. アイテムシステムのオーバーライド (ゲーム開始時に実行)
+    // 3. アイテムシステムのオーバーライド
     // ==========================================
     overrideItemSystem: function() {
         if (!window.ItemSystem || !window.ItemEffects) return;
@@ -359,7 +350,8 @@ window.MinigamePlugins['paint_battle'] = {
                 let colorHex = '#ffffff';
                 if (self.myColorIndex >= 0) colorHex = '#' + self.COLORS[self.myColorIndex].hex.toString(16).padStart(6, '0');
                 
-                this.slotUI.innerHTML = `<div style="font-size:30px; filter: drop-shadow(0 0 5px ${colorHex}); text-shadow: 0 0 10px ${colorHex};">💣</div>`;
+                // ★ バグ修正：pointer-events: none を追加し、アイテム使用時のタッチ判定吸い取りを防止
+                this.slotUI.innerHTML = `<div style="font-size:30px; filter: drop-shadow(0 0 5px ${colorHex}); text-shadow: 0 0 10px ${colorHex}; pointer-events: none;">💣</div>`;
             } else if (!this.isCoolingDown) {
                 this.slotUI.classList.remove('active');
                 this.slotUI.innerHTML = '';
@@ -430,8 +422,6 @@ window.MinigamePlugins['paint_battle'] = {
         console.log("[Paint Battle] Game Started!");
         this.isPlaying = true;
         this.remainTime = this.timeLimit * 60;
-
-        // ★ ゲーム開始(START表示の瞬間)に爆弾の性質を切り替える
         this.overrideItemSystem();
     },
 
@@ -450,7 +440,6 @@ window.MinigamePlugins['paint_battle'] = {
             return;
         }
 
-        // コインラッシュの引用: 落下チェック (y < -25)
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             if (player.position.y < -25) {
                 this.handleFallPenalty();
@@ -462,15 +451,12 @@ window.MinigamePlugins['paint_battle'] = {
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
 
-        // ★ デスペナルティ（リスポーン待機中：5秒間、着地したまま停止する）
         if (this.isRespawning) {
             this.respawnTimer -= delta;
             
             if (typeof player !== 'undefined' && player) {
-                // 移動ベクトルを0にして操作を完全無効化（重力で着地はする）
                 if (window.moveVector) window.moveVector.set(0, 0);   
                 
-                // 点滅表示
                 const isVisible = Math.floor(this.respawnTimer * 10) % 2 === 0;
                 player.traverse(child => { if (child.isMesh) child.visible = isVisible; });
             }
@@ -482,15 +468,13 @@ window.MinigamePlugins['paint_battle'] = {
                     player.traverse(child => { if (child.isMesh) child.visible = true; });
                 }
             }
-            return; // 拘束中は床を塗らない
+            return; 
         }
 
-        // ★ 崩壊サバイバルの「床接地判定」を引用した色塗り処理
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             this.checkPlayerStep();
         }
 
-        // 定期的に塗りを同期
         this.syncTimer += delta;
         if (this.syncTimer > 0.1 && this.paintBuffer.length > 0) {
             const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
@@ -500,12 +484,13 @@ window.MinigamePlugins['paint_battle'] = {
                     data: { action: 'paint', cells: this.paintBuffer, ownerId: myId }
                 });
                 
+                // ★ スコア送信時も statusText に表示するよう変更
                 window.MultiplayerManager.sendData({
                     type: 'mg_reply_score',
                     userId: myId,
-                    currentScoreText: `${this.myScore}pt`,
+                    currentScoreText: ``, // スコアテキストは空欄
                     currentScoreValue: this.myScore,
-                    currentStatusText: "" // 空欄
+                    currentStatusText: `${this.myScore} pt` // ステータスとしてスコアを送信
                 });
             }
             this.paintBuffer = [];
@@ -513,14 +498,12 @@ window.MinigamePlugins['paint_battle'] = {
         }
     },
 
-    // サバイバルの接地判定ロジック引用（ジャンプ中の空中塗りを防止）
     checkPlayerStep: function() {
         if (!this.paintMesh) return;
         
         let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
         const raycaster = new THREE.Raycaster();
         
-        // プレイヤーの頭上あたりから真下へRayを飛ばす
         const origin = new THREE.Vector3(player.position.x, player.position.y + pRadius * 2.0, player.position.z);
         raycaster.set(origin, new THREE.Vector3(0, -1, 0));
 
@@ -530,7 +513,6 @@ window.MinigamePlugins['paint_battle'] = {
             let hit = intersects[0];
             let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 0.5;
             
-            // 床（hit.point）が足元付近にあるか判定
             if (hit.point.y <= player.position.y + myStepHeight + 0.5 && hit.point.y >= player.position.y - 0.5) {
                 
                 let px = player.position.x;
@@ -577,21 +559,19 @@ window.MinigamePlugins['paint_battle'] = {
         }
     },
 
-    // ★ 落下デスペナルティ：ワープさせてから5秒間停止
     handleFallPenalty: function() {
         if (this.isRespawning) return;
         this.isRespawning = true;
-        this.respawnTimer = 5.0; // 5秒間
+        this.respawnTimer = 5.0; 
         
         if (typeof window.addLog === 'function') {
             window.addLog('<span style="color:#ffaa00;">落下ペナルティ！ 5秒間動けません。</span>', 'sys');
         }
         
         if (typeof player !== 'undefined' && player) {
-            // y=20 にワープし、そこから重力で床に着地させる（毎フレーム固定はしない）
             player.position.set(0, 20, 0); 
             window.verticalVelocity = 0;
-            window.isJumping = true; // 落下開始
+            window.isJumping = true; 
         }
         
         if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
@@ -650,9 +630,10 @@ window.MinigamePlugins['paint_battle'] = {
         if (window.MinigameManager && window.MinigameManager.resultData) {
             const myData = window.MinigameManager.resultData.find(d => d.id === myId);
             if (myData && !myData.isRetired) {
+                // ★ サバイバル方式で、statusText（緑色の目立つ場所）にスコアを表示
                 myData.scoreValue = this.myScore;
-                myData.scoreText = `${this.myScore}pt`;
-                myData.statusText = ""; // ★ 生存クリアを削除し空欄に
+                myData.scoreText = ``; 
+                myData.statusText = `${this.myScore} pt`; 
             }
         }
         
