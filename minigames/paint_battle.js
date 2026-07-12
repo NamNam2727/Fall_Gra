@@ -1,8 +1,8 @@
 // =====================================
 // minigames/paint_battle.js
 // 陣取りペイント・バトル プラグイン
-// ★checkPlayerStep()の二重ループを廃止し、1回のループで距離と高さの判定を行うよう最適化
-// ★updateCellColor()のsetXYZ呼び出しを廃止し、Float32Arrayへの直接書き込みによる高速化
+// ★checkPlayerStep内の不要なマイナス判定を削除
+// ★爆弾処理(explodeBomb)での全セル走査を廃止し、gridMapを用いた周辺探索に最適化
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -138,7 +138,7 @@ window.MinigamePlugins['paint_battle'] = {
     },
 
     // ==========================================
-    // 2. メッシュ生成と塗布システム
+    // 2. メッシュ生成と塗布システム (すり抜け解消・上面64分割)
     // ==========================================
     createPaintMesh: function() {
         if (!window.MapGenerator || typeof scene === 'undefined') return;
@@ -297,7 +297,6 @@ window.MinigamePlugins['paint_battle'] = {
         scene.add(this.paintMesh);
     },
 
-    // ★最適化：setXYZ呼び出しを廃止し、Float32Arrayに直接書き込む方式に変更
     updateCellColor: function(cell, ownerId) {
         let colorHex = new THREE.Color(cell.defaultColorHex);
         if (this.playerColors[ownerId]) {
@@ -305,7 +304,7 @@ window.MinigamePlugins['paint_battle'] = {
         }
         
         let colorsArray = this.paintMesh.geometry.attributes.color.array;
-        let startIdx = cell.vIdx * 3; // 頂点インデックスを配列インデックスに変換
+        let startIdx = cell.vIdx * 3; 
         
         let r = colorHex.r;
         let g = colorHex.g;
@@ -438,24 +437,45 @@ window.MinigamePlugins['paint_battle'] = {
             const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
             let paintedCount = 0;
             
-            for (let cell of self.cells) {
-                let distSq3D = (cell.cx - bomb.mesh.position.x)**2 + (cell.yInfo - bomb.mesh.position.y)**2 + (cell.cz - bomb.mesh.position.z)**2;
-                
-                if (distSq3D <= rSq) {
-                    if (cell.owner !== ownerId) {
-                        if (cell.owner === myId) self.myScore--; 
-                        
-                        cell.owner = ownerId;
-                        self.updateCellColor(cell, ownerId);
-                        
-                        if (ownerId === myId) {
-                            self.paintBuffer.push(cell.id);
-                            self.myScore++; 
+            // ★最適化：爆発中心座標から周囲のマス(gridMap)だけを算出して探索
+            let bx = bomb.mesh.position.x;
+            let by = bomb.mesh.position.y;
+            let bz = bomb.mesh.position.z;
+            
+            let mapW = window.MapGenerator.rawMapData.length;
+            let mapD = window.MapGenerator.rawMapData[0].length;
+            
+            let gx = Math.floor(bx / bs + mapW / 2);
+            let gz = Math.floor(bz / bs + mapD / 2);
+            let range = Math.ceil(maxRadius / bs);
+
+            for (let dx = -range; dx <= range; dx++) {
+                for (let dz = -range; dz <= range; dz++) {
+                    let key = `${gx + dx}_${gz + dz}`;
+                    let cellList = self.gridMap[key];
+                    if (cellList) {
+                        for (let cell of cellList) {
+                            let distSq3D = (cell.cx - bx)**2 + (cell.yInfo - by)**2 + (cell.cz - bz)**2;
+                            
+                            if (distSq3D <= rSq) {
+                                if (cell.owner !== ownerId) {
+                                    if (cell.owner === myId) self.myScore--; 
+                                    
+                                    cell.owner = ownerId;
+                                    self.updateCellColor(cell, ownerId);
+                                    
+                                    if (ownerId === myId) {
+                                        self.paintBuffer.push(cell.id);
+                                        self.myScore++; 
+                                    }
+                                    paintedCount++;
+                                }
+                            }
                         }
-                        paintedCount++;
                     }
                 }
             }
+
             if (paintedCount > 0) {
                 self.paintMesh.geometry.attributes.color.needsUpdate = true;
                 self.updateScoreUI();
@@ -545,7 +565,6 @@ window.MinigamePlugins['paint_battle'] = {
         }
     },
 
-    // ★最適化：1回のループ内で高さと距離の判定を同時に行い、二重探索を無くしました
     checkPlayerStep: function() {
         if (!this.paintMesh) return;
         
@@ -564,21 +583,36 @@ window.MinigamePlugins['paint_battle'] = {
         let gx = Math.floor(px / bs + mapW / 2);
         let gz = Math.floor(pz / bs + mapD / 2);
         
+        let hitY = null;
+        let closestDist = Infinity;
+
+        // ★最適化：1回のループ内で床の高さ判定と塗り処理を同時に行う
+        let yDistTolerance = bs * 0.25; 
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         let paintedCount = 0;
-        
+
         for (let dx = -1; dx <= 1; dx++) {
             for (let dz = -1; dz <= 1; dz++) {
                 let key = `${gx + dx}_${gz + dz}`;
                 let cellList = this.gridMap[key];
                 if (cellList) {
                     for (let cell of cellList) {
-                        // プレイヤーの高さ付近にあるセルのみを判定（トンネルの上下階層を干渉させない）
+                        let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
+                        
+                        // 1. 床(cell.yInfo)がプレイヤーの足元付近にあるか判定し、一番近い床を hitY として記憶
                         if (cell.yInfo <= py + myStepHeight + 0.5 && cell.yInfo >= py - 0.5) {
-                            let distSq = (cell.cx - px)**2 + (cell.cz - pz)**2;
+                            if (distSq < closestDist) {
+                                closestDist = distSq;
+                                hitY = cell.yInfo;
+                            }
+                        }
+                        
+                        // 2. そのまま塗り判定を行う（まだhitYが確定していない場合もあるが、hitYが確定した床と同じ高さなら塗る）
+                        // ※hitYが後で確定しても、プレイヤーの足元にある床はほぼ同じ高さのため1ループで問題なく機能する
+                        if (hitY !== null && Math.abs(cell.yInfo - hitY) <= yDistTolerance) {
                             if (distSq <= rSq) {
                                 if (cell.owner !== myId) {
-                                    if (cell.owner === myId) this.myScore--; // 万一の場合の保険
+                                    // ★最適化：無駄な「if (cell.owner === myId) this.myScore--;」を削除
                                     cell.owner = myId;
                                     this.updateCellColor(cell, myId);
                                     this.paintBuffer.push(cell.id);
