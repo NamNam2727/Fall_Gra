@@ -1,7 +1,7 @@
 // =====================================
 // map_manager.js
 // マップ変更UI、3Dプレビュー、同期と暗転演出を管理
-// ★ リスポーン座標の計算と適用(respawnPlayer)ロジックを追加
+// ★ プレビュー時のカメラ距離をマップサイズから動的に計算し、拡大表示するよう修正
 // =====================================
 
 window.MapManager = {
@@ -283,9 +283,24 @@ window.MapManager = {
         if (!this.preview.isRunning) return;
         this.preview.reqId = requestAnimationFrame(() => this.animatePreview());
 
-        // 全体を俯瞰するカメラ計算
-        const dist = 160;
-        const height = 100;
+        // 現在表示中のマップデータからサイズを取得して拡大率を計算
+        const mapDataInfo = window.MapList[this.listIndex];
+        let mapW = 21, mapD = 21;
+        if (mapDataInfo && window['MapData_' + mapDataInfo.id]) {
+            const mData = window['MapData_' + mapDataInfo.id];
+            mapW = mData.length;
+            mapD = mData[0].length;
+        }
+        
+        // ブロックサイズを考慮したマップの実際の最大幅を計算
+        const bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
+        const maxDim = Math.max(mapW, mapD);
+        const actualSize = maxDim * bs; // 例: 21 * 4.0 = 84
+
+        // マップの大きさに応じてカメラ距離(dist)と高さ(height)を動的にスケーリング
+        const dist = actualSize * 0.9;
+        const height = actualSize * 0.7;
+
         this.preview.camera.position.x = Math.sin(this.preview.angle) * dist;
         this.preview.camera.position.z = Math.cos(this.preview.angle) * dist;
         this.preview.camera.position.y = height;
