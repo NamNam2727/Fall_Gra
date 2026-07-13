@@ -3,6 +3,7 @@
 // ミニゲームの通信・同期管理（3分割の1/3）
 // ★途中入室時の状態同期にtargetEndTimeを追加し、PLAYING時の再現とログ表示を実装
 // ★targetStartTime を 3,2,1 演出完了後の「本当の開始時刻(+14秒)」に修正
+// ★他プレイヤーのリタイア時や退出時に、名前入りのリタイアログを分かりやすく表示するように修正
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -42,8 +43,9 @@ Object.assign(window.MinigameManager, {
         } else if (msg.type === 'mg_update_score') {
             const data = this.resultData.find(d => String(d.id) === String(msg.userId));
             if (data) {
+                // ★ 他プレイヤーがリタイアしたことを知らせるログを強調して表示
                 if (msg.isRetired && !data.isRetired && typeof window.addLog === 'function') {
-                    window.addLog(`<span style="color:#ff3300;">${data.name} がリタイアしました。</span>`, 'sys');
+                    window.addLog(`<span style="color:#ff3300; font-weight:bold;">💀 ${data.name} がリタイアしました。</span>`, 'sys');
                 }
                 data.scoreValue = msg.scoreValue;
                 data.scoreText = msg.scoreText;
@@ -221,5 +223,4 @@ Object.assign(window.MinigameManager, {
         }
     }
 });
-
 

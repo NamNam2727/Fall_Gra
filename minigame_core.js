@@ -3,6 +3,7 @@
 // ミニゲーム本編のメインロジックとリザルト管理（3分割の3/3）
 // ★プラグイン側に依存したハードコードを廃止し、汎用インターフェース
 //   (getScoreValue, getScoreString等) からスコアを自動取得する賢い形へリファクタリング
+// ★自分自身がリタイアした時のログにプレイヤー名を含めるように修正
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -54,9 +55,13 @@ Object.assign(window.MinigameManager, {
     },
 
     executeRetire: function() {
-        if (typeof window.addLog === 'function') window.addLog('<span style="color:#ffaa00;">リタイアしました。観戦モードに移行します。</span>', 'sys');
-        
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        const myName = (window.GameState && window.GameState.userInfo) ? (window.GameState.userInfo.user_name || window.GameState.userInfo.name || "Player") : "Player";
+        
+        // ★ リタイアログに自分の名前を含めて分かりやすく表示
+        if (typeof window.addLog === 'function') {
+            window.addLog(`<span style="color:#ffaa00; font-weight:bold;">💀 ${myName} がリタイアしました。観戦モードに移行します。</span>`, 'sys');
+        }
         
         if (this.currentPlugin && typeof this.currentPlugin.onRetire === 'function') {
             this.currentPlugin.onRetire(myId);
@@ -264,7 +269,14 @@ Object.assign(window.MinigameManager, {
     handlePlayerExit: function(userId) {
         const uidStr = String(userId);
         const data = this.resultData.find(d => String(d.id) === uidStr);
-        if (data) data.isRetired = true;
+        
+        if (data && !data.isRetired) {
+            data.isRetired = true;
+            // ★ 退室したプレイヤーも自動的にリタイア扱いとし、ログを表示
+            if (this.state === 'PLAYING' && typeof window.addLog === 'function') {
+                window.addLog(`<span style="color:#ff3300; font-weight:bold;">💀 ${data.name} がリタイアしました。(退室)</span>`, 'sys');
+            }
+        }
 
         if (this.state === 'PLAYING') {
             if (typeof this.checkAllSpectators === 'function') this.checkAllSpectators();
@@ -384,5 +396,4 @@ Object.assign(window.MinigameManager, {
         }, 5000);
     }
 });
-
 
