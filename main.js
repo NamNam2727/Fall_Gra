@@ -1,7 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★初期マップの生成ロジックを map_list.js に依存する形に変更
+// ★ 初期化時と落下時のリスポーン座標を MapManager から取得するように修正
 // =====================================
 
 window.mapMesh = null; // ★ グローバルなマップメッシュ参照
@@ -91,6 +91,11 @@ window.initThreeJS = function() {
     }
 
     initPlayer();
+    
+    // ★ プレイヤーの初期位置をマップリストの設定で上書き
+    if (window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
+        window.MapManager.respawnPlayer();
+    }
 
     if (window.MultiplayerManager) {
         window.MultiplayerManager.initExistingPlayers();
@@ -359,9 +364,14 @@ window.updatePlayer = function(delta, ctx = window.mainContext) {
         }
         
         if (ctx.player.position.y < -30) {
-            ctx.player.position.set(0, 20, 0); 
-            ctx.isJumping = true; 
-            ctx.verticalVelocity = 0;
+            // ★ 落下時のリスポーン先を MapManager から取得して適用
+            if (!ctx.isDemo && window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
+                window.MapManager.respawnPlayer();
+            } else {
+                ctx.player.position.set(0, 20, 0); 
+                ctx.isJumping = true; 
+                ctx.verticalVelocity = 0;
+            }
             
             if (!ctx.isDemo && window.MinigameManager && window.MinigameManager.state === 'PLAYING') {
                 if (!ctx.isSpectatorMode) {

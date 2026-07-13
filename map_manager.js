@@ -1,6 +1,7 @@
 // =====================================
 // map_manager.js
 // マップ変更UI、3Dプレビュー、同期と暗転演出を管理
+// ★ リスポーン座標の計算と適用(respawnPlayer)ロジックを追加
 // =====================================
 
 window.MapManager = {
@@ -294,6 +295,47 @@ window.MapManager = {
     },
 
     // ==========================================
+    // リスポーン地点の計算と適用
+    // ==========================================
+    getSpawnPosition: function(mapId) {
+        const mapData = window.MapList.find(m => m.id === mapId);
+        let px = 0, py = 20, pz = 0;
+        
+        if (mapData && mapData.spawnGrid) {
+            const bs = typeof blockSize !== 'undefined' ? blockSize : 4.0;
+            let mapW = 21, mapD = 21; // デフォルトの配列サイズ
+            
+            // 現在のマップデータの配列サイズを取得
+            if (window['MapData_' + mapId]) {
+                mapW = window['MapData_' + mapId].length;    // 行の数
+                mapD = window['MapData_' + mapId][0].length; // 列の数
+            } else if (window.MapGenerator && window.MapGenerator.rawMapData.length > 0) {
+                mapW = window.MapGenerator.rawMapData.length;
+                mapD = window.MapGenerator.rawMapData[0].length;
+            }
+            
+            // 3D空間上のX軸が行(row)、Z軸が列(col)としてパースされているため、それに合わせて計算
+            if (mapData.spawnGrid.row !== undefined && mapData.spawnGrid.col !== undefined) {
+                px = (mapData.spawnGrid.row - mapW / 2 + 0.5) * bs;
+                pz = (mapData.spawnGrid.col - mapD / 2 + 0.5) * bs;
+            }
+        }
+        return new THREE.Vector3(px, py, pz);
+    },
+
+    respawnPlayer: function() {
+        if (typeof player === 'undefined' || !player) return;
+        const spawnPos = this.getSpawnPosition(this.currentMapId);
+        player.position.copy(spawnPos);
+        window.verticalVelocity = 0;
+        window.isJumping = true; // 上空から落として自然に地形に乗せる
+        
+        if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+            window.MultiplayerManager.forceSendPos();
+        }
+    },
+
+    // ==========================================
     // 申請と同期のシステム
     // ==========================================
     proposeMapChange: function() {
@@ -526,16 +568,8 @@ window.MapManager = {
             window.ItemSystem.clearAllItems();
         }
 
-        // プレイヤーの初期化
-        if (typeof player !== 'undefined' && player) {
-            player.position.set(0, 20, 0);
-            window.verticalVelocity = 0;
-            window.isJumping = true;
-        }
-        
-        if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
-            window.MultiplayerManager.forceSendPos();
-        }
+        // ★ プレイヤーの初期化（リストから座標を取得してセットする）
+        this.respawnPlayer();
 
         // 3. 暗転フェードイン
         setTimeout(() => {
@@ -573,4 +607,5 @@ setTimeout(() => {
         window.MapManager.initUI();
     }
 }, 3000);
+
 
