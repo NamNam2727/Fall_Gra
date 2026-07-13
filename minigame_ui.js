@@ -2,6 +2,7 @@
 // minigame_ui.js
 // ミニゲーム関連のUI要素（ボタンやウィンドウ）の生成のみを担当
 // ★申請ポップアップに説明文(description)を表示する要素を追加
+// ★申請ポップアップのタイトル中央寄せ、閉じるボタン追加、アイコン枠のFlexbox対応
 // =====================================
 
 window.MinigameUI = {
@@ -40,7 +41,7 @@ window.MinigameUI = {
 
             #mg-proposal-popup { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 350px; background: rgba(30, 20, 20, 0.95); border: 4px solid #ff4444; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.9); display: none; flex-direction: column; z-index: 2000; pointer-events: auto; padding: 20px; font-family: sans-serif; text-align: center; }
             .mg-popup-header { color: #ffaa00; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-            #mg-popup-icon { width: 80px; height: 80px; margin: 0 auto 10px auto; border-radius: 12px; background-size: cover; background-position: center; border: 2px solid #fff; }
+            #mg-popup-icon { width: 80px; height: 80px; margin: 0 auto 10px auto; border-radius: 12px; background-size: cover; background-position: center; border: 2px solid #fff; display: flex; justify-content: center; align-items: center; font-size: 40px; }
             #mg-popup-title { font-size: 20px; color: white; font-weight: bold; margin-bottom: 5px; }
             #mg-popup-desc { font-size: 12px; color: #aaa; margin-bottom: 10px; line-height: 1.4; word-break: break-all; }
             #mg-popup-rules { font-size: 13px; color: #ccc; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 6px; margin-bottom: 15px; }
@@ -161,8 +162,12 @@ window.MinigameUI = {
 
         const mgPopup = document.createElement('div');
         mgPopup.id = 'mg-proposal-popup';
+        // ★ 変更点: タイトルの中央寄せ、❌ボタン追加
         mgPopup.innerHTML = `
-            <div class="mg-popup-header">🎮 ゲーム開始申請 🎮</div>
+            <div class="member-header" style="position: relative; display: flex; justify-content: center; align-items: center; margin-bottom: 10px;">
+                <div class="mg-popup-header" style="margin: 0; text-align: center; width: 100%;">🎮 ゲーム開始申請 🎮</div>
+                <button class="member-close-btn" onclick="document.getElementById('mg-proposal-popup').style.display='none'" style="position: absolute; right: 0;">❌</button>
+            </div>
             <div id="mg-popup-icon"></div>
             <div id="mg-popup-title">ゲームタイトル</div>
             <div id="mg-popup-desc"></div>
@@ -295,3 +300,4 @@ window.MinigameUI = {
         win.style.display = 'flex';
     }
 };
+

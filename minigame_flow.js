@@ -4,6 +4,7 @@
 // ★通信を使わず、ローカルのMinigameListから説明文を取得して表示
 // ★PLAYING状態での途中入室時、プラグインを正しく再現・開始する処理を追加
 // ★カウントダウンと3,2,1演出を setInterval から requestAnimationFrame と絶対時間計算に修正し、タイマーのズレを解消
+// ★詳細画面・申請ポップアップ画面にアイコンのフォールバック表示(🎮)を追加
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -73,9 +74,21 @@ Object.assign(window.MinigameManager, {
         document.getElementById('mg-detail-title').innerText = game.title;
         document.getElementById('mg-detail-desc').innerText = game.description;
         
+        // ★ 変更点: アイコンのフォールバック処理を実装
         const iconEl = document.getElementById('mg-detail-icon');
-        iconEl.style.backgroundImage = `url(${game.icon})`;
+        iconEl.style.backgroundImage = 'none';
         iconEl.innerText = '';
+        iconEl.style.backgroundColor = 'transparent';
+        
+        const img = new Image();
+        img.onload = () => { 
+            iconEl.style.backgroundImage = `url(${game.icon})`; 
+        };
+        img.onerror = () => { 
+            iconEl.style.backgroundColor = '#555'; 
+            iconEl.innerText = '🎮'; 
+        };
+        img.src = game.icon;
 
         if (typeof this.setupToggles === 'function') {
             this.setupToggles('mg-toggle-time', 3);
@@ -209,6 +222,24 @@ Object.assign(window.MinigameManager, {
         if (!popup) return;
 
         document.getElementById('mg-popup-title').innerText = p.title;
+
+        // ★ 変更点: ポップアップのアイコン表示およびフォールバック処理を実装
+        const iconEl = document.getElementById('mg-popup-icon');
+        if (iconEl) {
+            iconEl.style.backgroundImage = 'none';
+            iconEl.innerText = '';
+            iconEl.style.backgroundColor = 'transparent';
+            
+            const img = new Image();
+            img.onload = () => { 
+                iconEl.style.backgroundImage = `url(${p.icon})`; 
+            };
+            img.onerror = () => { 
+                iconEl.style.backgroundColor = '#555'; 
+                iconEl.innerText = '🎮'; 
+            };
+            img.src = p.icon;
+        }
 
         const descEl = document.getElementById('mg-popup-desc');
         if (descEl) {
@@ -562,5 +593,4 @@ Object.assign(window.MinigameManager, {
         updateStartAnim();
     }
 });
-
 
