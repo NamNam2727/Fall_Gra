@@ -4,6 +4,7 @@
 // ★シード付き疑似乱数とスケジュール事前生成を用いた完全ローカル同期
 // ★青→黄→赤への色変化と、徐々に短縮される出現間隔
 // ★落下時のペナルティを削除し、落下＝即リタイアに変更
+// ★5回出現するごとに、同時に出現するゾーンの数を1つずつ増やす仕様を追加
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -40,6 +41,16 @@ window.MinigamePlugins['dead_zone'] = {
         this.validFloors = [];
         this.zoneSchedules = [];
         this.explosions = [];
+
+        // 落下フック (爆発でのリタイアと落下ペナルティを区別する)
+        this.originalExecuteRetire = window.MinigameManager.executeRetire;
+        window.MinigameManager.executeRetire = () => {
+            if (typeof player !== 'undefined' && player.position.y < -20) {
+                this.handleFallPenalty();
+            } else {
+                this.originalExecuteRetire.call(window.MinigameManager);
+            }
+        };
     },
 
     // ==========================================
@@ -88,27 +99,34 @@ window.MinigamePlugins['dead_zone'] = {
         
         let t = 0;
         let currentInterval = 2.5; // 初期出現間隔
+        let waveCount = 0; // ★ 出現回数（ウェーブ）をカウント
         
         // 制限時間を少し超えるまでスケジュールを事前構築しておく
         const maxTime = this.timeLimit * 60 + 10; 
         
         for (let i = 0; i < 2000; i++) {
-            let idx = Math.floor(prng() * this.validFloors.length);
-            let pos = this.validFloors[idx];
+            // ★ 5回出現するごとに、同時に出す数を1個ずつ増やす
+            let spawnCount = Math.floor(waveCount / 5) + 1; 
             let lifetime = currentInterval;
             
-            this.zoneSchedules.push({
-                spawnTime: t,
-                explodeTime: t + lifetime,
-                pos: pos,
-                lifetime: lifetime,
-                exploded: false,
-                meshGroup: null,
-                mats: []
-            });
+            for (let j = 0; j < spawnCount; j++) {
+                let idx = Math.floor(prng() * this.validFloors.length);
+                let pos = this.validFloors[idx];
+                
+                this.zoneSchedules.push({
+                    spawnTime: t,
+                    explodeTime: t + lifetime,
+                    pos: pos,
+                    lifetime: lifetime,
+                    exploded: false,
+                    meshGroup: null,
+                    mats: []
+                });
+            }
             
             t += lifetime;
             currentInterval = Math.max(0.1, currentInterval - this.intervalDecrement);
+            waveCount++;
             
             if (t > maxTime) break; 
         }
@@ -294,6 +312,28 @@ window.MinigamePlugins['dead_zone'] = {
         }
     },
 
+    handleFallPenalty: function() {
+        if (this.isRespawning) return;
+        this.isRespawning = true;
+        this.respawnTimer = 3.0; 
+        
+        if (typeof window.addLog === 'function') {
+            window.addLog('<span style="color:#ffaa00;">落下ペナルティ！ 3秒間動けません。</span>', 'sys');
+        }
+        
+        if (typeof player !== 'undefined' && player) {
+            player.position.set(0, 20, 0); 
+            window.verticalVelocity = 0;
+            window.isJumping = true; 
+            
+            if (window.ItemSystem) window.ItemSystem.isOnNet = true;
+        }
+        
+        if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
+            window.MultiplayerManager.forceSendPos();
+        }
+    },
+
     // ==========================================
     // 4. UI・リザルト管理
     // ==========================================
@@ -371,6 +411,8 @@ window.MinigamePlugins['dead_zone'] = {
         if (typeof player !== 'undefined' && player) {
             player.traverse(child => { if (child.isMesh) child.visible = true; });
         }
+
+        if (this.originalExecuteRetire) window.MinigameManager.executeRetire = this.originalExecuteRetire;
 
         // メッシュのクリーンアップ
         this.zoneSchedules.forEach(sch => {
