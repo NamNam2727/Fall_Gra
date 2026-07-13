@@ -1,8 +1,8 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★ 途中入室者向けの「マップ同期レイヤー」の表示・非表示機能を追加
-// ★ 入室を検知した際にマップ変更の申請をキャンセルする処理を追加
+// ★ 途中入室者向けの「マップ同期レイヤー」のタイムアウト制御を強化
+// ★ 同期完了までの間、画面を覆ってマップを見せない処理を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -11,9 +11,10 @@ window.MultiplayerManager = {
     lastSendTime: 0,
     sendInterval: 100, 
     
-    // ★追加: 途中入室用同期レイヤー
+    // 途中入室用同期レイヤー
     syncOverlay: null,
     isSyncing: false,
+    syncTimeout: null,
 
     initUI: function() {
         const style = document.createElement('style');
@@ -258,21 +259,34 @@ window.MultiplayerManager = {
         memberWindow.addEventListener('touchstart', preventTouch, {passive: false});
     },
 
-    // ★追加: 途中入室用オーバーレイの表示関数
-    showSyncOverlay: function() {
+    // ★ 途中入室用オーバーレイの表示と同期開始
+    startSync: function() {
         if (this.isSyncing) return;
         this.isSyncing = true;
+        
         this.syncOverlay = document.createElement('div');
         this.syncOverlay.id = 'room-sync-overlay';
         this.syncOverlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background: #000; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#fff; font-family:sans-serif; transition: opacity 0.5s ease;';
         this.syncOverlay.innerHTML = '<div style="font-size:24px; font-weight:bold; color:#00ffff; margin-bottom: 20px;">ルーム情報を同期中...</div><div class="loader-spinner" style="width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #00ffff; border-radius: 50%; animation: spin 1s linear infinite;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
         document.body.appendChild(this.syncOverlay);
+        
+        this.requestPositions(); // 他プレイヤーに状況を要求
+        
+        // 3秒経過しても誰も答えてくれなかったら強制的に初期マップで開始
+        this.syncTimeout = setTimeout(() => {
+            if (this.isSyncing) {
+                if (typeof window.addLog === 'function') window.addLog('<span style="color:#aaaaaa;">同期応答がありませんでした。標準マップで開始します。</span>', 'sys');
+                if (window.MapManager) window.MapManager.setupInitialMap('default');
+                this.hideSyncOverlay();
+            }
+        }, 3000);
     },
 
-    // ★追加: 途中入室用オーバーレイの非表示関数
     hideSyncOverlay: function() {
         if (!this.isSyncing) return;
         this.isSyncing = false;
+        if (this.syncTimeout) clearTimeout(this.syncTimeout);
+        
         if (this.syncOverlay) {
             this.syncOverlay.style.opacity = '0';
             setTimeout(() => {
@@ -282,7 +296,9 @@ window.MultiplayerManager = {
                 this.syncOverlay = null;
             }, 500);
         }
-        this.forceSendPos(); // 同期完了時に自分の位置を送信開始
+        
+        // 同期が完了してマップが生成されたら自分の位置情報を送信開始
+        setTimeout(() => { this.forceSendPos(); }, 500);
     },
 
     sendData: function(data) {
@@ -296,7 +312,7 @@ window.MultiplayerManager = {
     },
     
     forceSendPos: function() {
-        if (typeof player === 'undefined' || !player) return;
+        if (typeof player === 'undefined' || !player || this.isSyncing) return;
         if (window.isSpectatorMode) return; 
         
         const nowTime = Date.now();
@@ -321,7 +337,7 @@ window.MultiplayerManager = {
     },
 
     update: function(delta) {
-        if (typeof player === 'undefined' || !player) return;
+        if (typeof player === 'undefined' || !player || this.isSyncing) return;
 
         if (!window.isSpectatorMode) {
             const now = performance.now();
@@ -367,7 +383,6 @@ window.MultiplayerManager = {
             }
             this.forceSendPos();
             
-            // ★追加: 途中入室があった際に、マップ変更申請中だった場合は自動キャンセル
             if (window.MapManager && window.MapManager.state === 'PROPOSING') {
                 window.MapManager.cancelProposal("途中入室者がいたためマップ変更を取り下げました。");
             }
@@ -387,11 +402,7 @@ window.MultiplayerManager = {
             try {
                 const msgData = JSON.parse(data.msg_data);
                 
-                // ★追加: 他のプレイヤーから何らかの返答が来たら、同期レイヤーを消す
-                if (this.isSyncing && msgData.type !== 'pos_req') {
-                    // 他のデータ（map_sync等）の処理が終わってから消すため少し遅延させる
-                    setTimeout(() => this.hideSyncOverlay(), 100);
-                }
+                // ★ map_sync_current 等は map_manager 内で受け取り、そこから hideSyncOverlay を呼ぶためここではスルー
                 
                 if (msgData.type === 'move') {
                     this.updatePlayerPos(data.user_id, msgData);
@@ -413,7 +424,7 @@ window.MultiplayerManager = {
                         this.sendData({ type: 'mg_spectator', isSpectator: true });
                     }
                     
-                    // 現在のマップ情報を同期 (初期マップであっても確実に送る)
+                    // 現在のマップ情報を確実に送る
                     if (window.MapManager) {
                         this.sendData({
                             type: 'map_sync_current',

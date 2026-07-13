@@ -1,7 +1,7 @@
 // =====================================
 // map_manager.js
 // マップ変更UI、3Dプレビュー、同期と暗転演出を管理
-// ★ 「マップ詳細」ボタンへの変更と、専用ポップアップUI展開関数の追加
+// ★ 申請時のUIを大幅改良。3Dプレビューの共有、申請者向けタイマーと取り下げボタンの実装。
 // =====================================
 
 window.MapManager = {
@@ -50,8 +50,6 @@ window.MapManager = {
                 width: 100%; height: 220px; background: #87CEEB; position: relative;
                 border-bottom: 2px solid #555; overflow: hidden; flex-shrink: 0;
             }
-            #map-preview-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: grab; }
-            #map-preview-canvas:active { cursor: grabbing; }
             .map-preview-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.5); color: white; font-size: 11px; padding: 3px 6px; border-radius: 4px; pointer-events: none; }
 
             .map-info-area { flex: 1; padding: 15px; display: flex; flex-direction: column; overflow-y: auto; }
@@ -79,14 +77,14 @@ window.MapManager = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-        // 1. 左上のマップ変更ボタン
+        // 左上のマップ変更ボタン
         const mapBtn = document.createElement('div');
         mapBtn.id = 'map-change-btn';
         mapBtn.innerText = 'マップ変更';
         mapBtn.style.top = (topExclusionHeight + 15) + 'px';
         uiLayer.appendChild(mapBtn);
 
-        // 2. マップ選択ウィンドウ
+        // マップ選択ウィンドウ
         const mapWindow = document.createElement('div');
         mapWindow.id = 'map-window';
         mapWindow.innerHTML = `
@@ -94,8 +92,7 @@ window.MapManager = {
                 <span>マップ選択</span>
                 <button class="map-header-btn" id="map-close-btn">❌</button>
             </div>
-            <div class="map-preview-area">
-                <div id="map-preview-canvas"></div>
+            <div class="map-preview-area" id="map-preview-area">
                 <div class="map-preview-hint">↔ ドラッグで回転</div>
             </div>
             <div class="map-info-area">
@@ -110,7 +107,6 @@ window.MapManager = {
         `;
         uiLayer.appendChild(mapWindow);
 
-        // 3. 暗転オーバーレイ
         const fadeOverlay = document.createElement('div');
         fadeOverlay.id = 'map-fade-overlay';
         document.body.appendChild(fadeOverlay);
@@ -121,10 +117,10 @@ window.MapManager = {
         mapBtn.addEventListener('mousedown', preventTouch);
         mapBtn.addEventListener('touchstart', preventTouch, {passive: false});
         mapBtn.addEventListener('click', () => {
-            if (window.MinigameManager && window.MinigameManager.state !== 'IDLE') return; // ミニゲーム中は不可
+            if (window.MinigameManager && window.MinigameManager.state !== 'IDLE') return;
             
             if (this.state === 'PROPOSING') {
-                this.showMapProposalPopup(); // 申請中はポップアップを開く
+                this.showMapProposalPopup(); // 申請中なら詳細ポップアップを展開
             } else {
                 this.openSelector();
             }
@@ -132,7 +128,11 @@ window.MapManager = {
 
         mapWindow.addEventListener('mousedown', preventTouch);
         mapWindow.addEventListener('touchstart', preventTouch, {passive: false});
-        mapWindow.querySelector('#map-close-btn').addEventListener('click', () => { this.closeSelector(); });
+        
+        // ❌ボタンが確実に効くように修正
+        const closeBtn = mapWindow.querySelector('#map-close-btn');
+        closeBtn.addEventListener('click', () => { this.closeSelector(); });
+        closeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); this.closeSelector(); }, {passive: false});
         
         mapWindow.querySelector('#map-prev-btn').addEventListener('click', () => {
             this.listIndex = (this.listIndex - 1 + window.MapList.length) % window.MapList.length;
@@ -149,7 +149,6 @@ window.MapManager = {
 
         this.initPreview3D();
 
-        // 毎フレームのボタン表示チェック
         setInterval(() => {
             if (window.MinigameManager && window.MinigameManager.state !== 'IDLE') {
                 mapBtn.style.display = 'none';
@@ -175,9 +174,17 @@ window.MapManager = {
         dirLight.position.set(20, 40, 20);
         this.preview.scene.add(dirLight);
 
-        // ドラッグ操作の実装
-        const container = document.getElementById('map-preview-canvas');
-        if (!container) return;
+        // 3Dプレビューキャンバス本体にドラッグイベントを登録
+        const dom = this.preview.renderer.domElement;
+        dom.style.position = 'absolute';
+        dom.style.top = '0';
+        dom.style.left = '0';
+        dom.style.width = '100%';
+        dom.style.height = '100%';
+        dom.style.cursor = 'grab';
+        
+        dom.addEventListener('mousedown', () => { dom.style.cursor = 'grabbing'; });
+        dom.addEventListener('mouseup', () => { dom.style.cursor = 'grab'; });
 
         const onStart = (x) => { this.preview.isDragging = true; this.preview.lastX = x; };
         const onMove = (x) => {
@@ -186,25 +193,24 @@ window.MapManager = {
             this.preview.angle -= dx * 0.01;
             this.preview.lastX = x;
         };
-        const onEnd = () => { this.preview.isDragging = false; };
+        const onEnd = () => { this.preview.isDragging = false; dom.style.cursor = 'grab'; };
 
-        container.addEventListener('mousedown', (e) => onStart(e.clientX));
+        dom.addEventListener('mousedown', (e) => { e.stopPropagation(); onStart(e.clientX); });
         document.addEventListener('mousemove', (e) => onMove(e.clientX));
         document.addEventListener('mouseup', onEnd);
         
-        container.addEventListener('touchstart', (e) => { e.stopPropagation(); onStart(e.touches[0].clientX); }, {passive: false});
-        container.addEventListener('touchmove', (e) => { e.stopPropagation(); onMove(e.touches[0].clientX); }, {passive: false});
-        container.addEventListener('touchend', onEnd);
+        dom.addEventListener('touchstart', (e) => { e.stopPropagation(); onStart(e.touches[0].clientX); }, {passive: false});
+        dom.addEventListener('touchmove', (e) => { e.stopPropagation(); onMove(e.touches[0].clientX); }, {passive: false});
+        dom.addEventListener('touchend', onEnd);
     },
 
     openSelector: function() {
         document.getElementById('map-window').style.display = 'flex';
-        // 現在のマップを選択した状態にする
         this.listIndex = window.MapList.findIndex(m => m.id === this.currentMapId);
         if (this.listIndex === -1) this.listIndex = 0;
         
-        const container = document.getElementById('map-preview-canvas');
-        container.innerHTML = '';
+        // メインのプレビューエリアにCanvasを追加
+        const container = document.getElementById('map-preview-area');
         container.appendChild(this.preview.renderer.domElement);
         
         const w = container.clientWidth;
@@ -222,8 +228,9 @@ window.MapManager = {
         document.getElementById('map-window').style.display = 'none';
         this.preview.isRunning = false;
         if (this.preview.reqId) cancelAnimationFrame(this.preview.reqId);
-        const container = document.getElementById('map-preview-canvas');
-        if (container) container.innerHTML = '';
+        
+        const dom = this.preview.renderer.domElement;
+        if (dom.parentNode) dom.parentNode.removeChild(dom);
     },
 
     renderCurrentMap: function() {
@@ -240,7 +247,6 @@ window.MapManager = {
             startBtn.innerText = 'このマップに変更する';
         }
 
-        // 3Dプレビューの生成
         if (this.preview.mesh) {
             this.preview.scene.remove(this.preview.mesh);
             this.preview.mesh.geometry.dispose();
@@ -248,7 +254,6 @@ window.MapManager = {
             this.preview.mesh = null;
         }
 
-        // 動的ロード
         if (!window['MapData_' + mapData.id]) {
             if (window.loadGameScript) {
                 window.loadGameScript(mapData.script, () => {
@@ -263,7 +268,6 @@ window.MapManager = {
     buildPreviewMesh: function(mapId) {
         if (!window['MapData_' + mapId] || !window.MapGenerator) return;
         
-        // 元のデータを退避して生成
         const backupData = window.MapGenerator.rawMapData;
         window.MapGenerator.rawMapData = window['MapData_' + mapId];
         
@@ -278,6 +282,7 @@ window.MapManager = {
         if (!this.preview.isRunning) return;
         this.preview.reqId = requestAnimationFrame(() => this.animatePreview());
 
+        // 現在表示中のマップデータからサイズを取得して拡大率を計算
         const mapDataInfo = window.MapList[this.listIndex];
         let mapW = 21, mapD = 21;
         if (mapDataInfo && window['MapData_' + mapDataInfo.id]) {
@@ -341,7 +346,7 @@ window.MapManager = {
     // 申請と同期のシステム
     // ==========================================
     
-    // ★追加: ミニゲーム用UIを直接操作してマップ変更用にセットアップする関数
+    // ★ 申請時のUIを専用に上書き構築する（3Dプレビューとボタン制御）
     showMapProposalPopup: function() {
         const popup = document.getElementById('mg-proposal-popup');
         if (!popup || !this.currentProposal) return;
@@ -349,11 +354,40 @@ window.MapManager = {
         const titleEl = document.getElementById('mg-popup-title');
         if (titleEl) titleEl.innerText = this.currentProposal.title;
         
+        // デフォルトのアイコンを非表示にする
         const iconEl = document.getElementById('mg-popup-icon');
-        if (iconEl) iconEl.style.backgroundImage = `url(${this.currentProposal.icon})`;
+        if (iconEl) iconEl.style.display = 'none';
+        
+        // 3Dプレビュー用の専用コンテナを作成・挿入
+        let previewContainer = document.getElementById('map-proposal-preview-container');
+        if (!previewContainer) {
+            previewContainer = document.createElement('div');
+            previewContainer.id = 'map-proposal-preview-container';
+            previewContainer.style.cssText = 'width: 100%; height: 160px; background-color: #87CEEB; border-radius: 8px; margin: 10px 0; position: relative; overflow: hidden; flex-shrink: 0;';
+            
+            const hint = document.createElement('div');
+            hint.style.cssText = 'position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.5); color: white; font-size: 11px; padding: 3px 6px; border-radius: 4px; pointer-events: none; z-index: 10;';
+            hint.innerText = '↔ ドラッグで回転';
+            previewContainer.appendChild(hint);
+
+            const rulesEl = document.getElementById('mg-popup-rules');
+            if (rulesEl) rulesEl.parentNode.insertBefore(previewContainer, rulesEl);
+        }
+        
+        // Canvasをポップアップ側に移動してレンダリング再開
+        previewContainer.appendChild(this.preview.renderer.domElement);
+        this.preview.camera.aspect = previewContainer.clientWidth / previewContainer.clientHeight;
+        this.preview.camera.updateProjectionMatrix();
+        this.preview.renderer.setSize(previewContainer.clientWidth, previewContainer.clientHeight);
+
+        this.listIndex = window.MapList.findIndex(m => m.id === this.currentProposal.mapId);
+        if (this.listIndex === -1) this.listIndex = 0;
+        this.renderCurrentMap();
+        this.preview.isRunning = true;
+        this.animatePreview();
         
         const rulesEl = document.getElementById('mg-popup-rules');
-        if (rulesEl) rulesEl.innerText = "全員が承諾するか、60秒経過でマップが切り替わります。(1人でも拒否でキャンセル)";
+        if (rulesEl) rulesEl.innerText = "全員が承諾するか、時間経過でマップが切り替わります。(1人でも拒否でキャンセル)";
         
         const descEl = document.getElementById('mg-popup-desc');
         if (descEl) descEl.innerText = "マップが変更されると、全員が初期位置に戻り、アイテムはリセットされます。";
@@ -362,25 +396,39 @@ window.MapManager = {
         if (btnContainer) {
             btnContainer.innerHTML = '';
             
-            let hasVoted = false;
+            // 残り時間表示用要素
+            const remainEl = document.createElement('div');
+            remainEl.id = 'map-proposal-remain';
+            remainEl.style.cssText = 'color: #ffaa00; font-weight: bold; margin-bottom: 10px; text-align: center; font-size: 14px;';
+            btnContainer.appendChild(remainEl);
+            
             const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
-            if (this.currentProposal.votes[myId] !== undefined) {
-                hasVoted = true;
-            }
+            const isProposer = String(this.currentProposal.proposerId) === myId;
+            let hasVoted = this.currentProposal.votes[myId] !== undefined;
 
-            if (hasVoted) {
+            if (isProposer) {
+                // 申請者の場合は「取り下げ」ボタンを表示
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'mg-popup-btn decline'; // 赤色ボタンのスタイルを流用
+                cancelBtn.style.width = '100%';
+                cancelBtn.innerText = '申請を取り下げる';
+                cancelBtn.onclick = () => {
+                    this.sendMapCancel("申請者がマップ変更を取り下げました。");
+                };
+                btnContainer.appendChild(cancelBtn);
+            } else if (hasVoted) {
+                // 投票済みの他の人
                 const waitMsg = document.createElement('div');
-                waitMsg.style.color = '#ffcc00';
+                waitMsg.style.color = '#00ffff';
                 waitMsg.style.fontWeight = 'bold';
-                waitMsg.style.marginTop = '10px';
                 waitMsg.innerText = '他のプレイヤーの返答を待っています...';
                 btnContainer.appendChild(waitMsg);
             } else {
+                // 未投票の人
                 const joinBtn = document.createElement('button');
                 joinBtn.className = 'mg-popup-btn join';
                 joinBtn.innerText = '承諾する';
                 joinBtn.onclick = () => {
-                    popup.style.display = 'none';
                     if (typeof window.addLog === 'function') window.addLog('マップ変更を承諾しました。', 'sys');
                     this.sendVote(true);
                 };
@@ -389,16 +437,27 @@ window.MapManager = {
                 declineBtn.className = 'mg-popup-btn decline';
                 declineBtn.innerText = '拒否する';
                 declineBtn.onclick = () => {
-                    popup.style.display = 'none';
                     this.sendVote(false);
                 };
-                
                 btnContainer.appendChild(joinBtn);
                 btnContainer.appendChild(declineBtn);
             }
         }
         
         popup.style.display = 'flex';
+        
+        // ポップアップを閉じた時にアイコン表示を元に戻すフック
+        const closeBtn = document.getElementById('mg-popup-close');
+        if (closeBtn && !closeBtn.dataset.mapHooked) {
+            closeBtn.dataset.mapHooked = 'true';
+            closeBtn.addEventListener('click', () => {
+                if (iconEl) iconEl.style.display = 'block';
+                if (previewContainer && previewContainer.parentNode) {
+                    previewContainer.parentNode.removeChild(previewContainer);
+                }
+                this.preview.isRunning = false;
+            });
+        }
     },
 
     proposeMapChange: function() {
@@ -412,7 +471,6 @@ window.MapManager = {
             isMapChange: true,
             mapId: mapData.id,
             title: mapData.title + ' (マップ変更)',
-            icon: 'https://namnam2727.github.io/Fall_Gra/title.PNG',
             proposerId: myId,
             timestamp: timestamp,
             votes: { [myId]: true }
@@ -440,20 +498,8 @@ window.MapManager = {
                 window.MultiplayerManager.sendData({ type: 'map_propose', proposal: this.currentProposal });
             }
             
-            // 自分が申請した場合もポップアップを展開
-            this.showMapProposalPopup();
-            
-            this.proposeEndTime = timestamp + 60000;
-            const updateTimer = () => {
-                if (this.state !== 'PROPOSING') return;
-                const remain = Math.ceil((this.proposeEndTime - Date.now()) / 1000);
-                if (remain > 0) {
-                    requestAnimationFrame(updateTimer);
-                } else {
-                    this.checkVotes(true);
-                }
-            };
-            updateTimer();
+            // 申請者側はポップアップを自動では出さず、タイマーのみ開始する
+            this.startProposalTimer(timestamp);
         }
     },
 
@@ -469,8 +515,30 @@ window.MapManager = {
             mapBtn.classList.add('proposing');
         }
 
-        // 他プレイヤーから要求されたときにポップアップを展開
         this.showMapProposalPopup();
+        this.startProposalTimer(proposal.timestamp);
+    },
+
+    // 共通のタイマー処理（UI更新とタイムアウト監視）
+    startProposalTimer: function(startTimestamp) {
+        this.proposeEndTime = startTimestamp + 60000;
+        
+        const updateTimer = () => {
+            if (this.state !== 'PROPOSING') return;
+            
+            const remain = Math.ceil((this.proposeEndTime - Date.now()) / 1000);
+            const remainEl = document.getElementById('map-proposal-remain');
+            if (remainEl) {
+                remainEl.innerText = `残り時間: ${Math.max(0, remain)}秒`;
+            }
+            
+            if (remain > 0) {
+                requestAnimationFrame(updateTimer);
+            } else {
+                this.checkVotes(true);
+            }
+        };
+        updateTimer();
     },
 
     sendVote: function(isAgree) {
@@ -483,12 +551,17 @@ window.MapManager = {
         }
         
         if (!isAgree) {
-            this.cancelProposal("あなたがマップ変更を拒否したため、キャンセルされました。");
-            if (window.MultiplayerManager) window.MultiplayerManager.sendData({ type: 'map_cancel', reason: "メンバーがマップ変更を拒否したため、キャンセルされました。" });
+            this.sendMapCancel("あなたがマップ変更を拒否したため、キャンセルされました。");
         } else {
-            // UIを「待機中」に更新するため再描画
-            this.showMapProposalPopup();
+            this.showMapProposalPopup(); // UIを「待機中」に更新
             this.checkVotes();
+        }
+    },
+    
+    sendMapCancel: function(reason) {
+        this.cancelProposal(reason);
+        if (window.MultiplayerManager) {
+            window.MultiplayerManager.sendData({ type: 'map_cancel', reason: reason });
         }
     },
 
@@ -522,9 +595,18 @@ window.MapManager = {
         if (this.state === 'IDLE') return;
         this.state = 'IDLE';
         this.currentProposal = null;
+        this.preview.isRunning = false;
         
         const popup = document.getElementById('mg-proposal-popup');
         if (popup) popup.style.display = 'none';
+        
+        const iconEl = document.getElementById('mg-popup-icon');
+        if (iconEl) iconEl.style.display = 'block';
+        
+        const previewContainer = document.getElementById('map-proposal-preview-container');
+        if (previewContainer && previewContainer.parentNode) {
+            previewContainer.parentNode.removeChild(previewContainer);
+        }
         
         const mapBtn = document.getElementById('map-change-btn');
         if (mapBtn) {
@@ -535,13 +617,41 @@ window.MapManager = {
         if (typeof window.addLog === 'function') window.addLog(`<span style="color:#ff3300;">${reason}</span>`, 'sys');
     },
 
+    // ★ 初期化時や途中入室完了時に、暗転なしで即座にマップを作る関数
+    setupInitialMap: function(mapId) {
+        this.currentMapId = mapId;
+        this.state = 'IDLE';
+        this.currentProposal = null;
+
+        if (!window['MapData_' + mapId]) {
+            const mapData = window.MapList.find(m => m.id === mapId);
+            const scriptPath = mapData ? mapData.script : '';
+            if (window.loadGameScript && scriptPath) {
+                window.loadGameScript(scriptPath, () => { this.rebuildMapMesh(mapId); });
+            } else {
+                this.rebuildMapMesh(mapId);
+            }
+        } else {
+            this.rebuildMapMesh(mapId);
+        }
+    },
+
     executeMapChange: function(mapId) {
         this.state = 'IDLE';
         this.currentMapId = mapId;
         this.currentProposal = null;
+        this.preview.isRunning = false;
         
         const popup = document.getElementById('mg-proposal-popup');
         if (popup) popup.style.display = 'none';
+        
+        const iconEl = document.getElementById('mg-popup-icon');
+        if (iconEl) iconEl.style.display = 'block';
+        
+        const previewContainer = document.getElementById('map-proposal-preview-container');
+        if (previewContainer && previewContainer.parentNode) {
+            previewContainer.parentNode.removeChild(previewContainer);
+        }
         
         const mapBtn = document.getElementById('map-change-btn');
         if (mapBtn) {
@@ -606,7 +716,6 @@ window.MapManager = {
                 if (msg.vote === false) {
                     this.cancelProposal("メンバーがマップ変更を拒否したため、キャンセルされました。");
                 } else {
-                    // 誰かが投票したときもUIのステータスを更新
                     if (this.state === 'PROPOSING') this.showMapProposalPopup();
                     this.checkVotes();
                 }
@@ -614,7 +723,12 @@ window.MapManager = {
         } else if (msg.type === 'map_cancel') {
             this.cancelProposal(msg.reason);
         } else if (msg.type === 'map_sync_current') {
-            if (this.currentMapId !== msg.mapId && this.state !== 'PROPOSING') {
+            if (window.MultiplayerManager && window.MultiplayerManager.isSyncing) {
+                // 途中入室の同期中なら、即座にマップを構築してレイヤーを消す
+                clearTimeout(window.MultiplayerManager.syncTimeout);
+                this.setupInitialMap(msg.mapId);
+                window.MultiplayerManager.hideSyncOverlay();
+            } else if (this.currentMapId !== msg.mapId && this.state !== 'PROPOSING') {
                 this.executeMapChange(msg.mapId);
             }
         }

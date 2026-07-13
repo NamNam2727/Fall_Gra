@@ -1,7 +1,7 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★ 途中入室（Late-join）時の同期レイヤー呼び出しと初期化のロジックを追加
+// ★ マップ生成のタイミングを同期レイヤーの完了後、または一番最初の入室時に完全に分離しました
 // =====================================
 
 window.mapMesh = null; // グローバルなマップメッシュ参照
@@ -33,7 +33,6 @@ window.mainContext = {
     isDemo: false
 };
 
-// コンテキスト内のシーンから地形メッシュを取得
 function getTerrainMeshes(ctx) {
     let meshes = [];
     if (!ctx || !ctx.scene) return meshes;
@@ -79,45 +78,32 @@ window.initThreeJS = function() {
     dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
     scene.add(dirLight);
 
-    // 初期マップの生成
-    if (window.MapGenerator && typeof window.MapGenerator.createMesh === 'function') {
-        if (window.MapList && window.MapList.length > 0) {
-            const initialMapId = window.MapList[0].id;
-            window.MapGenerator.rawMapData = window['MapData_' + initialMapId];
-            if (window.MapManager) window.MapManager.currentMapId = initialMapId;
-        }
-        window.mapMesh = window.MapGenerator.createMesh();
-        scene.add(window.mapMesh);
-    }
-
     initPlayer();
     
-    if (window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
-        window.MapManager.respawnPlayer();
-    }
-
-    // ★追加: Multiplayerの初期化と「途中入室(Late-join)」の判定ロジック
+    // ★ 修正: ここでは即座にマップを作らず、入室順によって分岐させる
     if (window.MultiplayerManager) {
         window.MultiplayerManager.initExistingPlayers();
         
-        // 部屋に自分以外の他プレイヤーがいれば、自分が後から入室したということになる
+        // 自分以外に人がいれば「後から入室した」と判定
         const isLateJoin = Object.keys(window.MultiplayerManager.otherPlayers).length > 0;
         
         if (isLateJoin) {
-            // 同期用のブラックアウトレイヤーを表示し、現在情報を要求
-            window.MultiplayerManager.showSyncOverlay();
-            window.MultiplayerManager.requestPositions();
-            
-            // 3秒間誰も返信してこなかった場合はタイムアウトとして処理を継続
-            setTimeout(() => {
-                window.MultiplayerManager.hideSyncOverlay();
-            }, 3000);
+            // 同期レイヤーを出し、マップを作らずに待機
+            window.MultiplayerManager.startSync();
         } else {
-            // 自分が最初の1人の場合は少し待ってから開始を通知
+            // 自分が最初の一人なら、フェードなしで即座に初期マップを作る
+            if (window.MapManager && typeof window.MapManager.setupInitialMap === 'function') {
+                window.MapManager.setupInitialMap('default');
+            }
             setTimeout(() => {
                 window.MultiplayerManager.requestPositions();
                 window.MultiplayerManager.forceSendPos(); 
             }, 1000);
+        }
+    } else {
+        // オフライン・エラー時は即座に初期マップを作る
+        if (window.MapManager && typeof window.MapManager.setupInitialMap === 'function') {
+            window.MapManager.setupInitialMap('default');
         }
     }
 
@@ -146,6 +132,11 @@ window.onWindowResize = function() {
 
 window.animate = function() {
     requestAnimationFrame(window.animate);
+    
+    // ★追加: 途中入室の同期画面中はキャラクター等を動かさず完全に停止させる
+    if (window.MultiplayerManager && window.MultiplayerManager.isSyncing) {
+        return;
+    }
     
     const rawDelta = clock.getDelta();
     const delta = Math.min(rawDelta, 0.05); 
