@@ -1,10 +1,10 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★ 初期化時と落下時のリスポーン座標を MapManager から取得するように修正
+// ★ 途中入室（Late-join）時の同期レイヤー呼び出しと初期化のロジックを追加
 // =====================================
 
-window.mapMesh = null; // ★ グローバルなマップメッシュ参照
+window.mapMesh = null; // グローバルなマップメッシュ参照
 let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
@@ -79,7 +79,7 @@ window.initThreeJS = function() {
     dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
     scene.add(dirLight);
 
-    // ★ 初期マップの生成
+    // 初期マップの生成
     if (window.MapGenerator && typeof window.MapGenerator.createMesh === 'function') {
         if (window.MapList && window.MapList.length > 0) {
             const initialMapId = window.MapList[0].id;
@@ -92,17 +92,33 @@ window.initThreeJS = function() {
 
     initPlayer();
     
-    // ★ プレイヤーの初期位置をマップリストの設定で上書き
     if (window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
         window.MapManager.respawnPlayer();
     }
 
+    // ★追加: Multiplayerの初期化と「途中入室(Late-join)」の判定ロジック
     if (window.MultiplayerManager) {
         window.MultiplayerManager.initExistingPlayers();
-        setTimeout(() => {
+        
+        // 部屋に自分以外の他プレイヤーがいれば、自分が後から入室したということになる
+        const isLateJoin = Object.keys(window.MultiplayerManager.otherPlayers).length > 0;
+        
+        if (isLateJoin) {
+            // 同期用のブラックアウトレイヤーを表示し、現在情報を要求
+            window.MultiplayerManager.showSyncOverlay();
             window.MultiplayerManager.requestPositions();
-            window.MultiplayerManager.forceSendPos(); 
-        }, 1000);
+            
+            // 3秒間誰も返信してこなかった場合はタイムアウトとして処理を継続
+            setTimeout(() => {
+                window.MultiplayerManager.hideSyncOverlay();
+            }, 3000);
+        } else {
+            // 自分が最初の1人の場合は少し待ってから開始を通知
+            setTimeout(() => {
+                window.MultiplayerManager.requestPositions();
+                window.MultiplayerManager.forceSendPos(); 
+            }, 1000);
+        }
     }
 
     window.addEventListener('keydown', (e) => {
@@ -364,7 +380,6 @@ window.updatePlayer = function(delta, ctx = window.mainContext) {
         }
         
         if (ctx.player.position.y < -30) {
-            // ★ 落下時のリスポーン先を MapManager から取得して適用
             if (!ctx.isDemo && window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
                 window.MapManager.respawnPlayer();
             } else {

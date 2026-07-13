@@ -1,7 +1,8 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★ホストの概念を廃止。全員が各自のマップ情報を一斉返信し、受信側でガードする仕様に修正
+// ★ 途中入室者向けの「マップ同期レイヤー」の表示・非表示機能を追加
+// ★ 入室を検知した際にマップ変更の申請をキャンセルする処理を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -9,6 +10,10 @@ window.MultiplayerManager = {
     lastSentPos: { x: 0, y: 0, z: 0 },
     lastSendTime: 0,
     sendInterval: 100, 
+    
+    // ★追加: 途中入室用同期レイヤー
+    syncOverlay: null,
+    isSyncing: false,
 
     initUI: function() {
         const style = document.createElement('style');
@@ -253,6 +258,33 @@ window.MultiplayerManager = {
         memberWindow.addEventListener('touchstart', preventTouch, {passive: false});
     },
 
+    // ★追加: 途中入室用オーバーレイの表示関数
+    showSyncOverlay: function() {
+        if (this.isSyncing) return;
+        this.isSyncing = true;
+        this.syncOverlay = document.createElement('div');
+        this.syncOverlay.id = 'room-sync-overlay';
+        this.syncOverlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background: #000; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#fff; font-family:sans-serif; transition: opacity 0.5s ease;';
+        this.syncOverlay.innerHTML = '<div style="font-size:24px; font-weight:bold; color:#00ffff; margin-bottom: 20px;">ルーム情報を同期中...</div><div class="loader-spinner" style="width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #00ffff; border-radius: 50%; animation: spin 1s linear infinite;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+        document.body.appendChild(this.syncOverlay);
+    },
+
+    // ★追加: 途中入室用オーバーレイの非表示関数
+    hideSyncOverlay: function() {
+        if (!this.isSyncing) return;
+        this.isSyncing = false;
+        if (this.syncOverlay) {
+            this.syncOverlay.style.opacity = '0';
+            setTimeout(() => {
+                if (this.syncOverlay && this.syncOverlay.parentNode) {
+                    this.syncOverlay.parentNode.removeChild(this.syncOverlay);
+                }
+                this.syncOverlay = null;
+            }, 500);
+        }
+        this.forceSendPos(); // 同期完了時に自分の位置を送信開始
+    },
+
     sendData: function(data) {
         if (typeof window.sendMultiplayerMessage === 'function') {
             window.sendMultiplayerMessage(data);
@@ -335,6 +367,11 @@ window.MultiplayerManager = {
             }
             this.forceSendPos();
             
+            // ★追加: 途中入室があった際に、マップ変更申請中だった場合は自動キャンセル
+            if (window.MapManager && window.MapManager.state === 'PROPOSING') {
+                window.MapManager.cancelProposal("途中入室者がいたためマップ変更を取り下げました。");
+            }
+            
         } else if (type === 'aitools_game_exitroom') {
             const userName = data.user_name || data.name || '誰か';
             if (typeof window.addLog === 'function') {
@@ -349,6 +386,12 @@ window.MultiplayerManager = {
         } else if (type === 'aitools_game_sendmsg') {
             try {
                 const msgData = JSON.parse(data.msg_data);
+                
+                // ★追加: 他のプレイヤーから何らかの返答が来たら、同期レイヤーを消す
+                if (this.isSyncing && msgData.type !== 'pos_req') {
+                    // 他のデータ（map_sync等）の処理が終わってから消すため少し遅延させる
+                    setTimeout(() => this.hideSyncOverlay(), 100);
+                }
                 
                 if (msgData.type === 'move') {
                     this.updatePlayerPos(data.user_id, msgData);
@@ -370,10 +413,8 @@ window.MultiplayerManager = {
                         this.sendData({ type: 'mg_spectator', isSpectator: true });
                     }
                     
-                    // ★追加: 後から入室したプレイヤーへ現在のマップ情報を同期
-                    // ホストという概念がないため、入室リクエストを受けた全員が一斉に返信する
-                    // 重複しても map_manager 側で弾かれるため安全
-                    if (window.MapManager && window.MapManager.currentMapId !== 'default') {
+                    // 現在のマップ情報を同期 (初期マップであっても確実に送る)
+                    if (window.MapManager) {
                         this.sendData({
                             type: 'map_sync_current',
                             mapId: window.MapManager.currentMapId
@@ -421,7 +462,6 @@ window.MultiplayerManager = {
                         window.ItemSystem.handleNetworkMessage(msgData);
                     }
                 } else if (msgData.type.startsWith('map_')) {
-                    // ★追加: マップマネージャーへのルーティング
                     if (window.MapManager) {
                         window.MapManager.handleNetworkMessage(msgData);
                     }
