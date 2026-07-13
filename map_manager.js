@@ -1,8 +1,7 @@
 // =====================================
 // map_manager.js
 // マップ変更UI、3Dプレビュー、同期と暗転演出を管理
-// ★ ミニゲームUIの使い回しを廃止し、マップ変更専用のポップアップUIを独立して実装
-// ★ レイアウト（❌ボタン、タイマー、ボタン配置）の完全修正
+// ★ マップ変更ボタンのサイズを、右上の「ミニゲーム」ボタン等と統一
 // =====================================
 
 window.MapManager = {
@@ -23,11 +22,11 @@ window.MapManager = {
         const style = document.createElement('style');
         style.innerHTML = `
             #map-change-btn {
-                position: absolute; left: 10px; padding: 6px 12px;
+                position: absolute; left: 10px; padding: 8px 16px;
                 background: rgba(40, 40, 60, 0.85); border: 2px solid rgba(100, 200, 255, 0.9);
                 border-radius: 8px; color: #fff; font-weight: bold; font-family: sans-serif;
-                font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); pointer-events: auto;
-                cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); z-index: 90;
+                font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); pointer-events: auto;
+                cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); z-index: 100;
                 display: flex; justify-content: center; align-items: center; transition: 0.2s;
             }
             #map-change-btn:active { background: rgba(40, 40, 60, 1.0); transform: scale(0.95); }
@@ -65,7 +64,7 @@ window.MapManager = {
             #map-start-btn:active { transform: scale(0.98); background: #45a049; }
             #map-start-btn:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
 
-            /* ★追加: マップ変更「申請用」の独立ポップアップ */
+            /* マップ変更「申請用」の独立ポップアップ */
             #map-proposal-popup {
                 position: absolute; top: 0; left: 0; width: 100%; height: 100%;
                 background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center;
@@ -101,14 +100,14 @@ window.MapManager = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
 
-        // 1. 左上のマップ変更ボタン
+        // 左上のマップ変更ボタン
         const mapBtn = document.createElement('div');
         mapBtn.id = 'map-change-btn';
         mapBtn.innerText = 'マップ変更';
         mapBtn.style.top = (topExclusionHeight + 15) + 'px';
         uiLayer.appendChild(mapBtn);
 
-        // 2. マップ選択ウィンドウ (自分で選ぶ用)
+        // マップ選択ウィンドウ (自分で選ぶ用)
         const mapWindow = document.createElement('div');
         mapWindow.id = 'map-window';
         mapWindow.innerHTML = `
@@ -131,7 +130,7 @@ window.MapManager = {
         `;
         uiLayer.appendChild(mapWindow);
 
-        // 3. マップ変更申請専用ポップアップ
+        // マップ変更申請専用ポップアップ
         const proposalPopup = document.createElement('div');
         proposalPopup.id = 'map-proposal-popup';
         proposalPopup.innerHTML = `
@@ -393,7 +392,6 @@ window.MapManager = {
     // 申請と同期のシステム
     // ==========================================
     
-    // ★ 独立したマップ申請ポップアップを開く
     showMapProposalPopup: function() {
         const popup = document.getElementById('map-proposal-popup');
         if (!popup || !this.currentProposal) return;
