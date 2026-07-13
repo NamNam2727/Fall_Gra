@@ -1,7 +1,7 @@
 // =====================================
 // map_manager.js
 // マップ変更UI、3Dプレビュー、同期と暗転演出を管理
-// ★ 申請時のUIを大幅改良。3Dプレビューの共有、申請者向けタイマーと取り下げボタンの実装。
+// ★ ❌ボタンの追加、3Dプレビューの確実な描画、タイマー周りのUI調整
 // =====================================
 
 window.MapManager = {
@@ -50,7 +50,7 @@ window.MapManager = {
                 width: 100%; height: 220px; background: #87CEEB; position: relative;
                 border-bottom: 2px solid #555; overflow: hidden; flex-shrink: 0;
             }
-            .map-preview-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.5); color: white; font-size: 11px; padding: 3px 6px; border-radius: 4px; pointer-events: none; }
+            .map-preview-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.5); color: white; font-size: 11px; padding: 3px 6px; border-radius: 4px; pointer-events: none; z-index: 10; }
 
             .map-info-area { flex: 1; padding: 15px; display: flex; flex-direction: column; overflow-y: auto; }
             .map-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -84,7 +84,7 @@ window.MapManager = {
         mapBtn.style.top = (topExclusionHeight + 15) + 'px';
         uiLayer.appendChild(mapBtn);
 
-        // マップ選択ウィンドウ
+        // マップ選択ウィンドウ (自分で選ぶ用)
         const mapWindow = document.createElement('div');
         mapWindow.id = 'map-window';
         mapWindow.innerHTML = `
@@ -120,7 +120,7 @@ window.MapManager = {
             if (window.MinigameManager && window.MinigameManager.state !== 'IDLE') return;
             
             if (this.state === 'PROPOSING') {
-                this.showMapProposalPopup(); // 申請中なら詳細ポップアップを展開
+                this.showMapProposalPopup();
             } else {
                 this.openSelector();
             }
@@ -129,7 +129,7 @@ window.MapManager = {
         mapWindow.addEventListener('mousedown', preventTouch);
         mapWindow.addEventListener('touchstart', preventTouch, {passive: false});
         
-        // ❌ボタンが確実に効くように修正
+        // 通常のマップウィンドウの閉じるボタン
         const closeBtn = mapWindow.querySelector('#map-close-btn');
         closeBtn.addEventListener('click', () => { this.closeSelector(); });
         closeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); this.closeSelector(); }, {passive: false});
@@ -174,7 +174,6 @@ window.MapManager = {
         dirLight.position.set(20, 40, 20);
         this.preview.scene.add(dirLight);
 
-        // 3Dプレビューキャンバス本体にドラッグイベントを登録
         const dom = this.preview.renderer.domElement;
         dom.style.position = 'absolute';
         dom.style.top = '0';
@@ -209,15 +208,17 @@ window.MapManager = {
         this.listIndex = window.MapList.findIndex(m => m.id === this.currentMapId);
         if (this.listIndex === -1) this.listIndex = 0;
         
-        // メインのプレビューエリアにCanvasを追加
         const container = document.getElementById('map-preview-area');
         container.appendChild(this.preview.renderer.domElement);
         
-        const w = container.clientWidth;
-        const h = container.clientHeight;
-        this.preview.camera.aspect = w / h;
-        this.preview.camera.updateProjectionMatrix();
-        this.preview.renderer.setSize(w, h);
+        // UIが展開されてサイズが確定してからリサイズ処理を行う
+        setTimeout(() => {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            this.preview.camera.aspect = w / h;
+            this.preview.camera.updateProjectionMatrix();
+            this.preview.renderer.setSize(w, h);
+        }, 10);
 
         this.preview.isRunning = true;
         this.renderCurrentMap();
@@ -282,7 +283,6 @@ window.MapManager = {
         if (!this.preview.isRunning) return;
         this.preview.reqId = requestAnimationFrame(() => this.animatePreview());
 
-        // 現在表示中のマップデータからサイズを取得して拡大率を計算
         const mapDataInfo = window.MapList[this.listIndex];
         let mapW = 21, mapD = 21;
         if (mapDataInfo && window['MapData_' + mapDataInfo.id]) {
@@ -346,19 +346,42 @@ window.MapManager = {
     // 申請と同期のシステム
     // ==========================================
     
-    // ★ 申請時のUIを専用に上書き構築する（3Dプレビューとボタン制御）
     showMapProposalPopup: function() {
         const popup = document.getElementById('mg-proposal-popup');
         if (!popup || !this.currentProposal) return;
         
+        // ヘッダーに❌ボタンを追加（ミニゲーム側で既に存在する場合は再利用）
+        const headerEl = popup.querySelector('.mg-popup-header');
+        if (headerEl) {
+            let closeBtn = document.getElementById('mg-popup-close-btn');
+            if (!closeBtn) {
+                closeBtn = document.createElement('button');
+                closeBtn.id = 'mg-popup-close-btn';
+                closeBtn.innerText = '❌';
+                closeBtn.style.cssText = 'background: none; border: none; color: white; font-size: 20px; cursor: pointer; font-weight: bold; padding: 0 5px;';
+                // mg-popup-title の横に配置
+                headerEl.style.display = 'flex';
+                headerEl.style.justifyContent = 'space-between';
+                headerEl.appendChild(closeBtn);
+            }
+            
+            // ❌ボタンのイベント（マップ申請中はUIを閉じるだけで、申請自体はキャンセルしない）
+            closeBtn.onclick = () => {
+                popup.style.display = 'none';
+                this.preview.isRunning = false;
+                const dom = this.preview.renderer.domElement;
+                if (dom.parentNode) dom.parentNode.removeChild(dom);
+            };
+        }
+
         const titleEl = document.getElementById('mg-popup-title');
         if (titleEl) titleEl.innerText = this.currentProposal.title;
         
-        // デフォルトのアイコンを非表示にする
+        // アイコン非表示
         const iconEl = document.getElementById('mg-popup-icon');
         if (iconEl) iconEl.style.display = 'none';
         
-        // 3Dプレビュー用の専用コンテナを作成・挿入
+        // プレビューコンテナの作成
         let previewContainer = document.getElementById('map-proposal-preview-container');
         if (!previewContainer) {
             previewContainer = document.createElement('div');
@@ -374,11 +397,17 @@ window.MapManager = {
             if (rulesEl) rulesEl.parentNode.insertBefore(previewContainer, rulesEl);
         }
         
-        // Canvasをポップアップ側に移動してレンダリング再開
         previewContainer.appendChild(this.preview.renderer.domElement);
-        this.preview.camera.aspect = previewContainer.clientWidth / previewContainer.clientHeight;
-        this.preview.camera.updateProjectionMatrix();
-        this.preview.renderer.setSize(previewContainer.clientWidth, previewContainer.clientHeight);
+        
+        setTimeout(() => {
+            const w = previewContainer.clientWidth;
+            const h = previewContainer.clientHeight;
+            if (w > 0 && h > 0) {
+                this.preview.camera.aspect = w / h;
+                this.preview.camera.updateProjectionMatrix();
+                this.preview.renderer.setSize(w, h);
+            }
+        }, 10);
 
         this.listIndex = window.MapList.findIndex(m => m.id === this.currentProposal.mapId);
         if (this.listIndex === -1) this.listIndex = 0;
@@ -396,10 +425,10 @@ window.MapManager = {
         if (btnContainer) {
             btnContainer.innerHTML = '';
             
-            // 残り時間表示用要素
+            // 残り時間表示と改行（余白）
             const remainEl = document.createElement('div');
             remainEl.id = 'map-proposal-remain';
-            remainEl.style.cssText = 'color: #ffaa00; font-weight: bold; margin-bottom: 10px; text-align: center; font-size: 14px;';
+            remainEl.style.cssText = 'color: #ffaa00; font-weight: bold; margin-bottom: 20px; text-align: center; font-size: 14px;';
             btnContainer.appendChild(remainEl);
             
             const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
@@ -407,9 +436,8 @@ window.MapManager = {
             let hasVoted = this.currentProposal.votes[myId] !== undefined;
 
             if (isProposer) {
-                // 申請者の場合は「取り下げ」ボタンを表示
                 const cancelBtn = document.createElement('button');
-                cancelBtn.className = 'mg-popup-btn decline'; // 赤色ボタンのスタイルを流用
+                cancelBtn.className = 'mg-popup-btn decline'; 
                 cancelBtn.style.width = '100%';
                 cancelBtn.innerText = '申請を取り下げる';
                 cancelBtn.onclick = () => {
@@ -417,14 +445,12 @@ window.MapManager = {
                 };
                 btnContainer.appendChild(cancelBtn);
             } else if (hasVoted) {
-                // 投票済みの他の人
                 const waitMsg = document.createElement('div');
                 waitMsg.style.color = '#00ffff';
                 waitMsg.style.fontWeight = 'bold';
                 waitMsg.innerText = '他のプレイヤーの返答を待っています...';
                 btnContainer.appendChild(waitMsg);
             } else {
-                // 未投票の人
                 const joinBtn = document.createElement('button');
                 joinBtn.className = 'mg-popup-btn join';
                 joinBtn.innerText = '承諾する';
@@ -446,11 +472,10 @@ window.MapManager = {
         
         popup.style.display = 'flex';
         
-        // ポップアップを閉じた時にアイコン表示を元に戻すフック
-        const closeBtn = document.getElementById('mg-popup-close');
-        if (closeBtn && !closeBtn.dataset.mapHooked) {
-            closeBtn.dataset.mapHooked = 'true';
-            closeBtn.addEventListener('click', () => {
+        const mgCloseBtn = document.getElementById('mg-popup-close');
+        if (mgCloseBtn && !mgCloseBtn.dataset.mapHooked) {
+            mgCloseBtn.dataset.mapHooked = 'true';
+            mgCloseBtn.addEventListener('click', () => {
                 if (iconEl) iconEl.style.display = 'block';
                 if (previewContainer && previewContainer.parentNode) {
                     previewContainer.parentNode.removeChild(previewContainer);
@@ -498,7 +523,7 @@ window.MapManager = {
                 window.MultiplayerManager.sendData({ type: 'map_propose', proposal: this.currentProposal });
             }
             
-            // 申請者側はポップアップを自動では出さず、タイマーのみ開始する
+            // 申請者はタイマーのみ開始 (UIは「マップ詳細」を押すまで出さない)
             this.startProposalTimer(timestamp);
         }
     },
@@ -519,7 +544,6 @@ window.MapManager = {
         this.startProposalTimer(proposal.timestamp);
     },
 
-    // 共通のタイマー処理（UI更新とタイムアウト監視）
     startProposalTimer: function(startTimestamp) {
         this.proposeEndTime = startTimestamp + 60000;
         
@@ -553,7 +577,7 @@ window.MapManager = {
         if (!isAgree) {
             this.sendMapCancel("あなたがマップ変更を拒否したため、キャンセルされました。");
         } else {
-            this.showMapProposalPopup(); // UIを「待機中」に更新
+            this.showMapProposalPopup(); 
             this.checkVotes();
         }
     },
@@ -614,10 +638,13 @@ window.MapManager = {
             mapBtn.innerText = 'マップ変更';
         }
         
+        // ❌ボタンもリセット
+        const closeBtn = document.getElementById('mg-popup-close-btn');
+        if (closeBtn) closeBtn.remove();
+        
         if (typeof window.addLog === 'function') window.addLog(`<span style="color:#ff3300;">${reason}</span>`, 'sys');
     },
 
-    // ★ 初期化時や途中入室完了時に、暗転なしで即座にマップを作る関数
     setupInitialMap: function(mapId) {
         this.currentMapId = mapId;
         this.state = 'IDLE';
@@ -658,6 +685,9 @@ window.MapManager = {
             mapBtn.classList.remove('proposing');
             mapBtn.innerText = 'マップ変更';
         }
+
+        const closeBtn = document.getElementById('mg-popup-close-btn');
+        if (closeBtn) closeBtn.remove();
 
         const overlay = document.getElementById('map-fade-overlay');
         overlay.style.opacity = '1';
@@ -724,7 +754,6 @@ window.MapManager = {
             this.cancelProposal(msg.reason);
         } else if (msg.type === 'map_sync_current') {
             if (window.MultiplayerManager && window.MultiplayerManager.isSyncing) {
-                // 途中入室の同期中なら、即座にマップを構築してレイヤーを消す
                 clearTimeout(window.MultiplayerManager.syncTimeout);
                 this.setupInitialMap(msg.mapId);
                 window.MultiplayerManager.hideSyncOverlay();
