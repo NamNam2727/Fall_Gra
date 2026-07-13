@@ -1,20 +1,17 @@
 // =====================================
 // main.js
 // 水平Raycasterを用いた正確な壁・坂道判定と姿勢制御
-// ★オートカメラ: クアッド(4点)レイキャストを導入し、斜め後ろの壁によるグラグラも完全解消
-// ★カメラ操作: スライダー10〜100は以前の計算式を完全維持し、0〜10のみスレスレ貫通ズームを追加
-// ★リファクタリング: コンテキスト(Context)ベースのアーキテクチャへ移行し、
-//   How To Playなどの別空間でも本編ロジックを100%再利用可能にしました。
+// ★初期マップの生成ロジックを map_list.js に依存する形に変更
 // =====================================
 
-let mapMesh;
+window.mapMesh = null; // ★ グローバルなマップメッシュ参照
 let raycaster = new THREE.Raycaster();
 let downVector = new THREE.Vector3(0, -1, 0);
 
 window.currentFacingAngle = 0; 
 
 // ==========================================
-// 本編用コンテキスト (グローバル変数のラッピング)
+// 本編用コンテキスト
 // ==========================================
 window.mainContext = {
     get player() { return player; },
@@ -82,9 +79,15 @@ window.initThreeJS = function() {
     dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
     scene.add(dirLight);
 
+    // ★ 初期マップの生成
     if (window.MapGenerator && typeof window.MapGenerator.createMesh === 'function') {
-        mapMesh = window.MapGenerator.createMesh();
-        scene.add(mapMesh);
+        if (window.MapList && window.MapList.length > 0) {
+            const initialMapId = window.MapList[0].id;
+            window.MapGenerator.rawMapData = window['MapData_' + initialMapId];
+            if (window.MapManager) window.MapManager.currentMapId = initialMapId;
+        }
+        window.mapMesh = window.MapGenerator.createMesh();
+        scene.add(window.mapMesh);
     }
 
     initPlayer();
@@ -167,15 +170,11 @@ function getGroundInfo(terrainMeshes, playerPosition, pRadius, myStepHeight) {
     return { currentGroundY, groundNormal };
 }
 
-// ==========================================
-// コアロジック: プレイヤーの更新 (Context依存)
-// ==========================================
 window.updatePlayer = function(delta, ctx = window.mainContext) {
     const rotationSpeed = 12; 
     let pRadius = typeof playerRadius !== 'undefined' ? playerRadius : 1.2;
     let myStepHeight = typeof stepHeight !== 'undefined' ? stepHeight : 1.5;
     
-    // デモではチャット吹き出しの処理をスキップ
     if (!ctx.isDemo && ctx.player && ctx.player.chatTimer > 0) {
         ctx.player.chatTimer -= delta;
         if (ctx.player.chatTimer <= 0 && ctx.player.chatSprite) {
@@ -220,7 +219,6 @@ window.updatePlayer = function(delta, ctx = window.mainContext) {
 
     let isFalling = (ctx.isJumping && ctx.player.position.y > currentGroundY + 3.0);
 
-    // デモでは他プレイヤーとの衝突判定をスキップ
     if (!ctx.isDemo && window.MultiplayerManager && !isFalling && !ctx.isSpectatorMode) {
         const others = window.MultiplayerManager.otherPlayers;
         for (let id in others) {
@@ -379,7 +377,6 @@ window.updatePlayer = function(delta, ctx = window.mainContext) {
     ctx.player.quaternion.slerp(tiltQuat.multiply(rotQuat), rotationSpeed * delta);
 };
 
-// スライダー値からカメラ位置を計算する関数 (Contextのパラメータを優先)
 function getCameraPosBySlider(val, cAngle, playerPos, ctx) {
     let baseDist = (ctx && typeof ctx.cameraDistance !== 'undefined') ? ctx.cameraDistance : (typeof cameraDistance !== 'undefined' ? cameraDistance : 5);
     let baseHeight = (ctx && typeof ctx.cameraHeight !== 'undefined') ? ctx.cameraHeight : (typeof cameraHeight !== 'undefined' ? cameraHeight : 15);
@@ -409,9 +406,6 @@ function getCameraPosBySlider(val, cAngle, playerPos, ctx) {
     );
 }
 
-// ==========================================
-// コアロジック: カメラの更新 (Context依存)
-// ==========================================
 window.updateCamera = function(instant, delta = 0.016, ctx = window.mainContext) {
     let cAngle = ctx.cameraAngle || 0;
     
@@ -498,7 +492,6 @@ window.updateCamera = function(instant, delta = 0.016, ctx = window.mainContext)
         }
     }
 
-    // ★修正箇所：引数に ctx.player.position を渡し忘れていたためNaNになり落ちていたバグを修正
     const targetCamPos = getCameraPosBySlider(ctx.cameraSliderValue, cAngle, ctx.player.position, ctx);
     
     if (instant) ctx.camera.position.copy(targetCamPos);
@@ -508,3 +501,5 @@ window.updateCamera = function(instant, delta = 0.016, ctx = window.mainContext)
     lookTarget.y += 1.0;
     ctx.camera.lookAt(lookTarget);
 };
+
+

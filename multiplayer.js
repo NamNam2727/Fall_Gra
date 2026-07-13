@@ -1,7 +1,7 @@
 // =========================================================
 // multiplayer.js
 // メンバーリストUIの生成とマルチプレイ管理
-// ★途中入室者にtargetEndTimeを含めたゲーム情報を送信し、各プレイヤーからスコア共有も送るように修正
+// ★ホストの概念を廃止。全員が各自のマップ情報を一斉返信し、受信側でガードする仕様に修正
 // =========================================================
 
 window.MultiplayerManager = {
@@ -113,23 +113,16 @@ window.MultiplayerManager = {
                 const item = document.createElement('div');
                 item.className = 'member-item';
                 
-                // ★追加: タップできるようにカーソルを変更し、プロフィール遷移処理を組み込む
                 item.style.cursor = 'pointer';
                 item.addEventListener('click', () => {
                     const uidStr = String(user.user_id);
-                    if (uidStr === 'local') return; // テストユーザーの場合は遷移しない
+                    if (uidStr === 'local') return; 
                     
                     const uid = Number(user.user_id);
                     if (!uid || isNaN(uid)) return;
 
                     const webUrl = "https://www.gravity.place/user/" + uid;
-                    const paramObj = {
-                        uid: uid,
-                        selectedIndex: 0,
-                        web_url: webUrl,
-                        s: "web",
-                        b: "user"
-                    };
+                    const paramObj = { uid: uid, selectedIndex: 0, web_url: webUrl, s: "web", b: "user" };
                     const innerUrl = "usercenter?0=" + encodeURIComponent(JSON.stringify(paramObj));
                     const deepLink = "slme://internal?type=5&ani=1&url=" + encodeURIComponent(innerUrl);
 
@@ -376,6 +369,16 @@ window.MultiplayerManager = {
                     if (window.isSpectatorMode) {
                         this.sendData({ type: 'mg_spectator', isSpectator: true });
                     }
+                    
+                    // ★追加: 後から入室したプレイヤーへ現在のマップ情報を同期
+                    // ホストという概念がないため、入室リクエストを受けた全員が一斉に返信する
+                    // 重複しても map_manager 側で弾かれるため安全
+                    if (window.MapManager && window.MapManager.currentMapId !== 'default') {
+                        this.sendData({
+                            type: 'map_sync_current',
+                            mapId: window.MapManager.currentMapId
+                        });
+                    }
 
                     if (window.MinigameManager && window.MinigameManager.state !== 'IDLE' && window.MinigameManager.currentProposal) {
                         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
@@ -384,13 +387,12 @@ window.MultiplayerManager = {
                                 type: 'mg_sync_state',
                                 state: window.MinigameManager.state,
                                 targetStartTime: window.MinigameManager.targetStartTime,
-                                targetEndTime: window.MinigameManager.targetEndTime, // ★追加
+                                targetEndTime: window.MinigameManager.targetEndTime,
                                 proposal: window.MinigameManager.currentProposal,
                                 votes: window.MinigameManager.currentProposal.votes
                             });
                         }
                         
-                        // ★追加: プレイ中なら各自が自分のスコアを送信
                         if (window.MinigameManager.state === 'PLAYING') {
                             if (typeof window.MinigameManager.replyMyScore === 'function') {
                                 window.MinigameManager.replyMyScore();
@@ -417,6 +419,11 @@ window.MultiplayerManager = {
                 } else if (msgData.type.startsWith('item_')) {
                     if (window.ItemSystem) {
                         window.ItemSystem.handleNetworkMessage(msgData);
+                    }
+                } else if (msgData.type.startsWith('map_')) {
+                    // ★追加: マップマネージャーへのルーティング
+                    if (window.MapManager) {
+                        window.MapManager.handleNetworkMessage(msgData);
                     }
                 } else if (msgData.type.startsWith('mg_')) {
                     if (window.MinigameManager) {
@@ -534,4 +541,5 @@ window.onMultiplayerMessage = function(payload) {
         window.MultiplayerManager.handleMessage(payload);
     }
 };
+
 

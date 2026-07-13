@@ -1,8 +1,7 @@
 // =====================================
 // loader.js
 // ゲームに必要な全JSファイルを順番に読み込み、初期化する
-// ★ minigame_manager を3つ(sync, flow, core)に分割して読み込むよう修正
-// ★ 読み込み中にプログレスバー(ローディングUI)を表示する機能を追加
+// ★ map.js を廃止し、map_list.js と map_manager.js、デフォルトマップデータに入れ替え
 // =====================================
 
 (function() {
@@ -15,13 +14,15 @@
         'ui.js',
         'chat_system.js',
         'minigame_list.js',
-        'minigame_sync.js',     // ★ 1/3
-        'minigame_flow.js',     // ★ 2/3
-        'minigame_core.js',     // ★ 3/3
+        'minigame_sync.js',
+        'minigame_flow.js',
+        'minigame_core.js',
         'minigame_ui.js',
-        'how_to_play.js',       // ★追加: あそびかたUI
+        'how_to_play.js',
+        'map_list.js',             // ★ 追加: マップリスト
+        'maps/map_default.js',     // ★ 追加: 初期マップデータ
         'mapGenerator.js',
-        'map.js',
+        'map_manager.js',          // ★ 追加: マップマネージャー
         'player.js',
         'input.js',
         'item_system.js',
@@ -37,10 +38,8 @@
     // ==========================================
     const loadingScreen = document.createElement('div');
     loadingScreen.id = 'game-loading-screen';
-    // 背景を画像に変更
     loadingScreen.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background: url('https://namnam2727.github.io/Fall_Gra/title.PNG') center/cover no-repeat; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#fff; font-family:sans-serif; transition: opacity 0.5s ease;";
     
-    // 半透明の枠（パネル）を作成
     const panel = document.createElement('div');
     panel.style.cssText = 'background: rgba(0, 0, 0, 0.7); border: 1px solid #555; border-radius: 12px; padding: 30px 40px; display: flex; flex-direction: column; align-items: center; width: 80%; max-width: 400px; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5);';
 
@@ -49,7 +48,6 @@
     title.style.cssText = 'font-size:32px; margin-bottom:20px; color:#ffaa00; text-shadow:0 0 10px rgba(255,170,0,0.8); margin-top:0; text-align: center;';
     
     const barContainer = document.createElement('div');
-    // パネルの幅に合わせて width:100% に変更
     barContainer.style.cssText = 'width:100%; height:12px; background:#333; border-radius:6px; overflow:hidden; margin-bottom:15px; box-shadow:inset 0 2px 4px rgba(0,0,0,0.8); border: 2px solid #555;';
     
     const barFill = document.createElement('div');
@@ -60,13 +58,9 @@
     progressText.innerText = `0 / ${coreScripts.length} scripts loaded`;
 
     barContainer.appendChild(barFill);
-    
-    // パネルの中に要素を追加
     panel.appendChild(title);
     panel.appendChild(barContainer);
     panel.appendChild(progressText);
-    
-    // 画面全体にパネルを追加
     loadingScreen.appendChild(panel);
     document.body.appendChild(loadingScreen);
 
@@ -80,7 +74,6 @@
         if (src.startsWith('http')) {
             script.src = src;
         } else {
-            // キャッシュ対策でタイムスタンプを付与
             script.src = baseURL + src + '?v=' + new Date().getTime(); 
         }
         
@@ -99,17 +92,13 @@
         if (loadedCount < coreScripts.length) {
             window.loadGameScript(coreScripts[loadedCount], () => {
                 loadedCount++;
-                
-                // UIのプログレスバーを更新
                 const percentage = Math.floor((loadedCount / coreScripts.length) * 100);
                 barFill.style.width = percentage + '%';
                 progressText.innerText = `${loadedCount} / ${coreScripts.length} scripts loaded`;
-
                 loadNext();
             });
         } else {
             console.log('All core scripts loaded. Initializing game...');
-            // 少しだけ待ってから（プログレスバーが100%になるのを見せてから）起動
             setTimeout(startGame, 300);
         }
     }
@@ -119,11 +108,10 @@
             if (typeof window.animate !== 'function' && typeof animate !== 'function') {
                 const errMsg = 'Error: main.js の初期化関数(animate)が見つかりません。';
                 console.error(errMsg);
-                document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:10px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px;">${errMsg}</div>`;
+                document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:10px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px;\">${errMsg}</div>`;
                 return;
             }
 
-            // 各種初期化関数の呼び出し
             if (typeof window.initUI === 'function') window.initUI();
             else if (typeof initUI === 'function') initUI();
             
@@ -136,11 +124,9 @@
             if (typeof window.setupInputs === 'function') window.setupInputs();
             else if (typeof setupInputs === 'function') setupInputs();
 
-            // アニメーションループの開始
             const animFunc = typeof window.animate === 'function' ? window.animate : animate;
             requestAnimationFrame(animFunc);
             
-            // 全ての起動処理が成功したら、ローディング画面をフェードアウトして消す
             loadingScreen.style.opacity = '0';
             setTimeout(() => {
                 if (loadingScreen.parentNode) {
@@ -149,11 +135,12 @@
             }, 500);
             
         } catch (e) {
-            document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:60px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px;">起動エラー: ${e.message}</div>`;
+            document.body.innerHTML += `<div style="color:red; font-weight:bold; position:absolute; z-index:9999; top:60px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px;\">起動エラー: ${e.message}</div>`;
             console.error(e);
         }
     }
 
-    // 読み込み開始
     loadNext();
 })();
+
+

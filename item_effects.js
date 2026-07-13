@@ -1,6 +1,7 @@
 // =====================================
 // item_effects.js
 // 取得したアイテムの具体的な効果や動作、アニメーションを管理する
+// ★ Terrain（地形）メッシュの取得元を window.mapMesh に統一
 // =====================================
 
 window.ItemEffects = {
@@ -16,22 +17,17 @@ window.ItemEffects = {
         }
     },
 
-    // アイテムが使用された際の分岐
     use: function(itemName, pos, isOriginator) {
         if (itemName === 'fly') this.startFly();
         else if (itemName === 'bomb') this.placeBomb(pos, isOriginator);
         else if (itemName === 'net') this.placeNet(pos, isOriginator);
     },
 
-    // 通信で他人のアイテム使用を受信した際の分岐
     handleNetwork: function(msgData) {
         if (msgData.type === 'item_bomb') this.placeBomb(msgData.pos, false);
         else if (msgData.type === 'item_net') this.placeNet(msgData.pos, false);
     },
 
-    // ---------------------------------
-    // 🪽 フライモード
-    // ---------------------------------
     startFly: function() {
         window.ItemSystem.isFlyMode = true;
         window.ItemSystem.isCoolingDown = true;
@@ -60,9 +56,6 @@ window.ItemEffects = {
         }, 1000);
     },
 
-    // ---------------------------------
-    // 💣 ボム
-    // ---------------------------------
     placeBomb: function(pos, isOriginator) {
         if (typeof scene === 'undefined' || !scene) return;
         const bombGroup = new THREE.Group();
@@ -131,9 +124,6 @@ window.ItemEffects = {
         }
     },
 
-    // ---------------------------------
-    // 🕸️ ネット
-    // ---------------------------------
     placeNet: function(pos, isOriginator) {
         if (typeof scene === 'undefined' || !scene) return;
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
@@ -152,7 +142,9 @@ window.ItemEffects = {
         const mesh = new THREE.Mesh(geo, mat);
         
         const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
-        let terrainMesh = typeof mapMesh !== 'undefined' ? mapMesh : (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
+        
+        // ★ 変更箇所
+        let terrainMesh = window.mapMesh || (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
         
         if (terrainMesh) {
             const intersects = raycaster.intersectObject(terrainMesh, false);
@@ -190,7 +182,6 @@ window.ItemEffects = {
         }
     },
 
-    // すべてのエフェクトや設置物をクリア
     clearAll: function() {
         for (let i = this.activeBombs.length - 1; i >= 0; i--) {
             if (typeof scene !== 'undefined') scene.remove(this.activeBombs[i].mesh);
@@ -211,11 +202,9 @@ window.ItemEffects = {
         if (window.ItemSystem) window.ItemSystem.isOnNet = false;
     },
 
-    // 毎フレームごとのアニメーション・効果更新
     update: function(delta) {
         if (typeof scene === 'undefined' || !scene) return;
 
-        // ノックバック処理
         if (this.knockback && typeof player !== 'undefined' && player) {
             this.knockback.timer -= delta;
             if (this.knockback.timer > 0) {
@@ -223,7 +212,9 @@ window.ItemEffects = {
                 
                 let rayOrigin = new THREE.Vector3(player.position.x, player.position.y + 1.5, player.position.z);
                 let ray = new THREE.Raycaster(rayOrigin, this.knockback.dir);
-                let terrainMap = typeof mapMesh !== 'undefined' ? mapMesh : null;
+                
+                // ★ 変更箇所
+                let terrainMap = window.mapMesh || (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
                 
                 let canMove = true;
                 if (terrainMap) {
@@ -245,7 +236,6 @@ window.ItemEffects = {
             }
         }
 
-        // ボムの更新
         for (let i = this.activeBombs.length - 1; i >= 0; i--) {
             let b = this.activeBombs[i];
             b.timer -= delta;
@@ -258,7 +248,6 @@ window.ItemEffects = {
             }
         }
         
-        // 爆発エフェクトの更新
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             let exp = this.explosions[i];
             exp.timer -= delta;
@@ -278,7 +267,6 @@ window.ItemEffects = {
             }
         }
         
-        // ネットの更新
         if (window.ItemSystem) window.ItemSystem.isOnNet = false;
         let captureTargetPos = null; 
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
@@ -289,7 +277,6 @@ window.ItemEffects = {
             
             let canAffectMe = !n.isMine || (n.isMine && n.timeSincePlaced >= 1.0);
             
-            // 自分への判定
             if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
@@ -303,7 +290,6 @@ window.ItemEffects = {
                 }
             }
             
-            // 他人への判定（エフェクトのため）
             if (window.MultiplayerManager) {
                 const others = window.MultiplayerManager.otherPlayers;
                 for (let uid in others) {
@@ -331,7 +317,6 @@ window.ItemEffects = {
             }
         }
         
-        // ネット捕獲時の位置補正
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player && this.lastPlayerPos) {
             if (window.ItemSystem && window.ItemSystem.isOnNet && captureTargetPos) {
                 const deltaPos = player.position.clone().sub(this.lastPlayerPos);
@@ -352,6 +337,4 @@ window.ItemEffects = {
     }
 };
 
-setTimeout(() => {
-    if (window.ItemEffects) window.ItemEffects.init();
-}, 2000);
+
