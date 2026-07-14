@@ -9,8 +9,6 @@
     let currentBrush = 2; // デフォルトは「2 (平地)」
     window._isDebugMapMode = false;
 
-    // オリジナルの関数を保存しておく変数
-    let origUseItem = null;
     let origUpdateSlotUI = null;
 
     function initDebugSystem() {
@@ -153,7 +151,15 @@
             try {
                 const parsed = new Function("return " + text)();
                 if (Array.isArray(parsed) && Array.isArray(parsed[0])) {
-                    window.MapGenerator.rawMapData = parsed.map(row => row.map(v => String(v)));
+                    const newData = parsed.map(row => row.map(v => String(v)));
+                    window.MapGenerator.rawMapData = newData;
+                    
+                    // MapManagerが管理している現在のマップ配列も上書きしておく
+                    const mapId = window.MapManager ? window.MapManager.currentMapId : 'default';
+                    if (window['MapData_' + mapId]) {
+                        window['MapData_' + mapId] = newData;
+                    }
+                    
                     rebuildMeshDirectly();
                     
                     window.player.position.set(0, 20, 0);
@@ -184,12 +190,14 @@
             if (text === '/dbg_off') {
                 toggleDebug(false);
                 window.ItemSystem.mySlotItem = null; // アイテムを消去
+                window.ItemSystem.canPickup = true;
                 window.addLog('<span style="color:#ffaa00; font-weight:bold;">[DEBUG] マップ制作モード: OFF</span>', 'sys');
                 return;
             }
             if (window._isDebugMapMode && !isNaN(text) && text.trim() !== '') {
                 currentBrush = parseInt(text, 10);
                 window.ItemSystem.mySlotItem = 'debug_brush'; // システムにアイテム所持を認識させる
+                window.ItemSystem.canPickup = false;          // 他のアイテムを拾わないようにする
                 window.addLog(`<span style="color:#00ffff;">[DEBUG] ブラシを [${currentBrush}] に設定しました</span>`, 'sys');
                 if (window.ItemSystem && typeof window.ItemSystem.updateSlotUI === 'function') {
                     window.ItemSystem.updateSlotUI();
@@ -200,46 +208,50 @@
         };
     }
 
-    // キャプチャフェーズを利用してマップ変更ボタンの動作を優先的に奪う
+    // イベントキャプチャを使って左上ボタンの処理を完全に奪う
     function hookMapChangeButton() {
         const mapBtn = document.getElementById('map-change-btn');
         if (!mapBtn) return;
         
         const onMapBtnClick = (e) => {
             if (window._isDebugMapMode) {
-                e.stopPropagation(); // 他の処理をブロック
                 e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation(); // ★元のイベントリスナーをブロック！
                 document.getElementById('dbg-map-window').style.display = 'flex';
             }
         };
+        
         mapBtn.addEventListener('click', onMapBtnClick, true);
         mapBtn.addEventListener('touchstart', onMapBtnClick, {passive: false, capture: true});
     }
 
-    // アイテム使用のロジック自体を乗っ取る
+    // アイテム使用イベントをキャプチャで奪う＆見た目の上書き
     function hookSlotUI() {
-        if (!window.ItemSystem) return;
+        const slotUI = document.getElementById('item-slot');
+        if (!slotUI || !window.ItemSystem) return;
         
-        origUseItem = window.ItemSystem.useItem;
-        window.ItemSystem.useItem = function() {
-            if (window._isDebugMapMode) {
-                if (this.mySlotItem === 'debug_brush') {
-                    applyBrushToMap(); // デバッグ中はアイテムを消費せずブラシを使用
-                }
-            } else {
-                if (origUseItem) origUseItem.call(this);
+        const onSlotClick = (e) => {
+            if (window._isDebugMapMode && window.ItemSystem.mySlotItem === 'debug_brush') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation(); // ★元のアイテム使用処理をブロック！
+                applyBrushToMap();
             }
         };
+        
+        slotUI.addEventListener('mousedown', onSlotClick, true);
+        slotUI.addEventListener('touchstart', onSlotClick, {passive: false, capture: true});
         
         origUpdateSlotUI = window.ItemSystem.updateSlotUI;
         window.ItemSystem.updateSlotUI = function() {
             if (window._isDebugMapMode && this.mySlotItem === 'debug_brush') {
-                const slotUI = this.slotUI;
-                if (slotUI) {
-                    slotUI.classList.add('active');
-                    slotUI.style.border = '2px solid #ff00ff';
-                    slotUI.style.boxShadow = '0 0 10px #ff00ff';
-                    slotUI.innerHTML = `<div style="font-size:24px; font-weight:bold; color:white; text-shadow:0 0 5px #ff00ff; pointer-events:none;">${currentBrush}</div>`;
+                const slot = this.slotUI;
+                if (slot) {
+                    slot.classList.add('active');
+                    slot.style.border = '2px solid #ff00ff';
+                    slot.style.boxShadow = '0 0 10px #ff00ff';
+                    slot.innerHTML = `<div style="font-size:24px; font-weight:bold; color:white; text-shadow:0 0 5px #ff00ff; pointer-events:none;">${currentBrush}</div>`;
                 }
             } else {
                 if (this.slotUI) {
@@ -265,9 +277,9 @@
         let px = window.player.position.x;
         let pz = window.player.position.z;
         
-        // プレイヤーの座標をマップ配列のインデックスに変換
-        let x = Math.floor((px / bs) + (W_old / 2));
-        let z = Math.floor((pz / bs) + (D_old / 2));
+        // ★修正: プレイヤーの座標をマップ配列の正確なインデックスに変換
+        let x = Math.round(px / bs + W_old / 2 - 0.5);
+        let z = Math.round(pz / bs + D_old / 2 - 0.5);
         
         let diffLeft = 0, diffRight = 0, diffTop = 0, diffBottom = 0;
         
@@ -302,16 +314,17 @@
         
         // データを適用
         window.MapGenerator.rawMapData = newData;
+        const mapId = window.MapManager ? window.MapManager.currentMapId : 'default';
+        if (window['MapData_' + mapId]) {
+            window['MapData_' + mapId] = newData; // MapManagerのキャッシュも上書き
+        }
         
-        let W_new = newData.length;
-        let D_new = newData[0].length;
-        
+        // ★修正: マップの大きさが変わった事によるプレイヤーとカメラの位置ズレを正確に補正
         let addLeft = diffLeft - trimLeft;
         let addTop = diffTop - trimTop;
-        let dx = (addLeft - W_new / 2 + W_old / 2) * bs;
-        let dz = (addTop - D_new / 2 + D_old / 2) * bs;
+        let dx = (addLeft + W_old / 2 - newData.length / 2) * bs;
+        let dz = (addTop + D_old / 2 - newData[0].length / 2) * bs;
         
-        // マップの大きさが変わった事によるプレイヤーとカメラの位置ズレを補正
         window.player.position.x += dx;
         window.player.position.z += dz;
         if (window.camera) {
