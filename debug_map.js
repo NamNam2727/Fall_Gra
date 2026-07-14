@@ -17,7 +17,7 @@
         
         initDebugMapWindow();
         hookChatSystem();
-        hookMapChangeButton();
+        hookMapChangeButton(); // ★ タイミングに依存しない強力なフックに変更
         hookSlotUI();
         
         console.log("[Debug Map] Initialized. Type '/dbg_map' in chat to start.");
@@ -34,7 +34,6 @@
             window.player.traverse(c => {
                 if (c.isMesh) {
                     if (isOn) {
-                        // 元の透明度を保存して半透明化
                         if (c.userData.origOpacity === undefined) {
                             c.userData.origOpacity = c.material.opacity;
                             c.userData.origTransparent = c.material.transparent;
@@ -42,7 +41,6 @@
                         c.material.transparent = true;
                         c.material.opacity = 0.4;
                     } else {
-                        // 元に戻す
                         if (c.userData.origOpacity !== undefined) {
                             c.material.opacity = c.userData.origOpacity;
                             c.material.transparent = c.userData.origTransparent;
@@ -55,11 +53,11 @@
                 window.verticalVelocity = 0;
                 window.isJumping = false;
             } else {
-                window.isJumping = true; // OFF時は自然落下させる
+                window.isJumping = true; // OFF時は自然落下
             }
         }
         
-        // ui.js の観戦用ジャンプボタン（🔺🔻）切り替え機能を呼び出す
+        // 観戦用ジャンプボタン（🔺🔻）切り替え
         if (typeof window.toggleSpectatorUI === 'function') {
             window.toggleSpectatorUI(isOn);
         }
@@ -154,7 +152,6 @@
                     const newData = parsed.map(row => row.map(v => String(v)));
                     window.MapGenerator.rawMapData = newData;
                     
-                    // MapManagerが管理している現在のマップ配列も上書きしておく
                     const mapId = window.MapManager ? window.MapManager.currentMapId : 'default';
                     if (window['MapData_' + mapId]) {
                         window['MapData_' + mapId] = newData;
@@ -189,15 +186,15 @@
             }
             if (text === '/dbg_off') {
                 toggleDebug(false);
-                window.ItemSystem.mySlotItem = null; // アイテムを消去
+                window.ItemSystem.mySlotItem = null;
                 window.ItemSystem.canPickup = true;
                 window.addLog('<span style="color:#ffaa00; font-weight:bold;">[DEBUG] マップ制作モード: OFF</span>', 'sys');
                 return;
             }
             if (window._isDebugMapMode && !isNaN(text) && text.trim() !== '') {
                 currentBrush = parseInt(text, 10);
-                window.ItemSystem.mySlotItem = 'debug_brush'; // システムにアイテム所持を認識させる
-                window.ItemSystem.canPickup = false;          // 他のアイテムを拾わないようにする
+                window.ItemSystem.mySlotItem = 'debug_brush';
+                window.ItemSystem.canPickup = false;
                 window.addLog(`<span style="color:#00ffff;">[DEBUG] ブラシを [${currentBrush}] に設定しました</span>`, 'sys');
                 if (window.ItemSystem && typeof window.ItemSystem.updateSlotUI === 'function') {
                     window.ItemSystem.updateSlotUI();
@@ -208,40 +205,49 @@
         };
     }
 
-    // イベントキャプチャを使って左上ボタンの処理を完全に奪う
+    // ★ 修正: イベントデリゲーションを利用し、ボタン生成タイミングのズレを無視して強制フック
     function hookMapChangeButton() {
-        const mapBtn = document.getElementById('map-change-btn');
-        if (!mapBtn) return;
-        
-        const onMapBtnClick = (e) => {
-            if (window._isDebugMapMode) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation(); // ★元のイベントリスナーをブロック！
-                document.getElementById('dbg-map-window').style.display = 'flex';
+        const onGlobalClick = (e) => {
+            if (!window._isDebugMapMode) return;
+            
+            // クリックされた要素の親を辿って map-change-btn を探す
+            let target = e.target;
+            while (target && target !== document) {
+                if (target.id === 'map-change-btn') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation(); // 元のイベントをここで完全にブロック
+                    document.getElementById('dbg-map-window').style.display = 'flex';
+                    return;
+                }
+                target = target.parentNode;
             }
         };
         
-        mapBtn.addEventListener('click', onMapBtnClick, true);
-        mapBtn.addEventListener('touchstart', onMapBtnClick, {passive: false, capture: true});
+        // キャプチャフェーズで登録して真っ先に発火させる
+        document.addEventListener('click', onGlobalClick, true);
+        document.addEventListener('touchstart', onGlobalClick, {passive: false, capture: true});
     }
 
     // アイテム使用イベントをキャプチャで奪う＆見た目の上書き
     function hookSlotUI() {
-        const slotUI = document.getElementById('item-slot');
-        if (!slotUI || !window.ItemSystem) return;
-        
-        const onSlotClick = (e) => {
-            if (window._isDebugMapMode && window.ItemSystem.mySlotItem === 'debug_brush') {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation(); // ★元のアイテム使用処理をブロック！
-                applyBrushToMap();
+        const onGlobalSlotClick = (e) => {
+            if (!window._isDebugMapMode) return;
+            let target = e.target;
+            while (target && target !== document) {
+                if (target.id === 'item-slot' && window.ItemSystem.mySlotItem === 'debug_brush') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    applyBrushToMap();
+                    return;
+                }
+                target = target.parentNode;
             }
         };
         
-        slotUI.addEventListener('mousedown', onSlotClick, true);
-        slotUI.addEventListener('touchstart', onSlotClick, {passive: false, capture: true});
+        document.addEventListener('mousedown', onGlobalSlotClick, true);
+        document.addEventListener('touchstart', onGlobalSlotClick, {passive: false, capture: true});
         
         origUpdateSlotUI = window.ItemSystem.updateSlotUI;
         window.ItemSystem.updateSlotUI = function() {
@@ -277,7 +283,6 @@
         let px = window.player.position.x;
         let pz = window.player.position.z;
         
-        // ★修正: プレイヤーの座標をマップ配列の正確なインデックスに変換
         let x = Math.round(px / bs + W_old / 2 - 0.5);
         let z = Math.round(pz / bs + D_old / 2 - 0.5);
         
@@ -288,7 +293,6 @@
         if (z < 0) diffTop = -z;
         if (z >= D_old) diffBottom = z - D_old + 1;
         
-        // 元の配列を安全にコピーして拡張
         let newData = [];
         for (let i = 0; i < W_old; i++) {
             newData.push([...data[i]]);
@@ -305,25 +309,24 @@
         let newZ = z + diffTop;
         newData[newX][newZ] = String(currentBrush);
         
-        // 不要な0の行・列をトリミング
         let trimLeft = 0, trimRight = 0, trimTop = 0, trimBottom = 0;
         while (newData.length > 1 && newData[0].every(v => String(v) === "0")) { newData.shift(); trimLeft++; }
         while (newData.length > 1 && newData[newData.length - 1].every(v => String(v) === "0")) { newData.pop(); trimRight++; }
         while (newData[0].length > 1 && newData.every(row => String(row[0]) === "0")) { newData.forEach(row => row.shift()); trimTop++; }
         while (newData[0].length > 1 && newData.every(row => String(row[row.length - 1]) === "0")) { newData.forEach(row => row.pop()); trimBottom++; }
         
-        // データを適用
         window.MapGenerator.rawMapData = newData;
         const mapId = window.MapManager ? window.MapManager.currentMapId : 'default';
         if (window['MapData_' + mapId]) {
-            window['MapData_' + mapId] = newData; // MapManagerのキャッシュも上書き
+            window['MapData_' + mapId] = newData;
         }
         
-        // ★修正: マップの大きさが変わった事によるプレイヤーとカメラの位置ズレを正確に補正
+        let W_new = newData.length;
+        let D_new = newData[0].length;
         let addLeft = diffLeft - trimLeft;
         let addTop = diffTop - trimTop;
-        let dx = (addLeft + W_old / 2 - newData.length / 2) * bs;
-        let dz = (addTop + D_old / 2 - newData[0].length / 2) * bs;
+        let dx = (addLeft + W_old / 2 - W_new / 2) * bs;
+        let dz = (addTop + D_old / 2 - D_new / 2) * bs;
         
         window.player.position.x += dx;
         window.player.position.z += dz;
@@ -335,34 +338,34 @@
         rebuildMeshDirectly();
     }
 
-    // 古い地形を完全に消去してから新しい地形を追加する処理
+    // ★ 修正: isTerrainフラグに依存せず、グローバルの mapMesh を確実に削除する
     function rebuildMeshDirectly() {
         if (!window.scene || !window.MapGenerator) return;
 
-        // シーンに残っている地形(isTerrain)を根こそぎ探し出して消去する
-        const oldTerrains = [];
-        window.scene.children.forEach(c => {
-            if (c.userData && c.userData.isTerrain) {
-                oldTerrains.push(c);
+        // 【確実な削除】初期生成されたマップにはフラグがないため、変数から直接Disposeする
+        if (window.mapMesh) {
+            window.scene.remove(window.mapMesh);
+            if (window.mapMesh.geometry) window.mapMesh.geometry.dispose();
+            if (window.mapMesh.material) {
+                if (Array.isArray(window.mapMesh.material)) window.mapMesh.material.forEach(m => m.dispose());
+                else window.mapMesh.material.dispose();
             }
-        });
+            window.mapMesh = null;
+        }
         
-        oldTerrains.forEach(c => {
-            window.scene.remove(c);
-            if (c.geometry) c.geometry.dispose();
-            if (c.material) {
-                if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
-                else c.material.dispose();
+        // 念のため、isTerrainフラグがついている残骸があればそれも消す
+        for (let i = window.scene.children.length - 1; i >= 0; i--) {
+            let c = window.scene.children[i];
+            if (c.userData && c.userData.isTerrain) {
+                window.scene.remove(c);
             }
-            if (c === window.mapMesh) window.mapMesh = null;
-        });
+        }
 
         // 新しい結合メッシュを生成して追加
         window.mapMesh = window.MapGenerator.createMesh();
-        window.mapMesh.userData.isTerrain = true; // 念のため明示的に付与
+        window.mapMesh.userData.isTerrain = true;
         window.scene.add(window.mapMesh);
         
-        // MapManager側のプレビュー用メッシュも更新
         if (window.MapManager && window.MapManager.preview.scene && window.MapManager.preview.mesh) {
             window.MapManager.preview.scene.remove(window.MapManager.preview.mesh);
             window.MapManager.preview.mesh.geometry.dispose();
@@ -377,7 +380,7 @@
     // 既存システムの準備完了を待ってから初期化
     // ==========================================
     const checkReady = setInterval(() => {
-        if (document.getElementById('jump-btn') && typeof window.sendChatMessage === 'function' && window.ItemSystem && window.MapManager) {
+        if (document.getElementById('jump-btn') && typeof window.sendChatMessage === 'function' && window.ItemSystem) {
             clearInterval(checkReady);
             initDebugSystem();
         }
