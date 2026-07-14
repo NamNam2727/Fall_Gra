@@ -28,7 +28,8 @@
         'item_system.js',
         'item_effects.js',
         'multiplayer.js',
-        'main.js'
+        'main.js',
+        'debug_map.js'
     ];
 
     let loadedCount = 0;
