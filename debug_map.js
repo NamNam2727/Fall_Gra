@@ -9,6 +9,12 @@
     let currentBrush = 2; // デフォルトは「2 (平地)」
     window._isDebugMapMode = false;
 
+    // オリジナルの関数を保存しておく変数
+    let origToggleDebug = null;
+    let origOpenSelector = null;
+    let origUseItem = null;
+    let origUpdateSlotUI = null;
+
     function initDebugSystem() {
         if (isDebugInit) return;
         isDebugInit = true;
@@ -58,18 +64,34 @@
             }
         }
         
+        // ▼仮の下降ボタン（後日、正しいIDに置き換えます）
         const downBtn = document.getElementById('dbg-down-btn');
         if (downBtn) downBtn.style.display = isOn ? 'flex' : 'none';
         
+        // マップ変更ボタンの見た目を切り替え
+        const mapBtn = document.getElementById('map-change-btn');
+        if (mapBtn) {
+            if (isOn) {
+                mapBtn.innerText = 'マップ入出力';
+                mapBtn.style.backgroundColor = 'rgba(150, 50, 200, 0.85)';
+                mapBtn.style.borderColor = '#ffaaFF';
+            } else {
+                mapBtn.innerText = window.MapManager && window.MapManager.state === 'PROPOSING' ? 'マップ詳細' : 'マップ変更';
+                mapBtn.style.backgroundColor = 'rgba(40, 40, 60, 0.85)';
+                mapBtn.style.borderColor = 'rgba(100, 200, 255, 0.9)';
+            }
+        }
+
         if (window.ItemSystem && typeof window.ItemSystem.updateSlotUI === 'function') {
             window.ItemSystem.updateSlotUI();
         }
     }
 
     // ==========================================
-    // 2. コントロールUI (上昇/下降ボタン)
+    // 2. コントロールUI (仮の上昇/下降ボタン)
     // ==========================================
     function initDebugControls() {
+        // ※この部分は情報をいただき次第、元のゲームのUI機能に置き換えます。
         const downBtn = document.createElement('div');
         downBtn.id = 'dbg-down-btn';
         downBtn.innerHTML = '⬇️';
@@ -118,7 +140,7 @@
         `;
         win.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #555; padding-bottom:10px; margin-bottom:15px;">
-                <span style="font-size:16px; font-weight:bold; color:#ff00ff;">🛠 マップデバッグツール</span>
+                <span style="font-size:16px; font-weight:bold; color:#ff00ff;">🛠 マップ入出力ツール</span>
                 <button id="dbg-map-close" style="background:none; border:none; color:white; font-size:20px; cursor:pointer;">❌</button>
             </div>
             <button id="dbg-btn-import" style="padding:12px; margin-bottom:10px; background:#4CAF50; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.4);">⬇️ マップをインポート</button>
@@ -216,31 +238,41 @@
         };
     }
 
+    // ★ MapManagerの機能自体を乗っ取ることで確実にボタンの仕様を変更
     function hookMapChangeButton() {
-        const mapBtn = document.getElementById('map-change-btn');
-        if (!mapBtn) return;
-        const onMapBtnClick = (e) => {
+        if (!window.MapManager) return;
+        origOpenSelector = window.MapManager.openSelector;
+        window.MapManager.openSelector = function() {
             if (window._isDebugMapMode) {
-                e.stopPropagation();
-                e.preventDefault();
                 document.getElementById('dbg-map-window').style.display = 'flex';
+            } else {
+                if (origOpenSelector) origOpenSelector.call(this);
             }
         };
-        mapBtn.addEventListener('click', onMapBtnClick, true);
-        mapBtn.addEventListener('touchstart', onMapBtnClick, {passive: false, capture: true});
     }
 
+    // ★ アイテム使用のロジック自体を乗っ取る
     function hookSlotUI() {
-        // デバッグ中はアイテムシステムのスロット表示を乗っ取る
-        const origUpdateSlotUI = window.ItemSystem.updateSlotUI;
+        if (!window.ItemSystem) return;
+        
+        origUseItem = window.ItemSystem.useItem;
+        window.ItemSystem.useItem = function() {
+            if (window._isDebugMapMode) {
+                applyBrushToMap(); // デバッグ中はアイテム効果を出さずブラシを使用
+            } else {
+                if (origUseItem) origUseItem.call(this);
+            }
+        };
+        
+        origUpdateSlotUI = window.ItemSystem.updateSlotUI;
         window.ItemSystem.updateSlotUI = function() {
             if (window._isDebugMapMode) {
                 const slotUI = this.slotUI;
                 if (slotUI) {
                     slotUI.classList.add('active');
-                    slotUI.style.border = '2px solid #00ffff';
-                    slotUI.style.boxShadow = '0 0 10px #00ffff';
-                    slotUI.innerHTML = `<div style="font-size:24px; font-weight:bold; color:white; text-shadow:0 0 5px #00ffff; pointer-events:none;">${currentBrush}</div>`;
+                    slotUI.style.border = '2px solid #ff00ff';
+                    slotUI.style.boxShadow = '0 0 10px #ff00ff';
+                    slotUI.innerHTML = `<div style="font-size:24px; font-weight:bold; color:white; text-shadow:0 0 5px #ff00ff; pointer-events:none;">${currentBrush}</div>`;
                 }
             } else {
                 if (this.slotUI) {
@@ -250,18 +282,6 @@
                 if (origUpdateSlotUI) origUpdateSlotUI.call(this);
             }
         };
-
-        const slotUI = document.getElementById('item-slot');
-        if (!slotUI) return;
-        const onSlotClick = (e) => {
-            if (window._isDebugMapMode) {
-                e.stopPropagation();
-                e.preventDefault();
-                applyBrushToMap();
-            }
-        };
-        slotUI.addEventListener('mousedown', onSlotClick, true);
-        slotUI.addEventListener('touchstart', onSlotClick, {passive: false, capture: true});
     }
 
     // ==========================================
@@ -288,29 +308,36 @@
         if (z < 0) diffTop = -z;
         if (z >= D_old) diffBottom = z - D_old + 1;
         
-        // 枠外の場合は配列を拡張
-        for (let i = 0; i < diffLeft; i++) data.unshift(new Array(D_old).fill("0"));
-        for (let i = 0; i < diffRight; i++) data.push(new Array(D_old).fill("0"));
-        for (let i = 0; i < data.length; i++) {
-            for (let j = 0; j < diffTop; j++) data[i].unshift("0");
-            for (let j = 0; j < diffBottom; j++) data[i].push("0");
+        // 元の配列を安全にコピーして拡張
+        let newData = [];
+        for (let i = 0; i < W_old; i++) {
+            newData.push([...data[i]]);
+        }
+        
+        for (let i = 0; i < diffLeft; i++) newData.unshift(new Array(D_old).fill("0"));
+        for (let i = 0; i < diffRight; i++) newData.push(new Array(D_old).fill("0"));
+        for (let i = 0; i < newData.length; i++) {
+            for (let j = 0; j < diffTop; j++) newData[i].unshift("0");
+            for (let j = 0; j < diffBottom; j++) newData[i].push("0");
         }
         
         let newX = x + diffLeft;
         let newZ = z + diffTop;
-        data[newX][newZ] = String(currentBrush);
+        newData[newX][newZ] = String(currentBrush);
         
-        // 不要な0の行・列をトリミング（削る）
+        // 不要な0の行・列をトリミング
         let trimLeft = 0, trimRight = 0, trimTop = 0, trimBottom = 0;
-        while (data.length > 1 && data[0].every(v => v === "0")) { data.shift(); trimLeft++; }
-        while (data.length > 1 && data[data.length - 1].every(v => v === "0")) { data.pop(); trimRight++; }
-        while (data[0].length > 1 && data.every(row => row[0] === "0")) { data.forEach(row => row.shift()); trimTop++; }
-        while (data[0].length > 1 && data.every(row => row[row.length - 1] === "0")) { data.forEach(row => row.pop()); trimBottom++; }
+        while (newData.length > 1 && newData[0].every(v => String(v) === "0")) { newData.shift(); trimLeft++; }
+        while (newData.length > 1 && newData[newData.length - 1].every(v => String(v) === "0")) { newData.pop(); trimRight++; }
+        while (newData[0].length > 1 && newData.every(row => String(row[0]) === "0")) { newData.forEach(row => row.shift()); trimTop++; }
+        while (newData[0].length > 1 && newData.every(row => String(row[row.length - 1]) === "0")) { newData.forEach(row => row.pop()); trimBottom++; }
         
-        let W_new = data.length;
-        let D_new = data[0].length;
+        // データを適用
+        window.MapGenerator.rawMapData = newData;
         
-        // マップの大きさが変わった事によるプレイヤーとカメラの位置ズレを完全に補正
+        let W_new = newData.length;
+        let D_new = newData[0].length;
+        
         let addLeft = diffLeft - trimLeft;
         let addTop = diffTop - trimTop;
         let dx = (addLeft - W_new / 2 + W_old / 2) * bs;
@@ -326,17 +353,34 @@
         rebuildMeshDirectly();
     }
 
+    // ★ 古い地形を完全に消去してから新しい地形を追加する処理
     function rebuildMeshDirectly() {
-        if (window.mapMesh && window.scene) {
-            window.scene.remove(window.mapMesh);
-            window.mapMesh.geometry.dispose();
-            window.mapMesh.material.dispose();
-            window.mapMesh = null;
-        }
+        if (!window.scene || !window.MapGenerator) return;
+
+        // シーンに残っている地形(isTerrain)を根こそぎ探し出して消去する
+        const oldTerrains = [];
+        window.scene.children.forEach(c => {
+            if (c.userData && c.userData.isTerrain) {
+                oldTerrains.push(c);
+            }
+        });
+        
+        oldTerrains.forEach(c => {
+            window.scene.remove(c);
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) {
+                if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+                else c.material.dispose();
+            }
+            if (c === window.mapMesh) window.mapMesh = null;
+        });
+
+        // 新しい結合メッシュを生成して追加
         window.mapMesh = window.MapGenerator.createMesh();
+        window.mapMesh.userData.isTerrain = true; // 念のため明示的に付与
         window.scene.add(window.mapMesh);
         
-        // MapManager側のプレビュー用メッシュも同時に更新しておく
+        // MapManager側のプレビュー用メッシュも更新
         if (window.MapManager && window.MapManager.preview.scene && window.MapManager.preview.mesh) {
             window.MapManager.preview.scene.remove(window.MapManager.preview.mesh);
             window.MapManager.preview.mesh.geometry.dispose();
@@ -351,11 +395,12 @@
     // 既存システムの準備完了を待ってから初期化
     // ==========================================
     const checkReady = setInterval(() => {
-        if (document.getElementById('jump-btn') && typeof window.sendChatMessage === 'function' && window.ItemSystem) {
+        if (document.getElementById('jump-btn') && typeof window.sendChatMessage === 'function' && window.ItemSystem && window.MapManager) {
             clearInterval(checkReady);
             initDebugSystem();
         }
     }, 500);
 
 })();
+
 
