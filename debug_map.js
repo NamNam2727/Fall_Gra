@@ -10,8 +10,6 @@
     window._isDebugMapMode = false;
 
     // オリジナルの関数を保存しておく変数
-    let origToggleDebug = null;
-    let origOpenSelector = null;
     let origUseItem = null;
     let origUpdateSlotUI = null;
 
@@ -19,7 +17,6 @@
         if (isDebugInit) return;
         isDebugInit = true;
         
-        initDebugControls();
         initDebugMapWindow();
         hookChatSystem();
         hookMapChangeButton();
@@ -64,9 +61,10 @@
             }
         }
         
-        // ▼仮の下降ボタン（後日、正しいIDに置き換えます）
-        const downBtn = document.getElementById('dbg-down-btn');
-        if (downBtn) downBtn.style.display = isOn ? 'flex' : 'none';
+        // ui.js の観戦用ジャンプボタン（🔺🔻）切り替え機能を呼び出す
+        if (typeof window.toggleSpectatorUI === 'function') {
+            window.toggleSpectatorUI(isOn);
+        }
         
         // マップ変更ボタンの見た目を切り替え
         const mapBtn = document.getElementById('map-change-btn');
@@ -88,45 +86,7 @@
     }
 
     // ==========================================
-    // 2. コントロールUI (仮の上昇/下降ボタン)
-    // ==========================================
-    function initDebugControls() {
-        // ※この部分は情報をいただき次第、元のゲームのUI機能に置き換えます。
-        const downBtn = document.createElement('div');
-        downBtn.id = 'dbg-down-btn';
-        downBtn.innerHTML = '⬇️';
-        downBtn.style.cssText = `
-            position: absolute; bottom: 20px; right: 90px; width: 60px; height: 60px;
-            background: rgba(255,255,255,0.5); border: 2px solid rgba(255,255,255,0.8);
-            border-radius: 50%; color: #333; font-weight: bold; font-size: 24px;
-            display: none; justify-content: center; align-items: center; z-index: 100;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3); pointer-events: auto;
-        `;
-        const uiLayer = document.getElementById('ui-layer') || document.body;
-        uiLayer.appendChild(downBtn);
-        
-        const onDownStart = (e) => { e.preventDefault(); window.specMoveDown = true; };
-        const onDownEnd = (e) => { e.preventDefault(); window.specMoveDown = false; };
-        downBtn.addEventListener('mousedown', onDownStart);
-        downBtn.addEventListener('touchstart', onDownStart, {passive: false});
-        downBtn.addEventListener('mouseup', onDownEnd);
-        downBtn.addEventListener('touchend', onDownEnd);
-        downBtn.addEventListener('touchcancel', onDownEnd);
-        
-        const jumpBtn = document.getElementById('jump-btn');
-        if (jumpBtn) {
-            const onUpStart = (e) => { if(window._isDebugMapMode) { e.preventDefault(); window.specMoveUp = true; } };
-            const onUpEnd = (e) => { if(window._isDebugMapMode) { e.preventDefault(); window.specMoveUp = false; } };
-            jumpBtn.addEventListener('mousedown', onUpStart, true);
-            jumpBtn.addEventListener('touchstart', onUpStart, {passive: false, capture: true});
-            jumpBtn.addEventListener('mouseup', onUpEnd, true);
-            jumpBtn.addEventListener('touchend', onUpEnd, {passive: false, capture: true});
-            jumpBtn.addEventListener('touchcancel', onUpEnd, true);
-        }
-    }
-
-    // ==========================================
-    // 3. マップエクスポート / インポート ウィンドウ
+    // 2. マップエクスポート / インポート ウィンドウ
     // ==========================================
     function initDebugMapWindow() {
         const win = document.createElement('div');
@@ -141,7 +101,7 @@
         win.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #555; padding-bottom:10px; margin-bottom:15px;">
                 <span style="font-size:16px; font-weight:bold; color:#ff00ff;">🛠 マップ入出力ツール</span>
-                <button id="dbg-map-close" style="background:none; border:none; color:white; font-size:20px; cursor:pointer;">❌</button>
+                <button id="dbg-map-close" style="background:none; border:none; color:white; font-size:20px; cursor:pointer; font-weight:bold;">❌</button>
             </div>
             <button id="dbg-btn-import" style="padding:12px; margin-bottom:10px; background:#4CAF50; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.4);">⬇️ マップをインポート</button>
             <button id="dbg-btn-export" style="padding:12px; background:#2196F3; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.4);">⬆️ マップをエクスポート</button>
@@ -211,7 +171,7 @@
     }
 
     // ==========================================
-    // 4. チャットとUIフック
+    // 3. チャットとUIフック
     // ==========================================
     function hookChatSystem() {
         const origSend = window.sendChatMessage;
@@ -223,11 +183,13 @@
             }
             if (text === '/dbg_off') {
                 toggleDebug(false);
+                window.ItemSystem.mySlotItem = null; // アイテムを消去
                 window.addLog('<span style="color:#ffaa00; font-weight:bold;">[DEBUG] マップ制作モード: OFF</span>', 'sys');
                 return;
             }
             if (window._isDebugMapMode && !isNaN(text) && text.trim() !== '') {
                 currentBrush = parseInt(text, 10);
+                window.ItemSystem.mySlotItem = 'debug_brush'; // システムにアイテム所持を認識させる
                 window.addLog(`<span style="color:#00ffff;">[DEBUG] ブラシを [${currentBrush}] に設定しました</span>`, 'sys');
                 if (window.ItemSystem && typeof window.ItemSystem.updateSlotUI === 'function') {
                     window.ItemSystem.updateSlotUI();
@@ -238,27 +200,32 @@
         };
     }
 
-    // ★ MapManagerの機能自体を乗っ取ることで確実にボタンの仕様を変更
+    // キャプチャフェーズを利用してマップ変更ボタンの動作を優先的に奪う
     function hookMapChangeButton() {
-        if (!window.MapManager) return;
-        origOpenSelector = window.MapManager.openSelector;
-        window.MapManager.openSelector = function() {
+        const mapBtn = document.getElementById('map-change-btn');
+        if (!mapBtn) return;
+        
+        const onMapBtnClick = (e) => {
             if (window._isDebugMapMode) {
+                e.stopPropagation(); // 他の処理をブロック
+                e.preventDefault();
                 document.getElementById('dbg-map-window').style.display = 'flex';
-            } else {
-                if (origOpenSelector) origOpenSelector.call(this);
             }
         };
+        mapBtn.addEventListener('click', onMapBtnClick, true);
+        mapBtn.addEventListener('touchstart', onMapBtnClick, {passive: false, capture: true});
     }
 
-    // ★ アイテム使用のロジック自体を乗っ取る
+    // アイテム使用のロジック自体を乗っ取る
     function hookSlotUI() {
         if (!window.ItemSystem) return;
         
         origUseItem = window.ItemSystem.useItem;
         window.ItemSystem.useItem = function() {
             if (window._isDebugMapMode) {
-                applyBrushToMap(); // デバッグ中はアイテム効果を出さずブラシを使用
+                if (this.mySlotItem === 'debug_brush') {
+                    applyBrushToMap(); // デバッグ中はアイテムを消費せずブラシを使用
+                }
             } else {
                 if (origUseItem) origUseItem.call(this);
             }
@@ -266,7 +233,7 @@
         
         origUpdateSlotUI = window.ItemSystem.updateSlotUI;
         window.ItemSystem.updateSlotUI = function() {
-            if (window._isDebugMapMode) {
+            if (window._isDebugMapMode && this.mySlotItem === 'debug_brush') {
                 const slotUI = this.slotUI;
                 if (slotUI) {
                     slotUI.classList.add('active');
@@ -285,7 +252,7 @@
     }
 
     // ==========================================
-    // 5. 動的なマップ拡張とトリミング処理
+    // 4. 動的なマップ拡張とトリミング処理
     // ==========================================
     function applyBrushToMap() {
         if (!window.player || !window.MapGenerator) return;
@@ -298,8 +265,9 @@
         let px = window.player.position.x;
         let pz = window.player.position.z;
         
-        let x = Math.floor(px / bs + W_old / 2);
-        let z = Math.floor(pz / bs + D_old / 2);
+        // プレイヤーの座標をマップ配列のインデックスに変換
+        let x = Math.floor((px / bs) + (W_old / 2));
+        let z = Math.floor((pz / bs) + (D_old / 2));
         
         let diffLeft = 0, diffRight = 0, diffTop = 0, diffBottom = 0;
         
@@ -343,6 +311,7 @@
         let dx = (addLeft - W_new / 2 + W_old / 2) * bs;
         let dz = (addTop - D_new / 2 + D_old / 2) * bs;
         
+        // マップの大きさが変わった事によるプレイヤーとカメラの位置ズレを補正
         window.player.position.x += dx;
         window.player.position.z += dz;
         if (window.camera) {
@@ -353,7 +322,7 @@
         rebuildMeshDirectly();
     }
 
-    // ★ 古い地形を完全に消去してから新しい地形を追加する処理
+    // 古い地形を完全に消去してから新しい地形を追加する処理
     function rebuildMeshDirectly() {
         if (!window.scene || !window.MapGenerator) return;
 
