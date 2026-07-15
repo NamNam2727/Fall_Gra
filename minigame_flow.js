@@ -5,6 +5,7 @@
 // ★PLAYING状態での途中入室時、プラグインを正しく再現・開始する処理を追加
 // ★カウントダウンと3,2,1演出を setInterval から requestAnimationFrame と絶対時間計算に修正し、タイマーのズレを解消
 // ★詳細画面・申請ポップアップ画面にアイコンのフォールバック表示(🎮)を追加
+// ★【追加】初期地スタートの場合にマップ固有のリスポーン座標を使用するよう修正
 // =====================================
 
 window.MinigameManager = window.MinigameManager || {};
@@ -541,9 +542,13 @@ Object.assign(window.MinigameManager, {
 
         if (this.currentProposal && this.currentProposal.settings.pos === 'initial' && !window.isSpectatorMode) {
             if (typeof player !== 'undefined' && player) {
-                player.position.set(0, 20, 0); 
-                window.verticalVelocity = 0;
-                window.isJumping = true;
+                if (window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
+                    window.MapManager.respawnPlayer();
+                } else {
+                    player.position.set(0, 20, 0); 
+                    window.verticalVelocity = 0;
+                    window.isJumping = true;
+                }
             }
         }
 
@@ -551,7 +556,6 @@ Object.assign(window.MinigameManager, {
         centerMsg.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); font-size:100px; color:white; font-weight:bold; text-shadow:0 0 20px #ffaa00; z-index:10000; pointer-events:none;';
         document.body.appendChild(centerMsg);
 
-        // ★修正: setIntervalを廃止し、targetStartTimeとの絶対時間計算で正確に同期させる
         let isPluginStarted = false;
         
         const updateStartAnim = () => {
@@ -593,4 +597,5 @@ Object.assign(window.MinigameManager, {
         updateStartAnim();
     }
 });
+
 
