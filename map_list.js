@@ -7,17 +7,17 @@
 window.MapList = [
     {
         id: "default",
-        title: "はじまりの草原",
+        title: "デフォルトマップ",
         script: "maps/map_default.js",
-        description: "最も基本的な地形のマップです。広々としており、ミニゲームも遊びやすいスタンダードな構成になっています。",
+        description: "最も基本的な地形のマップです。少人数のミニゲームで遊びやすいスタンダードな構成になっています。",
         spawnGrid: { col: 12, row: 14 } // 12列目、14行目を初期位置にする
     },
     {
-        id: "athletic",
-        title: "天空アスレチック",
-        script: "maps/map_athletic.js",
-        description: "細い道やジャンプが要求される足場が多く配置されたテクニカルなマップです。落下に気をつけましょう！",
-        spawnGrid: { col: 10, row: 2 } // アスレチックのスタート地点になりそうな場所
+        id: "parking",
+        title: "立体駐車場",
+        script: "maps/map_parking.js",
+        description: "立体駐車場をモチーフにしたマップです。3階建てです。中人数〜大人数で遊ぶのに良いかもしれません。",
+        spawnGrid: { col: 23, row: 14 } // 駐車場のスタート地点になりそうな場所
     }
 ];
 

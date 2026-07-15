@@ -3,7 +3,6 @@
 // 地形データの解析とBufferGeometryメッシュの生成
 // ★幅広の坂道の両端が欠けるバグを完全に修正（主斜面判定の導入）
 // ★Zファイティング（縞々模様）の原因だった DoubleSide を削除し綺麗な描画に復元
-// ★連続した同高さを1本の坂として扱う長距離補間機能の追加
 // ==========================================
 
 window.MapGenerator = {
@@ -41,88 +40,6 @@ window.MapGenerator = {
             }
         }
         return { parsedMap, mapW, mapD };
-    },
-
-    // 追加：連続した坂道情報を取得し、距離に応じた高さ補間を行う関数
-    getSlopeInfo: function(parsedMap, mapW, mapD, cx, cz, myTop, getHeight, getPull) {
-        const getDirInfo = (dx, dz) => {
-            // マイナス方向の探索
-            let d_m = 0, h_m = myTop;
-            while(true) {
-                let nx = cx - dx * (1 + d_m);
-                let nz = cz - dz * (1 + d_m);
-                if (nx < 0 || nx >= mapW || nz < 0 || nz >= mapD) {
-                    h_m = myTop; 
-                    break;
-                }
-                
-                let same = false;
-                for(let l of parsedMap[nx][nz]) {
-                    if (l.top === myTop) { same = true; break; }
-                }
-                
-                if (same) {
-                    d_m++;
-                } else {
-                    h_m = getHeight(nx, nz);
-                    break;
-                }
-            }
-            let target_m = getPull(h_m);
-
-            // プラス方向の探索
-            let d_p = 0, h_p = myTop;
-            while(true) {
-                let nx = cx + dx * (1 + d_p);
-                let nz = cz + dz * (1 + d_p);
-                if (nx < 0 || nx >= mapW || nz < 0 || nz >= mapD) {
-                    h_p = myTop;
-                    break;
-                }
-                
-                let same = false;
-                for(let l of parsedMap[nx][nz]) {
-                    if (l.top === myTop) { same = true; break; }
-                }
-                
-                if (same) {
-                    d_p++;
-                } else {
-                    h_p = getHeight(nx, nz);
-                    break;
-                }
-            }
-            let target_p = getPull(h_p);
-            
-            // 全体として貫通している（一方が上がり、一方が下がる）かを判定
-            let isThrough = (target_m > 0 && target_p < 0) || (target_m < 0 && target_p > 0);
-            
-            // 貫通していない場合のデフォルト値（隣のマスだけを見た既存の挙動）
-            let pull_m = getPull(getHeight(cx - dx, cz - dz));
-            let pull_p = getPull(getHeight(cx + dx, cz + dz));
-            
-            // 貫通している場合のみ、距離に応じて勾配を滑らかに線形補間する
-            if (isThrough) {
-                let totalLen = d_m + d_p + 1;
-                let step = (target_p - target_m) / totalLen;
-                pull_m = target_m + step * d_m;
-                pull_p = target_m + step * (d_m + 1);
-            }
-            
-            return { isThrough, pull_m, pull_p };
-        };
-
-        let infoX = getDirInfo(1, 0);
-        let infoZ = getDirInfo(0, 1);
-
-        return {
-            isThroughX: infoX.isThrough,
-            pull_mX: infoX.pull_m,
-            pull_pX: infoX.pull_p,
-            isThroughZ: infoZ.isThrough,
-            pull_mZ: infoZ.pull_m,
-            pull_pZ: infoZ.pull_p
-        };
     },
 
     getCornerHeights: function(parsedMap, mapW, mapD, cx, cz, myTop) {
@@ -166,17 +83,9 @@ window.MapGenerator = {
         let pull_pZ = getPull(h_pZ);
         let pull_mZ = getPull(h_mZ);
 
-        // 新規追加：長距離の坂道情報を取得し、補間された値で上書きする
-        let slopeInfo = this.getSlopeInfo(parsedMap, mapW, mapD, cx, cz, myTop, getHeight, getPull);
-        pull_pX = slopeInfo.pull_pX;
-        pull_mX = slopeInfo.pull_mX;
-        pull_pZ = slopeInfo.pull_pZ;
-        pull_mZ = slopeInfo.pull_mZ;
-
         // まっすぐなスロープ（貫通している）の判定
-        // 長距離補間で貫通とみなされた場合も加味する
-        let isThroughX = slopeInfo.isThroughX || (pull_pX > 0 && pull_mX < 0) || (pull_pX < 0 && pull_mX > 0);
-        let isThroughZ = slopeInfo.isThroughZ || (pull_pZ > 0 && pull_mZ < 0) || (pull_pZ < 0 && pull_mZ > 0);
+        let isThroughX = (pull_pX > 0 && pull_mX < 0) || (pull_pX < 0 && pull_mX > 0);
+        let isThroughZ = (pull_pZ > 0 && pull_mZ < 0) || (pull_pZ < 0 && pull_mZ > 0);
 
         // ★主斜面判定: 貫通スロープが一方にだけ存在する場合は、もう一方の崖干渉を無効化する
         if (isThroughX && !isThroughZ) {
@@ -217,13 +126,7 @@ window.MapGenerator = {
         if (getPull(h_mXmZ) > 0 && c_mXmZ === myTop) c_mXmZ = myTop + 0.5;
         if (getPull(h_mXmZ) < 0 && c_mXmZ === myTop) c_mXmZ = myTop - 0.5;
 
-        // 中心点の高さを計算（長距離坂などの貫通スロープでは平面を維持するために四隅の平均を取る）
-        let c_center = myTop;
-        if (isThroughX || isThroughZ) {
-            c_center = (c_pXpZ + c_mXpZ + c_pXmZ + c_mXmZ) / 4;
-        }
-
-        return { pXpZ: c_pXpZ, mXpZ: c_mXpZ, pXmZ: c_pXmZ, mXmZ: c_mXmZ, center: c_center };
+        return { pXpZ: c_pXpZ, mXpZ: c_mXpZ, pXmZ: c_pXmZ, mXmZ: c_mXmZ, center: myTop };
     },
 
     createMesh: function() {
@@ -341,4 +244,3 @@ window.MapGenerator = {
         return mesh;
     }
 };
-
