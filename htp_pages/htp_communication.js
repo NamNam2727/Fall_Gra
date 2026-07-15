@@ -186,7 +186,10 @@ window.HTP_Communication = {
                     <div class="htp-desc-title">メンバーリスト</div>
                     <div>
                         画面右側の「メンバーリスト」ボタンをタップすると、現在同じ部屋にいるプレイヤーの一覧と状態を確認できます。<br><br>
-                        <span style="color:#00ffff; font-weight:bold;">タイトルバーにある「ルームID」の横のコピーボタンをタップしてIDを共有することで、他の人を自分のルームに招待することができます。</span>
+                        <span style="color:#00ffff; font-weight:bold;">タイトルバーにある「ルームID」の横のコピーボタンをタップしてIDを共有することで、他の人を自分のルームに招待することができます。</span><br><br>
+
+<span style="color:#ffcc00; font-weight:bold;">メンバーリストのメンバーをタップすると、タップしたメンバーのプロフィールに移動できます。<br>仲良くなった人をフォローしたり、個チャを送るのに便利です。</span>
+
                     </div>
                 </div>
                 <div class="htp-page-footer">
