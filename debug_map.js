@@ -18,7 +18,7 @@
         isDebugInit = true;
         
         initDebugMapWindow();
-        initDebugCoordUI();    // ★ 追加: 座標表示UIの初期化
+        initDebugCoordUI();    // ★ 座標表示UIの初期化
         hookChatSystem();
         hookMapChangeButton(); 
         hookSlotUI();
@@ -77,11 +77,19 @@
             }
         }
 
-        // ★ 追加: 座標UIの表示切り替え
-        const coordUI = document.getElementById('dbg-coord-display');
-        if (coordUI) {
-            coordUI.style.display = isOn ? 'block' : 'none';
+        // ★ デバッグ中は元の「ミニゲーム」「あそびかた」ボタンを強制的に隠すクラスを付与
+        if (isOn) {
+            document.body.classList.add('debug-mode-active');
+        } else {
+            document.body.classList.remove('debug-mode-active');
         }
+
+        // 座標UIと数値UIの表示切り替え
+        const coordPosUI = document.getElementById('dbg-coord-pos');
+        if (coordPosUI) coordPosUI.style.display = isOn ? 'block' : 'none';
+        
+        const coordValUI = document.getElementById('dbg-coord-val');
+        if (coordValUI) coordValUI.style.display = isOn ? 'block' : 'none';
 
         if (window.ItemSystem && typeof window.ItemSystem.updateSlotUI === 'function') {
             window.ItemSystem.updateSlotUI();
@@ -92,22 +100,47 @@
     // ★追加: リアルタイム座標表示UI
     // ==========================================
     function initDebugCoordUI() {
-        const coordUI = document.createElement('div');
-        coordUI.id = 'dbg-coord-display';
-        
-        const screenHeight = window.innerHeight;
-        const topExclusionHeight = screenHeight >= 812 ? 60 : 30; // ノッチを考慮した位置
-        
-        coordUI.style.cssText = `
-            position: absolute; top: ${topExclusionHeight}px; left: 50%; transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.6); border: 2px solid #00ffff; border-radius: 8px;
-            padding: 6px 16px; color: #00ffff; font-size: 14px; font-family: monospace;
-            font-weight: bold; pointer-events: none; z-index: 3000; display: none;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-shadow: 1px 1px 2px #000;
-            white-space: nowrap;
+        // 他のJSのsetIntervalに負けず、既存ボタンを強制的に隠すCSSを追加
+        const style = document.createElement('style');
+        style.innerHTML = `
+            body.debug-mode-active #minigame-btn,
+            body.debug-mode-active #how-to-play-btn {
+                display: none !important;
+            }
         `;
+        document.head.appendChild(style);
+
+        const screenHeight = window.innerHeight;
+        // ミニゲームボタン等と同じ高さに合わせる計算式
+        const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
+
+        // ミニゲームボタンの代わりになる「座標表示UI」
+        const coordPosUI = document.createElement('div');
+        coordPosUI.id = 'dbg-coord-pos';
+        coordPosUI.style.cssText = `
+            position: absolute; top: ${topExclusionHeight + 15}px; right: 10px;
+            padding: 8px 16px; background: rgba(0, 150, 255, 0.85); 
+            border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; 
+            color: #fff; font-weight: bold; font-family: sans-serif; font-size: 14px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4); text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            pointer-events: none; z-index: 3000; display: none; white-space: nowrap;
+        `;
+        
+        // あそびかたボタンの代わりになる「マップ数値表示UI」
+        const coordValUI = document.createElement('div');
+        coordValUI.id = 'dbg-coord-val';
+        coordValUI.style.cssText = `
+            position: absolute; top: ${topExclusionHeight + 60}px; right: 10px;
+            padding: 8px 16px; background: rgba(255, 0, 255, 0.85); 
+            border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; 
+            color: #fff; font-weight: bold; font-family: sans-serif; font-size: 14px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4); text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            pointer-events: none; z-index: 3000; display: none; white-space: nowrap;
+        `;
+        
         const uiLayer = document.getElementById('ui-layer') || document.body;
-        uiLayer.appendChild(coordUI);
+        uiLayer.appendChild(coordPosUI);
+        uiLayer.appendChild(coordValUI);
 
         // 毎フレームの座標計算と更新ループ
         const loop = () => {
@@ -131,7 +164,8 @@
                         val = data[x][z];
                     }
                     
-                    coordUI.innerText = `行:${x} / 列:${z} [値: ${val}]`;
+                    coordPosUI.innerText = `行:${x} / 列:${z}`;
+                    coordValUI.innerText = `マップ値: ${val}`;
                 }
             }
             requestAnimationFrame(loop);
