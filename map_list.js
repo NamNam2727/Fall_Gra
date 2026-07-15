@@ -17,7 +17,7 @@ window.MapList = [
         title: "立体駐車場",
         script: "maps/map_parking.js",
         description: "立体駐車場をモチーフにしたマップです。3階建てです。中人数〜大人数で遊ぶのに良いかもしれません。",
-        spawnGrid: { col: 23, row: 14 } // 駐車場のスタート地点になりそうな場所
+        spawnGrid: { col: 14, row: 23 } // 駐車場のスタート地点になりそうな場所
     }
 ];
 
