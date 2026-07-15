@@ -1,9 +1,9 @@
 // ==========================================
 // mapGenerator.js
 // 地形データの解析とBufferGeometryメッシュの生成
-// ★ 連続する坂道(奇数ブロック)を検出し、なだらかに延長・接続するロジックを実装
-// ★ 幅広の坂道の両端が欠けるバグを完全に修正（主斜面判定の導入）
-// ★ Zファイティング（縞々模様）の原因だった DoubleSide を削除し綺麗な描画に復元
+// ★幅広の坂道の両端が欠けるバグを完全に修正（主斜面判定の導入）
+// ★Zファイティング（縞々模様）の原因だった DoubleSide を削除し綺麗な描画に復元
+// ★連続する坂道(奇数ブロック)を検出し、なだらかに延長・接続するロジックを実装
 // ==========================================
 
 window.MapGenerator = {
@@ -43,7 +43,7 @@ window.MapGenerator = {
         return { parsedMap, mapW, mapD };
     },
 
-    // 連続するスロープをたどり、終端の偶数ブロック（平地・壁）の高さと距離を取得
+    // 追加: 連続するスロープをたどり、終端の偶数ブロック（平地・壁）の高さと距離を取得
     getSlopeEnd: function(map, mapW, mapD, startX, startZ, dx, dz, currentY) {
         let dist = 1;
         let cx = startX + dx;
@@ -85,6 +85,7 @@ window.MapGenerator = {
         return { y: trackY, dist: dist }; // マップ端
     },
 
+    // 変更: なだらかな線形補間に対応
     getCornerHeights: function(map, mapW, mapD, x, z, y) {
         // X軸方向の探索
         let end_pX = this.getSlopeEnd(map, mapW, mapD, x, z, 1, 0, y);
@@ -163,18 +164,17 @@ window.MapGenerator = {
             addFace(v2, v3, v4, col);
         };
 
-        // 基本カラーパレット
         const colorPalette = {
             1: [0.2, 0.7, 0.2], 
-            2: [0.4, 0.8, 0.3], // 草
-            3: [0.4, 0.8, 0.3], // 坂道(草)
-            4: [0.6, 0.6, 0.6], // 石/コンクリート
-            5: [0.5, 0.5, 0.5], // 壁
-            6: [0.4, 0.4, 0.4], // 高い壁
-            7: [0.8, 0.7, 0.4], // 土/砂
-            8: [0.9, 0.9, 0.9], // 雪/白
-            9: [0.2, 0.2, 0.2], // 黒
-            0: [0.3, 0.8, 0.9]  // 氷/水色
+            2: [0.4, 0.8, 0.3], 
+            3: [0.4, 0.8, 0.3], 
+            4: [0.6, 0.6, 0.6], 
+            5: [0.5, 0.5, 0.5], 
+            6: [0.4, 0.4, 0.4], 
+            7: [0.8, 0.7, 0.4], 
+            8: [0.9, 0.9, 0.9], 
+            9: [0.2, 0.2, 0.2], 
+            0: [0.3, 0.8, 0.9]  
         };
 
         const getColor = (val) => {
@@ -224,19 +224,15 @@ window.MapGenerator = {
                     const b_pXpZ = [px + bs/2, bY, pz + bs/2];
                     const b_mXpZ = [px - bs/2, bY, pz + bs/2];
 
-                    // 【上面】
                     if (l.isOdd) {
-                        // 坂道は中心点を設けて4つの三角面で構成し、滑らかに曲がるようにする
                         addFace(v_mXmZ, v_center, v_pXmZ, col);
                         addFace(v_pXmZ, v_center, v_pXpZ, col);
                         addFace(v_pXpZ, v_center, v_mXpZ, col);
                         addFace(v_mXpZ, v_center, v_mXmZ, col);
                     } else {
-                        // 平地は四角形（2つの三角面）
                         addQuad(v_mXmZ, v_mXpZ, v_pXpZ, v_pXmZ, col);
                     }
 
-                    // 【側面】(隠面消去つき)
                     const checkHidden = (nx, nz, myTopCorner1, myTopCorner2) => {
                         if (nx < 0 || nx >= mapW || nz < 0 || nz >= mapD) return false;
                         let nLayers = parsedMap[nx][nz];
@@ -275,4 +271,5 @@ window.MapGenerator = {
         return mesh;
     }
 };
+
 
