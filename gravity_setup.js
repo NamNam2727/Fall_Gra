@@ -3,6 +3,34 @@
 // マッチングUI、Gravity SDKの初期化とエラー処理
 // =========================================
 
+// ====== アプリを閉じた時の自動退室処理 ======
+
+// 退室処理を行う関数
+function autoExitRoom() {
+    // もし SDK が読み込まれていて、退室メソッドが存在すれば実行する
+    if (window.AgentSDK && window.AgentSDK.room && typeof window.AgentSDK.room.exit === 'function') {
+        // ※ここでは await は使えません（ページが閉じる寸前で非同期処理を待てないため）
+        // APIを呼び出して、結果を待たずに通信だけ投げます
+        window.AgentSDK.room.exit();
+        
+        // 念のため、同期的な通信（Beacon）をサポートしている環境向けに
+        // GRAVITYのサーバーに「離脱した」という信号を別途送るような設計もありますが、
+        // 現状のSDKでは exit() を呼び出すのが最善です。
+    }
+}
+
+// パターン1: 一般的なブラウザ（PCやAndroidなど）が閉じる寸前のイベント
+window.addEventListener('beforeunload', function (e) {
+    autoExitRoom();
+});
+
+// パターン2: iOS(iPhone)のSafariやWebViewなど、beforeunloadが効きにくい環境用のイベント
+// 画面が非表示（バックグラウンドに回った時など）になった瞬間に発火します
+window.addEventListener('pagehide', function (e) {
+    autoExitRoom();
+});
+
+
 document.addEventListener('DOMContentLoaded', async () => {
 
     // ★変更: isHost（ルーム作成者かどうか）のフラグを追加
@@ -262,3 +290,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     // アプリ開始
     initSDK();
 });
+
