@@ -3,7 +3,6 @@
 // 地形データの解析とBufferGeometryメッシュの生成
 // ★幅広の坂道の両端が欠けるバグを完全に修正（主斜面判定の導入）
 // ★Zファイティング（縞々模様）の原因だった DoubleSide を削除し綺麗な描画に復元
-// ★【追加】奇数ブロックが連続した際、距離に応じてなだらかな坂道を形成する機能
 // ==========================================
 
 window.MapGenerator = {
@@ -60,6 +59,18 @@ window.MapGenerator = {
             return closestTop;
         };
 
+        let h_pX = getHeight(cx + 1, cz);
+        let h_mX = getHeight(cx - 1, cz);
+        let h_pZ = getHeight(cx, cz + 1);
+        let h_mZ = getHeight(cx, cz - 1);
+        
+        let h_pXpZ = getHeight(cx + 1, cz + 1);
+        let h_mXpZ = getHeight(cx - 1, cz + 1);
+        let h_pXmZ = getHeight(cx + 1, cz - 1);
+        let h_mXmZ = getHeight(cx - 1, cz - 1);
+
+        // 高低差が 0.5（1段）の場合のみ引っ張られる
+        // 1.0以上（崖）の場合は 0 にして干渉を絶つ
         const getPull = (h) => {
             let diff = h - myTop;
             if (diff >= 0.25 && diff <= 0.75) return 0.5;
@@ -67,128 +78,55 @@ window.MapGenerator = {
             return 0;
         };
 
-        // ★追加: 特定の軸（XまたはZ）に対して、連続する奇数ブロックを探索し仮想的な勾配を計算する
-        const getAxisData = (dx, dz) => {
-            let dist_p = 1;
-            let cx_p = cx + dx;
-            let cz_p = cz + dz;
-            let h_p = myTop;
-            
-            while (cx_p >= 0 && cx_p < mapW && cz_p >= 0 && cz_p < mapD) {
-                let layers = parsedMap[cx_p][cz_p];
-                let foundSameOdd = false;
-                for (let l of layers) {
-                    if (l.top === myTop && l.isOdd) {
-                        foundSameOdd = true;
-                        break;
-                    }
-                }
-                if (foundSameOdd) {
-                    dist_p++;
-                    cx_p += dx;
-                    cz_p += dz;
-                } else {
-                    h_p = getHeight(cx_p, cz_p);
-                    break;
-                }
-            }
+        let pull_pX = getPull(h_pX);
+        let pull_mX = getPull(h_mX);
+        let pull_pZ = getPull(h_pZ);
+        let pull_mZ = getPull(h_mZ);
 
-            let dist_m = 1;
-            let cx_m = cx - dx;
-            let cz_m = cz - dz;
-            let h_m = myTop;
-            
-            while (cx_m >= 0 && cx_m < mapW && cz_m >= 0 && cz_m < mapD) {
-                let layers = parsedMap[cx_m][cz_m];
-                let foundSameOdd = false;
-                for (let l of layers) {
-                    if (l.top === myTop && l.isOdd) {
-                        foundSameOdd = true;
-                        break;
-                    }
-                }
-                if (foundSameOdd) {
-                    dist_m++;
-                    cx_m -= dx;
-                    cz_m -= dz;
-                } else {
-                    h_m = getHeight(cx_m, cz_m);
-                    break;
-                }
-            }
-
-            let target_p = myTop + getPull(h_p);
-            let target_m = myTop + getPull(h_m);
-
-            let L = dist_p + dist_m - 1;
-            let grad = (target_p - target_m) / L;
-            let center_offset = (target_m + grad * (dist_m - 0.5)) - myTop;
-            let pull_p = grad * 0.5;
-            let pull_m = -grad * 0.5;
-
-            let isThrough = (target_p !== myTop && target_m !== myTop && target_p !== target_m);
-
-            return { pull_p, pull_m, center_offset, isThrough, target_p, target_m };
-        };
-
-        let axisX = getAxisData(1, 0);
-        let axisZ = getAxisData(0, 1);
-
-        let pull_pX = axisX.pull_p;
-        let pull_mX = axisX.pull_m;
-        let pull_pZ = axisZ.pull_p;
-        let pull_mZ = axisZ.pull_m;
-
-        let isThroughX = axisX.isThrough;
-        let isThroughZ = axisZ.isThrough;
+        // まっすぐなスロープ（貫通している）の判定
+        let isThroughX = (pull_pX > 0 && pull_mX < 0) || (pull_pX < 0 && pull_mX > 0);
+        let isThroughZ = (pull_pZ > 0 && pull_mZ < 0) || (pull_pZ < 0 && pull_mZ > 0);
 
         // ★主斜面判定: 貫通スロープが一方にだけ存在する場合は、もう一方の崖干渉を無効化する
         if (isThroughX && !isThroughZ) {
             pull_pZ = 0;
             pull_mZ = 0;
-            axisZ.center_offset = 0;
         } else if (isThroughZ && !isThroughX) {
             pull_pX = 0;
             pull_mX = 0;
-            axisX.center_offset = 0;
         } else if (!isThroughX && !isThroughZ) {
-            let isFlatX = (axisX.target_p === myTop || axisX.target_m === myTop);
-            let isFlatZ = (axisZ.target_p === myTop || axisZ.target_m === myTop);
+            // どちらも貫通していない（階段の登り始め、または角）場合
+            // X方向に道幅（同じ高さ）があり、Z方向にはない場合はZ方向の坂道とみなす
+            let isFlatX = (h_pX === myTop || h_mX === myTop);
+            let isFlatZ = (h_pZ === myTop || h_mZ === myTop);
             
             if (isFlatX && !isFlatZ) {
                 pull_pX = 0;
                 pull_mX = 0;
-                axisX.center_offset = 0;
             } else if (isFlatZ && !isFlatX) {
                 pull_pZ = 0;
                 pull_mZ = 0;
-                axisZ.center_offset = 0;
             }
         }
 
-        let final_center = myTop + axisX.center_offset + axisZ.center_offset;
+        const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
-        let c_pXpZ = final_center + pull_pX + pull_pZ;
-        let c_mXpZ = final_center + pull_mX + pull_pZ;
-        let c_pXmZ = final_center + pull_pX + pull_mZ;
-        let c_mXmZ = final_center + pull_mX + pull_mZ;
-
-        let h_pXpZ = getHeight(cx + 1, cz + 1);
-        let h_mXpZ = getHeight(cx - 1, cz + 1);
-        let h_pXmZ = getHeight(cx + 1, cz - 1);
-        let h_mXmZ = getHeight(cx - 1, cz - 1);
+        let c_pXpZ = myTop + clamp(pull_pX + pull_pZ, -0.5, 0.5);
+        let c_mXpZ = myTop + clamp(pull_mX + pull_pZ, -0.5, 0.5);
+        let c_pXmZ = myTop + clamp(pull_pX + pull_mZ, -0.5, 0.5);
+        let c_mXmZ = myTop + clamp(pull_mX + pull_mZ, -0.5, 0.5);
 
         // まだ傾斜がついていない角のみ、斜め方向のマスを参照して角を落とす/上げる
-        if (getPull(h_pXpZ) > 0 && c_pXpZ === final_center) c_pXpZ += 0.5;
-        if (getPull(h_pXpZ) < 0 && c_pXpZ === final_center) c_pXpZ -= 0.5;
-        if (getPull(h_mXpZ) > 0 && c_mXpZ === final_center) c_mXpZ += 0.5;
-        if (getPull(h_mXpZ) < 0 && c_mXpZ === final_center) c_mXpZ -= 0.5;
-        if (getPull(h_pXmZ) > 0 && c_pXmZ === final_center) c_pXmZ += 0.5;
-        if (getPull(h_pXmZ) < 0 && c_pXmZ === final_center) c_pXmZ -= 0.5;
-        if (getPull(h_mXmZ) > 0 && c_mXmZ === final_center) c_mXmZ += 0.5;
-        if (getPull(h_mXmZ) < 0 && c_mXmZ === final_center) c_mXmZ -= 0.5;
+        if (getPull(h_pXpZ) > 0 && c_pXpZ === myTop) c_pXpZ = myTop + 0.5;
+        if (getPull(h_pXpZ) < 0 && c_pXpZ === myTop) c_pXpZ = myTop - 0.5;
+        if (getPull(h_mXpZ) > 0 && c_mXpZ === myTop) c_mXpZ = myTop + 0.5;
+        if (getPull(h_mXpZ) < 0 && c_mXpZ === myTop) c_mXpZ = myTop - 0.5;
+        if (getPull(h_pXmZ) > 0 && c_pXmZ === myTop) c_pXmZ = myTop + 0.5;
+        if (getPull(h_pXmZ) < 0 && c_pXmZ === myTop) c_pXmZ = myTop - 0.5;
+        if (getPull(h_mXmZ) > 0 && c_mXmZ === myTop) c_mXmZ = myTop + 0.5;
+        if (getPull(h_mXmZ) < 0 && c_mXmZ === myTop) c_mXmZ = myTop - 0.5;
 
-        return { pXpZ: c_pXpZ, mXpZ: c_mXpZ, pXmZ: c_pXmZ, mXmZ: c_mXmZ, center: final_center };
+        return { pXpZ: c_pXpZ, mXpZ: c_mXpZ, pXmZ: c_pXmZ, mXmZ: c_mXmZ, center: myTop };
     },
 
     createMesh: function() {
@@ -306,5 +244,3 @@ window.MapGenerator = {
         return mesh;
     }
 };
-
-
