@@ -3,12 +3,16 @@
 // ミニゲーム用アイテムの出現、取得、管理、同期（コアロジック）
 // ★プラグインからの特別ルール（アイテム固定・スタック許可）を受け入れる変数を追加
 // ★アイテムの出現位置を「高さ10（ブロック5個分）以下の場所」に制限
+// ★デバッグや今後の拡張用に、利用可能な全アイテムのリストを追加定義
 // =====================================
 
 window.ItemSystem = {
     enabled: true, 
     fieldItems: {}, 
     maxItems: 1,    
+    
+    // ★追加: システムに登録されているアイテムのIDリスト
+    availableItemTypes: ['fly', 'bomb', 'net'],
     
     // ミニゲーム用特別ルール変数
     forceItemType: null, // 例: 'bomb' (ランダムではなくこれを必ず引く)
@@ -175,7 +179,8 @@ window.ItemSystem = {
 
         let gottenItem = this.forceItemType;
         if (!gottenItem) {
-            const items = ['fly', 'bomb', 'net'];
+            // ★変更: 自身のリスト(availableItemTypes)を参照してランダム抽選する
+            const items = this.availableItemTypes;
             gottenItem = items[Math.floor(Math.random() * items.length)];
         }
 
@@ -210,6 +215,8 @@ window.ItemSystem = {
             if (this.mySlotItem === 'fly') iconText = '🪽';
             else if (this.mySlotItem === 'bomb') iconText = '💣';
             else if (this.mySlotItem === 'net') iconText = '🕸️';
+            // デバッグブラシや追加アイテム用のテキストフォールバック
+            else iconText = '✨'; 
             
             if (this.isStackable && this.stackedCount > 1) {
                 this.slotUI.innerHTML = `${iconText}<div class="item-timer" style="bottom:-5px; right:-5px; font-size:16px;">x${this.stackedCount}</div>`;
@@ -289,3 +296,4 @@ window.ItemSystem = {
 setTimeout(() => {
     if (window.ItemSystem) window.ItemSystem.init();
 }, 2000);
+

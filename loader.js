@@ -30,6 +30,7 @@
         'multiplayer.js',
         'main.js',
         'debug_map.js'
+        'debug_item.js',
     ];
 
     let loadedCount = 0;
