@@ -1,7 +1,7 @@
 // =====================================
 // item_effects.js
 // 取得したアイテムの具体的な効果や動作、アニメーションを管理する
-// ★ Terrain（地形）メッシュの取得元を window.mapMesh に統一
+// ★ Terrain（地形）メッシュの取得を単一ではなく配列化し、複数マップやGroupに対応
 // =====================================
 
 window.ItemEffects = {
@@ -15,6 +15,27 @@ window.ItemEffects = {
         if (typeof THREE !== 'undefined') {
             this.lastPlayerPos = new THREE.Vector3();
         }
+    },
+
+    // ★追加: シーン内から全ての有効な地形メッシュを取得する
+    _getTerrainMeshes: function() {
+        let meshes = [];
+        if (typeof scene === 'undefined' || !scene) return meshes;
+        
+        scene.children.forEach(c => {
+            if (c.visible) {
+                if (c.userData && c.userData.isTerrain) {
+                    meshes.push(c);
+                } else if (c.isGroup || c.type === 'Group') {
+                    c.children.forEach(child => {
+                        if (child.visible && child.userData && child.userData.isTerrain) {
+                            meshes.push(child);
+                        }
+                    });
+                }
+            }
+        });
+        return meshes;
     },
 
     use: function(itemName, pos, isOriginator) {
@@ -141,19 +162,20 @@ window.ItemEffects = {
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(geo, mat);
         
-        const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
+        // Raycasterの起点を少し上げて、坂道や段差でのめり込みを防ぐ
+        const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs * 1.5, pos.z), new THREE.Vector3(0, -1, 0));
         
-        // ★ 変更箇所
-        let terrainMesh = window.mapMesh || (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
+        // ★変更箇所：単一のオブジェクトではなく、有効なすべての地形を配列で取得
+        let terrainMeshes = this._getTerrainMeshes();
         
-        if (terrainMesh) {
-            const intersects = raycaster.intersectObject(terrainMesh, false);
+        if (terrainMeshes.length > 0) {
+            const intersects = raycaster.intersectObjects(terrainMeshes, false);
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
                 
                 let normal = hit.face.normal.clone();
-                let normalMatrix = new THREE.Matrix3().getNormalMatrix(terrainMesh.matrixWorld);
+                let normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
                 normal.applyMatrix3(normalMatrix).normalize();
                 
                 mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
@@ -213,12 +235,12 @@ window.ItemEffects = {
                 let rayOrigin = new THREE.Vector3(player.position.x, player.position.y + 1.5, player.position.z);
                 let ray = new THREE.Raycaster(rayOrigin, this.knockback.dir);
                 
-                // ★ 変更箇所
-                let terrainMap = window.mapMesh || (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
+                // ★変更箇所：ノックバックの衝突判定も複数の地形メッシュに対応
+                let terrainMeshes = this._getTerrainMeshes();
                 
                 let canMove = true;
-                if (terrainMap) {
-                    let hits = ray.intersectObject(terrainMap, false);
+                if (terrainMeshes.length > 0) {
+                    let hits = ray.intersectObjects(terrainMeshes, false);
                     let checkDist = moveDist + (typeof playerRadius !== 'undefined' ? playerRadius : 1.0);
                     if (hits.length > 0 && hits[0].distance < checkDist) {
                         canMove = false;
