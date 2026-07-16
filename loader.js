@@ -29,8 +29,8 @@
         'item_effects.js',
         'multiplayer.js',
         'main.js',
-        'debug_map.js'
-        'debug_item.js',
+        'debug_map.js',
+        'debug_item.js'
     ];
 
     let loadedCount = 0;
