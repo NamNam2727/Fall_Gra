@@ -337,4 +337,7 @@ window.ItemEffects = {
     }
 };
 
+setTimeout(() => {
+    if (window.ItemEffects) window.ItemEffects.init();
+}, 2000);
 
