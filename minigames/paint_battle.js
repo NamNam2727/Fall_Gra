@@ -235,7 +235,7 @@ window.MinigamePlugins['paint_battle'] = {
                 this.gridMap[gridKey] = [];
                 
                 let isChecker = (x + z) % 2 === 0;
-                let divs = 8; 
+                let divs = 4; 
                 let step = 1.0 / divs;
                 
                 let baseX = (x - mapW / 2 + 0.5) * bs;
