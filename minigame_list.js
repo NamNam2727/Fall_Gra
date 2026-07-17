@@ -45,7 +45,13 @@ window.MinigameList = [
         icon: "minigames/dead_zone.png", 
         script: "minigames/dead_zone.js",
         description: "次々と出現する「デッドゾーン」から逃げ延びろ！ゾーンは青→黄→赤と変化し、赤になった瞬間に爆発する。爆発に巻き込まれるか、落下してしまうと即リタイアだ。時間経過とともに出現間隔がどんどん短くなるぞ！"
+    },
+    {
+        id: "crown_chase",
+        title: "クラウンチェイス",
+        icon: "minigames/crown_chase.png", 
+        script: "minigames/crown_chase.js",
+        description: "マップに出現した王冠👑を奪い合え！終了時に王冠を持っていたプレイヤーの勝利だ！王冠所持中はアイテムを使えないぞ。爆発に巻き込まれると王冠を落としてしまうので、他プレイヤーから逃げ切れ！"
     }
 ];
-
 

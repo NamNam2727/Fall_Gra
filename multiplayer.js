@@ -3,6 +3,7 @@
 // メンバーリストUIの生成とマルチプレイ管理
 // ★ 途中入室者向けの「マップ同期レイヤー」のタイムアウト制御を強化
 // ★ 同期完了までの間、画面を覆ってマップを見せない処理を追加
+// ★ ラグ補償（速度計算・予測位置・位置履歴の保存）を追加
 // =========================================================
 
 window.MultiplayerManager = {
@@ -316,7 +317,20 @@ window.MultiplayerManager = {
         if (window.isSpectatorMode) return; 
         
         const nowTime = Date.now();
+        const perfNow = performance.now(); // ★ 追加: 速度計算用に現在時間を取得
         player.lastMoveTime = nowTime;
+        
+        // ★ 追加: 前回送信位置からの速度を計算 (msあたりの移動量)
+        let dt = perfNow - this.lastSendTime;
+        if (dt <= 0) dt = 1; // ゼロ除算防止
+        let vx = (player.position.x - this.lastSentPos.x) / dt;
+        let vy = (player.position.y - this.lastSentPos.y) / dt;
+        let vz = (player.position.z - this.lastSentPos.z) / dt;
+        
+        // ★ 変更: 速度が極端に小さい場合は0とする（停止時の不要な予測移動を抑える）
+        if (Math.abs(vx) < 0.0005) vx = 0;
+        if (Math.abs(vy) < 0.0005) vy = 0;
+        if (Math.abs(vz) < 0.0005) vz = 0;
         
         this.sendData({
             type: 'move',
@@ -327,13 +341,16 @@ window.MultiplayerManager = {
             qy: player.quaternion.y,
             qz: player.quaternion.z,
             qw: player.quaternion.w,
+            vx: vx, // ★追加: X方向の速度
+            vy: vy, // ★追加: Y方向の速度
+            vz: vz, // ★追加: Z方向の速度
             timestamp: nowTime
         });
         
         this.lastSentPos.x = player.position.x;
         this.lastSentPos.y = player.position.y;
         this.lastSentPos.z = player.position.z;
-        this.lastSendTime = performance.now();
+        this.lastSendTime = perfNow;
     },
 
     update: function(delta) {
@@ -351,6 +368,8 @@ window.MultiplayerManager = {
             }
         }
 
+        const currentNow = Date.now(); // ★ 追加: 位置履歴のタイムスタンプ用
+
         for (const id in this.otherPlayers) {
             const p = this.otherPlayers[id];
             if (p.mesh && p.targetPos && p.hasReceivedFirstPos !== false) {
@@ -367,6 +386,19 @@ window.MultiplayerManager = {
                         p.mesh.chatSprite.material.dispose();
                         p.mesh.chatSprite = null;
                     }
+                }
+
+                // ★ 変更: 位置履歴の保存 (表示位置ではなく予測位置 p.targetPos を保存)
+                p.positionHistory.push({
+                    x: p.targetPos.x,
+                    y: p.targetPos.y,
+                    z: p.targetPos.z,
+                    timestamp: currentNow
+                });
+
+                // ★ 追加: 200ms以上経過した古いデータを削除
+                while (p.positionHistory.length > 0 && currentNow - p.positionHistory[0].timestamp > 200) {
+                    p.positionHistory.shift();
                 }
             }
         }
@@ -501,7 +533,8 @@ window.MultiplayerManager = {
             targetQuat: new THREE.Quaternion(),
             lastMoveTime: 0,
             hasReceivedFirstPos: false, 
-            isSpectator: false
+            isSpectator: false,
+            positionHistory: [] // ★ 追加: 位置履歴用配列を初期化
         };
     },
 
@@ -517,7 +550,23 @@ window.MultiplayerManager = {
         const p = this.otherPlayers[userId];
         if (p) {
             if (!p.lastMoveTime || data.timestamp >= p.lastMoveTime) {
-                p.targetPos.set(data.x, data.y, data.z);
+                // ★ 追加: ラグ補償 (予測位置の計算)
+                // ※P2P環境の時計ズレを考慮し、latencyがマイナスにならないよう Math.max(0, ...) で補正
+                // 今後SDK側でPingが取得できるようになった場合は、その値へ置き換えられるように
+                const latency = Math.max(0, Date.now() - data.timestamp);
+                const predictionTime = Math.min(latency, 150);
+                
+                const vx = data.vx || 0;
+                const vy = data.vy || 0;
+                const vz = data.vz || 0;
+
+                const predictedX = data.x + vx * predictionTime;
+                const predictedY = data.y + vy * predictionTime;
+                const predictedZ = data.z + vz * predictionTime;
+
+                // ★ 変更: targetPosに予測位置をセット (既存のlerpはここに向かう)
+                p.targetPos.set(predictedX, predictedY, predictedZ);
+                
                 if (data.qw !== undefined) {
                     p.targetQuat.set(data.qx, data.qy, data.qz, data.qw);
                 }
