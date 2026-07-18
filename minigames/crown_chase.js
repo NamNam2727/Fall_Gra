@@ -228,9 +228,9 @@ window.MinigamePlugins['crown_chase'] = {
         // lookAtした際に正しい方向(奥: -Z軸方向)を指すように、上向きの矢印を描画
         ctx.fillStyle = 'rgba(255, 170, 0, 0.8)';
         ctx.beginPath();
-        ctx.moveTo(64, 10); ctx.lineTo(100, 70); ctx.lineTo(76, 70);
-        ctx.lineTo(76, 118); ctx.lineTo(52, 118); ctx.lineTo(52, 70);
-        ctx.lineTo(28, 70); ctx.closePath();
+        ctx.moveTo(64, 118); ctx.lineTo(100, 58); ctx.lineTo(76, 58);
+        ctx.lineTo(76, 10); ctx.lineTo(52, 10); ctx.lineTo(52, 58);
+        ctx.lineTo(28, 58); ctx.closePath();
         ctx.fill();
         ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'; ctx.stroke();
 
@@ -812,5 +812,4 @@ window.MinigamePlugins['crown_chase'] = {
     getScoreString: function() { return "-"; },
     getStatusString: function() { return ""; }
 };
-
 
