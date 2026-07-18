@@ -4,6 +4,7 @@
 // ★シード付き疑似乱数を用いた決定論的配置
 // ★positionHistoryを利用したラグ補正付き接触判定
 // ★コアに手を加えないUIフックと競合解決ロジック
+// ★落下時のリスポーン位置を MapManager の固有位置に変更
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -28,8 +29,10 @@ window.MinigamePlugins['crown_chase'] = {
     guideArrow: null,
     
     prevKbTimer: 0,
+    
     respawnTimer: 0,
     isRespawning: false,
+    penaltyType: null, // 'fall' or 'stun'
 
     scoreUI: null,
 
@@ -54,8 +57,10 @@ window.MinigamePlugins['crown_chase'] = {
         this.validFloors = [];
         this.remoteCrownSprites = {};
         this.prevKbTimer = 0;
+        
         this.respawnTimer = 0;
         this.isRespawning = false;
+        this.penaltyType = null;
 
         // メッシュ・UI等の生成
         this.createCrownSprites();
@@ -90,16 +95,20 @@ window.MinigamePlugins['crown_chase'] = {
                 if (this.state !== 'PLAYING') return;
                 
                 const myData = this.resultData.find(d => String(d.id) === myId);
-                let cVal = 0, cText = "-", cStatus = "逃走中";
+                let cVal = 0, cText = "-", cStatus = "負け";
 
                 if (myData && myData.isRetired) {
                     cVal = 0;
                     cText = "-";
                     cStatus = "リタイア";
+                } else if (self.crownState === 'SPAWNED') {
+                    cVal = 0;
+                    cText = "-";
+                    cStatus = "引き分け";
                 } else {
                     cVal = (self.crownOwner === myId) ? 1 : 0;
                     cText = (self.crownOwner === myId) ? '👑' : '-';
-                    cStatus = (self.crownOwner === myId) ? "保持中" : "逃走中";
+                    cStatus = (self.crownOwner === myId) ? "勝ち" : "負け";
                 }
 
                 if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
@@ -203,8 +212,8 @@ window.MinigamePlugins['crown_chase'] = {
         };
         const tex = createTex();
         
-        // ドロップ用（depthTest:true にして壁貫通を防止）
-        const matDrop = new THREE.SpriteMaterial({ map: tex, depthTest: true, depthWrite: false, transparent: true });
+        // alphaTest と depthWrite を追加し、壁貫通（透過アーティファクト）を防止
+        const matDrop = new THREE.SpriteMaterial({ map: tex, transparent: true, alphaTest: 0.5, depthTest: true, depthWrite: true });
         this.dropCrownSprite = new THREE.Sprite(matDrop);
         this.dropCrownSprite.scale.set(4, 4, 1);
         this.dropCrownSprite.visible = false;
@@ -216,12 +225,12 @@ window.MinigamePlugins['crown_chase'] = {
         canvas.width = 128; canvas.height = 128;
         const ctx = canvas.getContext('2d');
         
-        // ★修正: 下向き(+Z方向)の矢印を描画することで、lookAt時に正しい対象を指すようにする
+        // lookAtした際に正しい方向(奥: -Z軸方向)を指すように、上向きの矢印を描画
         ctx.fillStyle = 'rgba(255, 170, 0, 0.8)';
         ctx.beginPath();
-        ctx.moveTo(64, 118); ctx.lineTo(100, 58); ctx.lineTo(76, 58);
-        ctx.lineTo(76, 10); ctx.lineTo(52, 10); ctx.lineTo(52, 58);
-        ctx.lineTo(28, 58); ctx.closePath();
+        ctx.moveTo(64, 10); ctx.lineTo(100, 70); ctx.lineTo(76, 70);
+        ctx.lineTo(76, 118); ctx.lineTo(52, 118); ctx.lineTo(52, 70);
+        ctx.lineTo(28, 70); ctx.closePath();
         ctx.fill();
         ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'; ctx.stroke();
 
@@ -244,7 +253,7 @@ window.MinigamePlugins['crown_chase'] = {
         this.isPlaying = true;
         this.remainTime = this.timeLimit * 60;
         
-        // ★修正: STARTアニメーションが完了した直後に王冠をスポーンさせる
+        // STARTアニメーションが完了した直後に王冠をスポーンさせる
         if (this.currentCrownTimestamp === 0 && window.MinigameManager.targetStartTime > 0) {
             if (this.validFloors.length === 0) this.collectValidFloors();
             let prng = this.createPRNG(window.MinigameManager.targetStartTime);
@@ -261,7 +270,7 @@ window.MinigamePlugins['crown_chase'] = {
     update: function(delta) {
         if (!this.isPlaying) return;
 
-        // ★追加: 落下判定 (main.jsの-30より手前の-25で検知することで強制リタイアを阻止する)
+        // 落下判定 (main.jsの強制リタイアラインより手前で検知)
         if (typeof player !== 'undefined' && player && player.position.y < -25 && !this.isRespawning) {
             this.handleFallPenalty();
         }
@@ -279,18 +288,30 @@ window.MinigamePlugins['crown_chase'] = {
 
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
 
-        // デスペナルティの進行
+        // デスペナルティ・硬直の進行
         if (this.isRespawning) {
             this.respawnTimer -= delta;
             if (typeof player !== 'undefined' && player) {
                 if (window.moveVector) window.moveVector.set(0, 0);   
-                player.position.x = 0; player.position.z = 0;
+                
+                // ★修正: 落下時のみマップ固有のリスポーン位置へワープ、奪われた時(stun)はその場に留まる
+                if (this.penaltyType === 'fall') {
+                    if (window.MapManager && typeof window.MapManager.getSpawnPosition === 'function') {
+                        const spawnPos = window.MapManager.getSpawnPosition(window.MapManager.currentMapId);
+                        player.position.x = spawnPos.x;
+                        player.position.z = spawnPos.z;
+                    } else {
+                        player.position.x = 0; player.position.z = 0;
+                    }
+                }
+                
                 if (window.ItemSystem) window.ItemSystem.isOnNet = true;
                 const isVisible = Math.floor(this.respawnTimer * 10) % 2 === 0;
                 player.traverse(child => { if (child.isMesh) child.visible = isVisible; });
             }
             if (this.respawnTimer <= 0) {
                 this.isRespawning = false;
+                this.penaltyType = null;
                 if (window.ItemSystem) window.ItemSystem.isOnNet = false;
                 if (typeof player !== 'undefined' && player) {
                     player.traverse(child => { if (child.isMesh) child.visible = true; });
@@ -331,7 +352,7 @@ window.MinigamePlugins['crown_chase'] = {
     checkCollision: function(myId) {
         if (window.isSpectatorMode || typeof player === 'undefined' || !player || this.isRespawning) return;
 
-        const HIT_RADIUS = 3.0; // 少し広めの判定
+        const HIT_RADIUS = 3.0; 
 
         if (this.crownState === 'SPAWNED') {
             // ドロップ状態の王冠を取得
@@ -415,11 +436,17 @@ window.MinigamePlugins['crown_chase'] = {
 
     setCrownOwner: function(userId, timestamp) {
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
+        const oldOwner = this.crownOwner;
         
         this.crownState = 'HELD';
         this.crownOwner = userId;
         this.currentCrownTimestamp = timestamp;
         this.lastCrownStateChangeTime = Date.now();
+        
+        // 自分が奪われた場合のペナルティ処理（スタン）
+        if (oldOwner === myId && userId !== myId) {
+            this.handleStunPenalty();
+        }
         
         if (this.dropCrownSprite) this.dropCrownSprite.visible = false;
         this.syncHeadCrowns();
@@ -478,7 +505,7 @@ window.MinigamePlugins['crown_chase'] = {
         // 自分自身
         if (this.crownOwner === myId && typeof player !== 'undefined' && player) {
             if (!this.remoteCrownSprites[myId]) {
-                const mat = new THREE.SpriteMaterial({ map: this.dropCrownSprite.material.map, depthTest: true, depthWrite: false, transparent: true });
+                const mat = new THREE.SpriteMaterial({ map: this.dropCrownSprite.material.map, transparent: true, alphaTest: 0.5, depthTest: true, depthWrite: true });
                 const spr = new THREE.Sprite(mat);
                 spr.scale.set(2, 2, 1);
                 spr.position.y = 3.5;
@@ -498,7 +525,7 @@ window.MinigamePlugins['crown_chase'] = {
 
                 if (this.crownOwner === id) {
                     if (!this.remoteCrownSprites[id]) {
-                        const mat = new THREE.SpriteMaterial({ map: this.dropCrownSprite.material.map, depthTest: true, depthWrite: false, transparent: true });
+                        const mat = new THREE.SpriteMaterial({ map: this.dropCrownSprite.material.map, transparent: true, alphaTest: 0.5, depthTest: true, depthWrite: true });
                         const spr = new THREE.Sprite(mat);
                         spr.scale.set(2, 2, 1);
                         spr.position.y = 3.5;
@@ -549,9 +576,21 @@ window.MinigamePlugins['crown_chase'] = {
     syncMyScoreToManager: function() {
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         
-        let cVal = (this.crownOwner === myId) ? 1 : 0;
-        let cText = (this.crownOwner === myId) ? '👑' : '-';
-        let cStatus = (this.crownOwner === myId) ? "保持中" : "逃走中";
+        let cVal = 0;
+        let cText = "-";
+        let cStatus = "負け";
+
+        if (this.crownState === 'SPAWNED') {
+            cStatus = "引き分け";
+        } else if (this.crownOwner === myId) {
+            cVal = 1;
+            cText = '👑';
+            cStatus = "勝ち";
+        } else {
+            cVal = 0;
+            cText = '-';
+            cStatus = "負け";
+        }
 
         if (window.MinigameManager && window.MinigameManager.resultData) {
             const myData = window.MinigameManager.resultData.find(d => String(d.id) === myId);
@@ -573,9 +612,27 @@ window.MinigamePlugins['crown_chase'] = {
         this.updateScoreUI();
     },
 
+    // 奪われた際のスタン処理
+    handleStunPenalty: function() {
+        if (this.isRespawning) return;
+        this.isRespawning = true;
+        this.penaltyType = 'stun';
+        this.respawnTimer = 3.0; 
+        
+        if (typeof window.addLog === 'function') {
+            window.addLog('<span style="color:#ff4444;">王冠を奪われた！ 3秒間動けません。</span>', 'sys');
+        }
+        
+        if (typeof player !== 'undefined' && player) {
+            window.verticalVelocity = 0;
+            if (window.ItemSystem) window.ItemSystem.isOnNet = true; 
+        }
+    },
+
     handleFallPenalty: function() {
         if (this.isRespawning) return;
         this.isRespawning = true;
+        this.penaltyType = 'fall';
         this.respawnTimer = 3.0; 
         
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
@@ -604,11 +661,15 @@ window.MinigamePlugins['crown_chase'] = {
             }
         }
         
-        // ★修正: リスポーン位置(中央)への移動と硬直の適用
+        // ★修正: MapManager があればマップ固有のリスポーン位置を使う
         if (typeof player !== 'undefined' && player) {
-            player.position.set(0, 20, 0); 
-            window.verticalVelocity = 0;
-            window.isJumping = true; 
+            if (window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
+                window.MapManager.respawnPlayer();
+            } else {
+                player.position.set(0, 20, 0); 
+                window.verticalVelocity = 0;
+                window.isJumping = true; 
+            }
             if (window.ItemSystem) window.ItemSystem.isOnNet = true;
         }
         if (window.MultiplayerManager && typeof window.MultiplayerManager.forceSendPos === 'function') {
@@ -714,9 +775,9 @@ window.MinigamePlugins['crown_chase'] = {
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
         
-        this.scoreUI.style.cssText = `position: absolute; left: 10px; top: ${topExclusionHeight + 15}px; background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 12px; padding: 5px 15px; color: white; font-size: 16px; font-weight: bold; font-family: monospace; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; display: flex; align-items: center; gap: 10px;`;
+        this.scoreUI.style.cssText = `position: absolute; left: 10px; top: ${topExclusionHeight + 15}px; background: rgba(0,0,0,0.6); border: 2px solid #ffaa00; border-radius: 8px; padding: 2px 10px; color: white; font-size: 14px; font-weight: bold; font-family: monospace; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; display: flex; align-items: center; gap: 6px;`;
         
-        this.scoreUI.innerHTML = `<span style="font-size:24px; filter: drop-shadow(0 0 5px #ffaa00);">👑</span> <span id="crown-chase-status">待機中</span>`;
+        this.scoreUI.innerHTML = `<span style="font-size:18px; filter: drop-shadow(0 0 5px #ffaa00);">👑</span> <span id="crown-chase-status">待機中</span>`;
         
         const uiLayer = document.getElementById('ui-layer');
         if (uiLayer) uiLayer.appendChild(this.scoreUI);
@@ -746,7 +807,7 @@ window.MinigamePlugins['crown_chase'] = {
         }
     },
 
-    // コア連携用インターフェース (同期はsyncMyScoreToManagerで完全に行うためダミー値を返す)
+    // コア連携用インターフェース
     getScoreValue: function() { return 0; },
     getScoreString: function() { return "-"; },
     getStatusString: function() { return ""; }
