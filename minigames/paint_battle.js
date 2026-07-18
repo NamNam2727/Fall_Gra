@@ -572,6 +572,12 @@ window.MinigamePlugins['paint_battle'] = {
             if (typeof player !== 'undefined' && player) {
                 if (window.moveVector) window.moveVector.set(0, 0);   
                 
+                if (window.MapManager && typeof window.MapManager.getSpawnPosition === 'function') {
+                    const spawnPos = window.MapManager.getSpawnPosition(window.MapManager.currentMapId);
+                    player.position.x = spawnPos.x;
+                    player.position.z = spawnPos.z;
+                }
+                
                 if (window.ItemSystem) window.ItemSystem.isOnNet = true;
 
                 const isVisible = Math.floor(this.respawnTimer * 10) % 2 === 0;
