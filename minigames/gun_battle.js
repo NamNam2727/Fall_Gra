@@ -1,8 +1,8 @@
 // =====================================
 // minigames/gun_battle.js
 // ガンバトル プラグイン
-// ★ヒットスキャン＆ラグ補償付きの射撃システム
-// ★HP管理、リロード、オートエイム、ヒットマーカー実装
+// ★対象不在時の水平射撃とタッチバグ防止を追加
+// ★ターゲット選択時の壁判定を廃止（被弾側でのみ壁判定）
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -78,23 +78,19 @@ window.MinigamePlugins['gun_battle'] = {
 
         // 2. アイテムシステムのフック
         if (window.ItemSystem) {
-            // アイテム数設定
             let baseItems = this.settings && this.settings.items ? parseInt(this.settings.items, 10) : 0;
             window.ItemSystem.maxItems = baseItems; 
-            window.ItemSystem.isStackable = true; // ボム複数所持許可
+            window.ItemSystem.isStackable = true;
             
             const self = this;
             
-            // スロットUIのフック
             this.originalUpdateSlotUI = window.ItemSystem.updateSlotUI;
             window.ItemSystem.updateSlotUI = function() {
                 if (!this.slotUI) return;
                 
-                // アイテムを持っている場合は本来の処理
                 if (this.mySlotItem && !this.isCoolingDown) {
                     self.originalUpdateSlotUI.call(this);
                 } else if (!this.isCoolingDown) {
-                    // スロットが空の場合は銃(🔫)を表示
                     this.slotUI.classList.add('active');
                     if (self.isReloading) {
                         this.slotUI.innerHTML = `<span style="font-size:16px; color:#ff4444; font-weight:bold;">RELOAD</span>`;
@@ -104,11 +100,9 @@ window.MinigamePlugins['gun_battle'] = {
                 }
             }.bind(window.ItemSystem);
 
-            // アイテム使用のフック
             this.originalUseItem = window.ItemSystem.useItem;
             window.ItemSystem.useItem = function() {
                 if (!this.mySlotItem) {
-                    // アイテム未所持なら射撃
                     if (!self.isReloading && self.ammo > 0 && self.isPlaying && self.invincibleTimer <= 0 && !self.isRespawning) {
                         self.fireGun();
                     }
@@ -123,7 +117,7 @@ window.MinigamePlugins['gun_battle'] = {
             this.originalStartFly = window.ItemEffects.startFly;
             window.ItemEffects.startFly = function() {
                 window.ItemSystem.isFlyMode = true;
-                window.ItemSystem.isCoolingDown = false; // クールダウンUIを表示しない
+                window.ItemSystem.isCoolingDown = false;
                 let time = 5;
                 const interval = setInterval(() => {
                     time--;
@@ -222,7 +216,6 @@ window.MinigamePlugins['gun_battle'] = {
             }
         }
 
-        // ヒットマーカーのUIフェード
         if (this.hitMarkerTimer > 0) {
             this.hitMarkerTimer -= delta;
             if (this.hitMarkerTimer <= 0 && this.hitMarker) {
@@ -231,7 +224,6 @@ window.MinigamePlugins['gun_battle'] = {
             }
         }
 
-        // 無敵時間と点滅
         if (this.invincibleTimer > 0 && !this.isRespawning) {
             this.invincibleTimer -= delta;
             if (typeof player !== 'undefined' && player && !window.isSpectatorMode) {
@@ -243,7 +235,6 @@ window.MinigamePlugins['gun_battle'] = {
             }
         }
 
-        // リスポーン（死亡）硬直
         if (this.isRespawning) {
             this.respawnTimer -= delta;
             if (typeof player !== 'undefined' && player) {
@@ -275,7 +266,6 @@ window.MinigamePlugins['gun_battle'] = {
             this.prevKbTimer = kbTimer;
         }
 
-        // 落下判定
         if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
             if (player.position.y < -25) {
                 this.handleFallPenalty();
@@ -303,11 +293,9 @@ window.MinigamePlugins['gun_battle'] = {
         let shotId = 'shot_' + myId + '_' + Date.now();
         let timestamp = Date.now();
 
-        // ローカルに軌跡を描画
         let endPos = origin.clone().add(direction.clone().multiplyScalar(50));
         this.drawVisualLine(origin, endPos);
 
-        // ネットワーク送信
         if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
                 type: 'mg_plugin_sync',
@@ -325,36 +313,34 @@ window.MinigamePlugins['gun_battle'] = {
     },
 
     getAimDirection: function(origin) {
-        let cameraDir = new THREE.Vector3();
-        if (typeof camera !== 'undefined') camera.getWorldDirection(cameraDir);
+        // ★修正: 対象が存在しない場合のデフォルトとして、プレイヤーの正面(水平)を使用する
+        let defaultDir = new THREE.Vector3(0, 0, -1);
+        if (typeof player !== 'undefined' && player) {
+            let angle = typeof window.currentFacingAngle !== 'undefined' ? window.currentFacingAngle : player.rotation.y;
+            defaultDir.set(Math.sin(angle), 0, Math.cos(angle)).normalize();
+        }
 
         let bestDir = null;
         let maxCos = Math.cos(Math.PI / 8); // 視野角 22.5度以内
         let closestDist = Infinity;
-
-        // 地形判定用
-        let raycaster = new THREE.Raycaster();
-        let terrains = this.getTerrainMeshes();
 
         if (window.MultiplayerManager && window.MultiplayerManager.otherPlayers) {
             for (let id in window.MultiplayerManager.otherPlayers) {
                 let op = window.MultiplayerManager.otherPlayers[id];
                 if (!op.mesh || op.isSpectator) continue;
                 
-                // 相手の中心を狙う
                 let targetPos = op.mesh.position.clone();
                 targetPos.y += 1.0; 
                 
                 let dirToTarget = new THREE.Vector3().subVectors(targetPos, origin);
                 let dist = dirToTarget.length();
-                dirToTarget.normalize();
-                
-                let cosTheta = cameraDir.dot(dirToTarget);
-                if (cosTheta > maxCos && dist < 50.0) {
-                    // 間に壁がないか判定
-                    raycaster.set(origin, dirToTarget);
-                    let hits = raycaster.intersectObjects(terrains, false);
-                    if (hits.length === 0 || hits[0].distance > dist) {
+                if (dist > 0.001) {
+                    dirToTarget.normalize();
+                    // 自分の向いている方向(defaultDir)と対象への角度をチェック
+                    let cosTheta = defaultDir.dot(dirToTarget);
+                    
+                    // ★修正: 壁の有無を判定せず、視野角内で最も近い対象を選ぶ
+                    if (cosTheta > maxCos && dist < 50.0) {
                         if (dist < closestDist) {
                             closestDist = dist;
                             bestDir = dirToTarget;
@@ -363,11 +349,16 @@ window.MinigamePlugins['gun_battle'] = {
                 }
             }
         }
-        return bestDir ? bestDir : cameraDir;
+        
+        // 安全にクローンして返し、万が一異常値があれば正面にする
+        let finalDir = bestDir ? bestDir.clone() : defaultDir.clone();
+        if (isNaN(finalDir.x) || isNaN(finalDir.y) || isNaN(finalDir.z)) {
+            finalDir.set(0, 0, -1);
+        }
+        return finalDir;
     },
 
     checkHit: function(shotData) {
-        // 自分が撃った弾や、無敵中は当たらない
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         if (shotData.shooterId === myId || window.isSpectatorMode || this.invincibleTimer > 0 || this.isRespawning) return;
 
@@ -395,15 +386,14 @@ window.MinigamePlugins['gun_battle'] = {
                     let hitY = origin.y + tHit * dir.y;
                     if (hitY >= histPos.y - 0.2 && hitY <= histPos.y + 2.5) {
                         
-                        // 壁遮蔽の判定
+                        // ★ここで「壁に遮られているか」の被弾側での判定を行う
                         let raycaster = new THREE.Raycaster(origin, dir);
                         let hits = raycaster.intersectObjects(this.getTerrainMeshes(), false);
                         
                         if (hits.length === 0 || hits[0].distance > tHit) {
-                            // 命中確定！
+                            // 命中確定
                             this.takeDamage(1, shotData.shooterId);
                             
-                            // 命中通知を送信
                             if (window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
                                 window.MultiplayerManager.sendData({
                                     type: 'mg_plugin_sync',
@@ -471,7 +461,6 @@ window.MinigamePlugins['gun_battle'] = {
         this.syncMyScoreToManager();
         this.broadcastHP();
 
-        // 画面を一瞬赤くする
         if (this.damageOverlay) {
             this.damageOverlay.style.opacity = '0.5';
             setTimeout(() => { if (this.damageOverlay) this.damageOverlay.style.opacity = '0'; }, 200);
@@ -495,9 +484,9 @@ window.MinigamePlugins['gun_battle'] = {
             window.addLog(`<span style="color:#ff4444; font-weight:bold;">💀 ${myName} は ${killerName} に倒された！</span>`, 'sys');
         }
 
-        this.hp = this.maxHp; // HP全快でリスポーン
+        this.hp = this.maxHp; 
         this.isRespawning = true;
-        this.respawnTimer = 3.0; // 3秒硬直
+        this.respawnTimer = 3.0; 
         this.updateMyHPUI();
         this.broadcastHP();
 
@@ -531,22 +520,17 @@ window.MinigamePlugins['gun_battle'] = {
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
 
         if (data.action === 'gun_fire') {
-            // 軌跡の描画
             let origin = new THREE.Vector3(data.origin.x, data.origin.y, data.origin.z);
             let dir = new THREE.Vector3(data.direction.x, data.direction.y, data.direction.z);
             let endPos = origin.clone().add(dir.multiplyScalar(data.range));
             this.drawVisualLine(origin, endPos);
 
-            // 自分への被弾判定
             this.checkHit(data);
 
         } else if (data.action === 'gun_hit') {
-            // 他人のHPバーを更新
             if (data.targetId !== myId) {
                 this.updateRemoteHPSprite(data.targetId, data.hp);
             }
-            
-            // 自分が撃った弾が当たった場合、ヒットマーカー表示
             if (data.shooterId === myId) {
                 this.showHitMarker();
             }
@@ -627,28 +611,24 @@ window.MinigamePlugins['gun_battle'] = {
         this.uiContainer.id = 'gun-battle-ui';
         this.uiContainer.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100;';
         
-        // 画面中央のクロスヘア
         this.crosshair = document.createElement('div');
-        this.crosshair.style.cssText = 'position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:rgba(255,255,255,0.7); font-size:24px; font-weight:bold; font-family:monospace; text-shadow:1px 1px 2px black;';
+        this.crosshair.style.cssText = 'position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:rgba(255,255,255,0.7); font-size:24px; font-weight:bold; font-family:monospace; text-shadow:1px 1px 2px black; pointer-events:none;';
         this.crosshair.innerText = '+';
         this.uiContainer.appendChild(this.crosshair);
 
-        // ヒットマーカー
         this.hitMarker = document.createElement('div');
-        this.hitMarker.style.cssText = 'position:absolute; top:50%; left:50%; transform:translate(-50%, -50%) scale(0.5); color:#ff4444; font-size:32px; font-weight:bold; opacity:0; transition:all 0.1s; text-shadow:0 0 5px red;';
+        this.hitMarker.style.cssText = 'position:absolute; top:50%; left:50%; transform:translate(-50%, -50%) scale(0.5); color:#ff4444; font-size:32px; font-weight:bold; opacity:0; transition:all 0.1s; text-shadow:0 0 5px red; pointer-events:none;';
         this.hitMarker.innerText = '✕';
         this.uiContainer.appendChild(this.hitMarker);
 
-        // 被弾オーバーレイ
         this.damageOverlay = document.createElement('div');
-        this.damageOverlay.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; background:red; opacity:0; transition:opacity 0.2s; mix-blend-mode:multiply;';
+        this.damageOverlay.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; background:red; opacity:0; transition:opacity 0.2s; mix-blend-mode:multiply; pointer-events:none;';
         this.uiContainer.appendChild(this.damageOverlay);
 
-        // 自分のHP表示UI
         const screenHeight = window.innerHeight;
         const topExclusionHeight = screenHeight >= 812 ? 98 : 74; 
         this.hpUI = document.createElement('div');
-        this.hpUI.style.cssText = `position:absolute; left:10px; top:${topExclusionHeight + 15}px; background:rgba(0,0,0,0.7); border:2px solid #555; border-radius:8px; padding:5px 15px; color:white; font-size:16px; font-weight:bold; font-family:monospace; box-shadow:0 4px 10px rgba(0,0,0,0.5);`;
+        this.hpUI.style.cssText = `position:absolute; left:10px; top:${topExclusionHeight + 15}px; background:rgba(0,0,0,0.7); border:2px solid #555; border-radius:8px; padding:5px 15px; color:white; font-size:16px; font-weight:bold; font-family:monospace; box-shadow:0 4px 10px rgba(0,0,0,0.5); pointer-events:none;`;
         this.uiContainer.appendChild(this.hpUI);
         
         document.getElementById('ui-layer').appendChild(this.uiContainer);
@@ -761,7 +741,6 @@ window.MinigamePlugins['gun_battle'] = {
             player.traverse(child => { if (child.isMesh) child.visible = true; });
         }
 
-        // フックの復元
         if (this.originalExecuteRetire) window.MinigameManager.executeRetire = this.originalExecuteRetire;
         if (this.originalReplyMyScore) window.MinigameManager.replyMyScore = this.originalReplyMyScore;
         
@@ -774,11 +753,11 @@ window.MinigamePlugins['gun_battle'] = {
             window.ItemEffects.startFly = this.originalStartFly;
         }
 
-        // クリーンアップ
-        if (this.uiContainer) {
-            this.uiContainer.remove();
-            this.uiContainer = null;
+        // 確実なクリーンアップ
+        if (this.uiContainer && this.uiContainer.parentNode) {
+            this.uiContainer.parentNode.removeChild(this.uiContainer);
         }
+        this.uiContainer = null;
         
         for (let i = 0; i < this.visualLines.length; i++) {
             if (typeof scene !== 'undefined') scene.remove(this.visualLines[i].mesh);
@@ -799,12 +778,9 @@ window.MinigamePlugins['gun_battle'] = {
         this.myPositionHistory = [];
     },
 
-    // ==========================================
-    // コア連携用インターフェース
-    // ==========================================
-    // スコアはダメージが「少ない」ほど上位になるようにマイナス値を返す
     getScoreValue: function() { return -this.totalDamageTaken; },
     getScoreString: function() { return `被ダメ: ${this.totalDamageTaken}`; },
     getStatusString: function() { return this.isPlaying ? "生存中" : "終了"; }
 };
+
 
