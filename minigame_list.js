@@ -52,6 +52,13 @@ window.MinigameList = [
         icon: "minigames/crown_chase.png", 
         script: "minigames/crown_chase.js",
         description: "マップに出現した王冠👑を奪い合え！終了時に👑を持っていたプレイヤーの勝利だ！ぶつかることで相手の👑を奪えるぞっ！👑所持中はアイテムを使えない。💣の爆発に巻き込まれたり、マップから落ちると👑を落としてしまう。👑を持って他プレイヤーから逃げ切れ！"
+    },
+    {
+        id: "gun_battle",
+        title: "ガンバトル",
+        icon: "minigames/gun_battle.png", 
+        script: "minigames/gun_battle.js",
+        description: "銃🔫を使ってライバルと撃ち合え！10回被弾するかマップから落ちるとリスポーンするぞ。爆弾💣を受けると大ダメージだ。制限時間内で一番被ダメージが少ないプレイヤーの勝利だ！"
     }
 ];
 
