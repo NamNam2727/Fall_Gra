@@ -2,7 +2,8 @@
 // item_effects.js
 // 取得したアイテムの具体的な効果や動作、アニメーションを管理する
 // ★ Terrain（地形）メッシュの取得元を window.mapMesh に統一
-// ★ 修正: ネットのレイキャスト判定を再帰的(true)にし、正確に地表に沿わせるように改善
+// ★ ネットのレイキャスト判定を再帰的(true)にし、正確に地表に沿わせるように改善
+// ★ 修正: ネット設置者(ownerId)を通信し、他クライアント画面での設置直後の即時発動バグを修正
 // =====================================
 
 window.ItemEffects = {
@@ -26,7 +27,8 @@ window.ItemEffects = {
 
     handleNetwork: function(msgData) {
         if (msgData.type === 'item_bomb') this.placeBomb(msgData.pos, false);
-        else if (msgData.type === 'item_net') this.placeNet(msgData.pos, false);
+        // ★ 修正: 受信側でも ownerId を引き渡す
+        else if (msgData.type === 'item_net') this.placeNet(msgData.pos, false, msgData.ownerId); 
     },
 
     startFly: function() {
@@ -125,9 +127,16 @@ window.ItemEffects = {
         }
     },
 
-    placeNet: function(pos, isOriginator) {
+    // ★ 修正: 引数に ownerId を追加
+    placeNet: function(pos, isOriginator, ownerId) {
         if (typeof scene === 'undefined' || !scene) return;
         const bs = typeof blockSize !== 'undefined' ? blockSize : 10;
+        
+        // ★ 修正: 設置者のIDを取得して保持
+        let currentOwnerId = ownerId;
+        if (isOriginator && !currentOwnerId) {
+            currentOwnerId = (window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local';
+        }
         
         const canvas = document.createElement('canvas');
         canvas.width = 256; canvas.height = 256;
@@ -147,23 +156,19 @@ window.ItemEffects = {
         let terrainMesh = window.mapMesh || (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
         
         if (terrainMesh) {
-            // ★ 修正箇所1: 第2引数を true にして Group内の子メッシュ（地形）にもヒットするように変更
             const intersects = raycaster.intersectObject(terrainMesh, true);
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
                 
-                // ★ 修正箇所2: hit.face が存在するか安全確認
                 if (hit.face) {
                     let normal = hit.face.normal.clone();
-                    // ★ 修正箇所3: terrainMesh(親)ではなく、実際にヒットしたメッシュ(hit.object)の行列を使用
                     let normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
                     normal.applyMatrix3(normalMatrix).normalize();
                     
                     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
                     mesh.position.add(normal.multiplyScalar(bs * 0.05)); 
                 } else {
-                    // 法線が取れない場合は真上に少し浮かせる
                     mesh.position.y += bs * 0.05;
                 }
             } else {
@@ -180,12 +185,14 @@ window.ItemEffects = {
             timer: 5.0, 
             isMine: isOriginator,
             timeSincePlaced: 0.0,
-            isTriggered: false
+            isTriggered: false,
+            ownerId: currentOwnerId // ★ 修正: 設置者のIDを記録
         });
         
         if (isOriginator && window.MultiplayerManager && typeof window.MultiplayerManager.sendData === 'function') {
             window.MultiplayerManager.sendData({
-                type: 'item_net', pos: {x: pos.x, y: pos.y, z: pos.z}
+                // ★ 修正: 通信時に設置者のIDを送信
+                type: 'item_net', pos: {x: pos.x, y: pos.y, z: pos.z}, ownerId: currentOwnerId
             });
         }
     },
@@ -225,7 +232,7 @@ window.ItemEffects = {
                 
                 let canMove = true;
                 if (terrainMap) {
-                    let hits = ray.intersectObject(terrainMap, true); // ここも念のため再帰的チェックに変更
+                    let hits = ray.intersectObject(terrainMap, true);
                     let checkDist = moveDist + (typeof playerRadius !== 'undefined' ? playerRadius : 1.0);
                     if (hits.length > 0 && hits[0].distance < checkDist) {
                         canMove = false;
@@ -284,6 +291,7 @@ window.ItemEffects = {
             
             let canAffectMe = !n.isMine || (n.isMine && n.timeSincePlaced >= 1.0);
             
+            // 自分（ローカルプレイヤー）との判定
             if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
                 const dist = Math.hypot(player.position.x - n.mesh.position.x, player.position.z - n.mesh.position.z);
                 const yDist = Math.abs(player.position.y - n.mesh.position.y);
@@ -297,9 +305,16 @@ window.ItemEffects = {
                 }
             }
             
+            // 他プレイヤー（otherPlayers）との判定
             if (window.MultiplayerManager) {
                 const others = window.MultiplayerManager.otherPlayers;
                 for (let uid in others) {
+                    
+                    // ★ 修正: 他プレイヤーがネットの設置者の場合、設置から1秒間は当たり判定から除外する
+                    if (String(uid) === String(n.ownerId) && n.timeSincePlaced < 1.0) {
+                        continue; 
+                    }
+                    
                     let p = others[uid];
                     if (p.mesh) {
                         const dist = Math.hypot(p.mesh.position.x - n.mesh.position.x, p.mesh.position.z - n.mesh.position.z);
@@ -347,4 +362,5 @@ window.ItemEffects = {
 setTimeout(() => {
     if (window.ItemEffects) window.ItemEffects.init();
 }, 2000);
+
 
