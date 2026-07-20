@@ -2,6 +2,7 @@
 // item_effects.js
 // 取得したアイテムの具体的な効果や動作、アニメーションを管理する
 // ★ Terrain（地形）メッシュの取得元を window.mapMesh に統一
+// ★ 修正: ネットのレイキャスト判定を再帰的(true)にし、正確に地表に沿わせるように改善
 // =====================================
 
 window.ItemEffects = {
@@ -143,21 +144,28 @@ window.ItemEffects = {
         
         const raycaster = new THREE.Raycaster(new THREE.Vector3(pos.x, pos.y + bs, pos.z), new THREE.Vector3(0, -1, 0));
         
-        // ★ 変更箇所
         let terrainMesh = window.mapMesh || (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
         
         if (terrainMesh) {
-            const intersects = raycaster.intersectObject(terrainMesh, false);
+            // ★ 修正箇所1: 第2引数を true にして Group内の子メッシュ（地形）にもヒットするように変更
+            const intersects = raycaster.intersectObject(terrainMesh, true);
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 mesh.position.copy(hit.point);
                 
-                let normal = hit.face.normal.clone();
-                let normalMatrix = new THREE.Matrix3().getNormalMatrix(terrainMesh.matrixWorld);
-                normal.applyMatrix3(normalMatrix).normalize();
-                
-                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-                mesh.position.add(normal.multiplyScalar(bs * 0.05)); 
+                // ★ 修正箇所2: hit.face が存在するか安全確認
+                if (hit.face) {
+                    let normal = hit.face.normal.clone();
+                    // ★ 修正箇所3: terrainMesh(親)ではなく、実際にヒットしたメッシュ(hit.object)の行列を使用
+                    let normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+                    normal.applyMatrix3(normalMatrix).normalize();
+                    
+                    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                    mesh.position.add(normal.multiplyScalar(bs * 0.05)); 
+                } else {
+                    // 法線が取れない場合は真上に少し浮かせる
+                    mesh.position.y += bs * 0.05;
+                }
             } else {
                 mesh.position.set(pos.x, pos.y + 0.5, pos.z);
             }
@@ -213,12 +221,11 @@ window.ItemEffects = {
                 let rayOrigin = new THREE.Vector3(player.position.x, player.position.y + 1.5, player.position.z);
                 let ray = new THREE.Raycaster(rayOrigin, this.knockback.dir);
                 
-                // ★ 変更箇所
                 let terrainMap = window.mapMesh || (scene.children.find(c => c.userData && c.userData.isTerrain) || null);
                 
                 let canMove = true;
                 if (terrainMap) {
-                    let hits = ray.intersectObject(terrainMap, false);
+                    let hits = ray.intersectObject(terrainMap, true); // ここも念のため再帰的チェックに変更
                     let checkDist = moveDist + (typeof playerRadius !== 'undefined' ? playerRadius : 1.0);
                     if (hits.length > 0 && hits[0].distance < checkDist) {
                         canMove = false;
