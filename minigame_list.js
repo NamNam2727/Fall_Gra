@@ -47,18 +47,12 @@ window.MinigameList = [
         description: "次々と出現する「デッドゾーン」から逃げ延びろ！ゾーンは青→黄→赤と変化し、赤になった瞬間に爆発する。爆発に巻き込まれるか、落下してしまうと即リタイアだ。時間経過とともに出現間隔がどんどん短くなるぞ！"
     },
     {
-        id: "crown_chase",
-        title: "クラウンチェイス",
-        icon: "minigames/crown_chase.png", 
-        script: "minigames/crown_chase.js",
-        description: "マップに出現した王冠👑を奪い合え！終了時に👑を持っていたプレイヤーの勝利だ！ぶつかることで相手の👑を奪えるぞっ！👑所持中はアイテムを使えない。💣の爆発に巻き込まれたり、マップから落ちると👑を落としてしまう。👑を持って他プレイヤーから逃げ切れ！"
-    },
-    {
-        id: "gun_battle",
-        title: "ガンバトル",
-        icon: "minigames/gun_battle.png", 
-        script: "minigames/gun_battle.js",
-        description: "銃🔫を使ってライバルと撃ち合え！10回被弾するかマップから落ちるとリスポーンするぞ。爆弾💣を受けると大ダメージだ。制限時間内で一番被ダメージが少ないプレイヤーの勝利だ！"
+        id: "fly_high",
+        title: "フライハイ",
+        icon: "minigames/fly_high.png", 
+        script: "minigames/fly_high.js",
+        description: "空高く舞い上がれ！出現するアイテムが全て🪽(フライ)になり、効果時間も10秒に延長されるぞ。制限時間内に到達した「最高高度」を競い合え！頑張ってジャンプボタンを連打しよう！"
     }
 ];
+
 
