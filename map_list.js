@@ -16,9 +16,18 @@ window.MapList = [
         id: "parking",
         title: "立体駐車場",
         script: "maps/map_parking.js",
-        description: "立体駐車場をモチーフにしたマップです。3階建てです。中人数〜大人数で遊ぶのに良いかもしれません。",
+        description: "立体駐車場をモチーフにしたマップです。3階建てです。中人数〜大人数で遊ぶのに良いかもしれません。かくれんぼとかしても楽しいかも。",
         spawnGrid: { col: 14, row: 23 } // 駐車場のスタート地点になりそうな場所
+
+    },
+    {
+        id: "cross",
+        title: "十字マップ",
+        script: "maps/map_cross.js",
+        description: "見晴らしのいい狭い十字架マップです。壁も少ないので、落ちないように気を付けてね。",
+        spawnGrid: { col: 12, row: 12 } // 十字のスタート地点になりそうな場所
     }
+
 ];
 
 
