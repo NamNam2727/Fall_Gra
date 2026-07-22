@@ -1,9 +1,10 @@
 // =====================================
 // minigames/fly_high.js
-// フライハイ プラグイン
+// フライハイ プラグイン（フォグ無効化対応版）
 // ★アイテムを全て🪽(フライ)に固定し、出現数を+3個に設定
 // ★フライ効果の持続時間をこのゲーム内限定で10秒に延長
 // ★高度40m以上でカメラを真上からの最大見下ろし視点に強制変更
+// ★【追加】このミニゲーム中のみ、離れると表示が薄くなるフォグ効果を完全に無効化
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -27,6 +28,7 @@ window.MinigamePlugins['fly_high'] = {
     originalUpdateCamera: null,
     originalExecuteRetire: null,
     originalReplyMyScore: null,
+    originalFog: null, // ★ 元のフォグ設定を退避する変数
 
     init: function(settings) {
         console.log("[Fly High] Initializing...");
@@ -39,6 +41,12 @@ window.MinigamePlugins['fly_high'] = {
 
         const myId = String((window.GameState && window.GameState.userInfo) ? window.GameState.userInfo.user_id : 'local');
         const self = this;
+
+        // 0. 【追加】表示が薄くなるフォグ効果をこのミニゲーム中だけ無効化
+        if (typeof scene !== 'undefined' && scene.fog) {
+            this.originalFog = scene.fog; // main.js のフォグ設定を退避
+            scene.fog = null;            // フォグを完全に無効化（どれだけ離れてもくっきり見える）
+        }
 
         // 1. フライの持続時間を10秒に延長するフック
         if (window.ItemEffects) {
@@ -213,7 +221,6 @@ window.MinigamePlugins['fly_high'] = {
 
             // スロットのUIを🪽に固定
             this.originalUpdateSlotUI = window.ItemSystem.updateSlotUI;
-            const self = this;
             window.ItemSystem.updateSlotUI = function() {
                 if (!this.slotUI) return;
                 if (this.mySlotItem && !this.isCoolingDown) {
@@ -385,6 +392,12 @@ window.MinigamePlugins['fly_high'] = {
         console.log("[Fly High] Game Ended.");
         this.isPlaying = false;
         this.isPrepared = false;
+
+        // ★【追加】退避しておいた元のフォグ効果を復元する
+        if (typeof scene !== 'undefined' && this.originalFog) {
+            scene.fog = this.originalFog;
+            this.originalFog = null;
+        }
 
         // フックの復元
         if (this.originalExecuteRetire) window.MinigameManager.executeRetire = this.originalExecuteRetire;
