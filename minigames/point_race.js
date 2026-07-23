@@ -275,6 +275,13 @@ window.MinigamePlugins['point_race'] = {
         let timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         if (window.MinigameUI) window.MinigameUI.updateTimer(timeStr);
 
+        // ★追加: 落下をコアのリタイア判定（-30）より手前で検知
+        if (!window.isSpectatorMode && typeof player !== 'undefined' && player) {
+            if (player.position.y < -25) {
+                this.handleFallPenalty();
+            }
+        }
+
         // 落下ペナルティ (スタン)
         if (this.isRespawning) {
             this.respawnTimer -= delta;
