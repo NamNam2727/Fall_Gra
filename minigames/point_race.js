@@ -4,6 +4,7 @@
 // ★シード値による共通チェックポイント生成（ユーザー間で位置の順番は完全一致）
 // ★チェックポイントの取得判定はローカルで独立して進行（早い者勝ちではない）
 // ★crown_chase.js の矢印ガイドを応用して次のチェックポイントの方向を指示
+// ★落下時はリタイアにならず、前回通過したチェックポイントに復帰する
 // =====================================
 
 window.MinigamePlugins = window.MinigamePlugins || {};
@@ -280,7 +281,12 @@ window.MinigamePlugins['point_race'] = {
             if (typeof player !== 'undefined' && player) {
                 if (window.moveVector) window.moveVector.set(0, 0);  
                 
-                if (window.MapManager && typeof window.MapManager.getSpawnPosition === 'function') {
+                // ★前回通過したチェックポイントがあれば座標を固定し、なければ初期スポーン地点に固定する
+                if (this.currentCheckpointIndex > 0 && this.checkpointSequence[this.currentCheckpointIndex - 1]) {
+                    let lastCp = this.checkpointSequence[this.currentCheckpointIndex - 1];
+                    player.position.x = lastCp.x;
+                    player.position.z = lastCp.z;
+                } else if (window.MapManager && typeof window.MapManager.getSpawnPosition === 'function') {
                     const spawnPos = window.MapManager.getSpawnPosition(window.MapManager.currentMapId);
                     player.position.x = spawnPos.x;
                     player.position.z = spawnPos.z;
@@ -405,11 +411,15 @@ window.MinigamePlugins['point_race'] = {
         this.respawnTimer = 3.0; 
         
         if (typeof window.addLog === 'function') {
-            window.addLog('<span style="color:#ffaa00;">落下ペナルティ！ 3秒間動けません。</span>', 'sys');
+            window.addLog('<span style="color:#ffaa00;">落下ペナルティ！ 前回のチェックポイントから復帰します。(3秒間停止)</span>', 'sys');
         }
 
         if (typeof player !== 'undefined' && player) {
-            if (window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
+            // ★前回通過したチェックポイントがある場合はそこへ復帰、なければ初期位置
+            if (this.currentCheckpointIndex > 0 && this.checkpointSequence[this.currentCheckpointIndex - 1]) {
+                let lastCp = this.checkpointSequence[this.currentCheckpointIndex - 1];
+                player.position.set(lastCp.x, lastCp.y + 5.0, lastCp.z);
+            } else if (window.MapManager && typeof window.MapManager.respawnPlayer === 'function') {
                 window.MapManager.respawnPlayer();
             } else {
                 player.position.set(0, 20, 0); 
