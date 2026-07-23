@@ -59,6 +59,13 @@ window.MinigameList = [
         icon: "minigames/fly_high.png", 
         script: "minigames/fly_high.js",
         description: "空高く舞い上がれ！出現するアイテムが全て🪽(フライ)になり、効果時間も10秒に延長されるぞ。制限時間内に到達した「最高高度」を競い合え！頑張ってジャンプボタンを連打しよう！"
+    },
+    {
+        id: "point_race",
+        title: "ポイントレース",
+        icon: "minigames/point_race.png", 
+        script: "minigames/point_race.js",
+        description: "矢印が指し示す先にある「チェックポイント(🚩)」を誰よりも早く、数多く駆け抜けろ！チェックポイントは各プレイヤーごとに独立して存在するため、他人に奪われる心配はないぞ。落下ペナルティに気を付けながら、マップを最速で駆け巡れ！"
     }
 ];
 
